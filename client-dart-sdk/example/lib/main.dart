@@ -70,7 +70,7 @@ class _MyHomePageState extends State<MyHomePage> {
         title: Text(widget.title),
       ),
       body: StreamBuilder<FeatureStateHolder>(
-          stream: featurehub!.feature('FLUTTER_COLOUR').featureUpdateStream,
+          stream: featurehub!.feature('CONTAINER_COLOUR').featureUpdateStream,
           builder: (context, snapshot) {
             return ListView(
               children: [
