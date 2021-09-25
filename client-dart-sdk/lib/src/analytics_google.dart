@@ -16,22 +16,16 @@ void insertGoogleAnalyticsEvValue(Map<String, Object> other, String gaValue) {
 class GoogleAnalyticsListener {
   final ClientFeatureRepository _repository;
   final String ua;
-  String? _cid;
+  String? cid;
   StreamSubscription<AnalyticsEvent>? _analyticsListener;
   final GoogleAnalyticsApiClient _apiClient;
 
   GoogleAnalyticsListener(ClientFeatureRepository repository, this.ua,
       {String? cid, GoogleAnalyticsApiClient? apiClient})
       : _repository = repository,
-        _cid = cid,
+        cid = cid,
         _apiClient = apiClient ?? GoogleAnalyticsDioApiClient() {
     _analyticsListener = _repository.analyticsEvent.listen(_analyticsPublisher);
-  }
-
-  String? get cid => _cid;
-
-  set cid(String? value) {
-    _cid = value;
   }
 
   void dispose() {
@@ -41,8 +35,8 @@ class GoogleAnalyticsListener {
 
   void _analyticsPublisher(AnalyticsEvent event) {
     final finalCid = (event.other != null)
-        ? (event.other!['cid']?.toString() ?? _cid)
-        : _cid;
+        ? (event.other!['cid']?.toString() ?? cid)
+        : cid;
 
     if (finalCid == null) {
       _log.severe('Unable to log GA event as no CID provided.');
