@@ -7,16 +7,12 @@ FeatureHubSimpleApi? featurehubApi;
 void main() {
   featurehub = ClientFeatureRepository();
 
+  // Listen to Feature Repository changes in real time using SSE (Server Sent Events protocol)
   // Provide host url (Edge FeatureHub server) and server eval api key for an application environment
-  featurehubApi = FeatureHubSimpleApi(
+  EventSourceRepositoryListener(
       'http://localhost:8903',
-      [
-        'default/806d0fe8-2842-4d17-9e1f-1c33eedc5f31/tnZHPUIKV9GPM4u0koKPk1yZ3aqZgKNI7b6CT76q'
-      ],
+      'default/806d0fe8-2842-4d17-9e1f-1c33eedc5f31/tnZHPUIKV9GPM4u0koKPk1yZ3aqZgKNI7b6CT76q',
       featurehub!);
-
-  // Request feature updates via Get request
-  featurehubApi!.request();
 
   // Uncomment below if you would like to pass context when using split targeting rules
 
@@ -26,7 +22,6 @@ void main() {
   //     .platform(StrategyAttributePlatformName.macos)
   //     .attr('sausage', 'cumberlands')
   //     .build();
-  // featurehubApi!.request();
 
   runApp(MyApp());
 }
@@ -87,10 +82,6 @@ class _MyHomePageState extends State<MyHomePage> {
                           '$_counter',
                           style: Theme.of(context).textTheme.headline4,
                         ),
-                        ElevatedButton(
-                            // Request feature updates via Get request
-                            onPressed: () => featurehubApi!.request(),
-                            child: Text('Refresh feature state'))
                       ],
                     ),
                   ),
