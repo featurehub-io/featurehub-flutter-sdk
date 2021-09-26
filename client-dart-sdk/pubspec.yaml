@@ -1,7 +1,7 @@
 name: featurehub_client_sdk
 version: 1.2.0
-description: Client SDK for FeatureHub
-repository: https://github.com/featurehub-io/featurehub/tree/master/sdks/dart/client-dart-sdk
+description: Flutter / Dart SDK implementation for FeatureHub - open source Feature Flag management, A/B testing and remote configuration platform. Suitable for Flutter Web, Mobile and Desktop.
+repository: https://github.com/featurehub-io/featurehub-flutter-sdk/tree/main/client-dart-sdk
 homepage: https://www.featurehub.io
 environment:
   sdk: '>=2.12.0 <3.0.0'
