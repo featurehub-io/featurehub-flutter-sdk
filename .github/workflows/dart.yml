@@ -24,9 +24,17 @@ jobs:
       # - uses: dart-lang/setup-dart@v1
       - uses: dart-lang/setup-dart@9a04e6d73cca37bd455e0608d7e5092f881fd603
 
-      - name: Install dependencies
+      - name: Install SDK dependencies
         run: dart pub get
         working-directory: client-dart-sdk
+        
+      - name: Install example dependencies
+        run: dart pub get
+        working-directory: client-dart-sdk/example
+        
+      - name: Install other example dependencies
+        run: dart pub get
+        working-directory: client-dart-sdk/other_example  
 
       # Uncomment this step to verify the use of 'dart format' on each commit.
       # - name: Verify formatting
