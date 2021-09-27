@@ -34,3 +34,5 @@ final.yaml
 test/.test_coverage.dart
 coverage
 
+.idea
+*.iml
