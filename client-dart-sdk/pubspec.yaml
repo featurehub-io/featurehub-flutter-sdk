@@ -20,5 +20,5 @@ dependencies:
 dev_dependencies:
   test: ^1.16.8
 #  test_coverage: ^0.4.2
-  mocktail: 0.1.1
+  mocktail: 0.1.4
   pedantic: ^1.11.0
