@@ -1,7 +1,9 @@
 import 'dart:io';
 
 import 'package:featurehub_client_api/api.dart';
-import 'package:featurehub_client_sdk/featurehub_io.dart';
+import 'package:featurehub_client_sdk/src/sse_client_dartio.dart';
+import 'package:featurehub_client_sdk/src/repository.dart';
+
 import 'package:logging/logging.dart';
 
 void main() async {

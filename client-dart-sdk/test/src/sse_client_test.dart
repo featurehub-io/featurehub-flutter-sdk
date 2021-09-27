@@ -1,9 +1,9 @@
 import 'dart:async';
 
 import 'package:featurehub_client_api/api.dart';
-import 'package:featurehub_client_sdk/featurehub.dart'
-    hide EventSourceRepositoryListener;
-import 'package:featurehub_client_sdk/featurehub_io.dart';
+import 'package:featurehub_client_sdk/src/client_context.dart';
+import 'package:featurehub_client_sdk/src/repository.dart';
+import 'package:featurehub_client_sdk/src/sse_client_dartio.dart';
 import 'package:featurehub_sse_client/featurehub_sse_client.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:rxdart/rxdart.dart';
