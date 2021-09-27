@@ -34,9 +34,8 @@ class GoogleAnalyticsListener {
   }
 
   void _analyticsPublisher(AnalyticsEvent event) {
-    final finalCid = (event.other != null)
-        ? (event.other!['cid']?.toString() ?? cid)
-        : cid;
+    final finalCid =
+        (event.other != null) ? (event.other!['cid']?.toString() ?? cid) : cid;
 
     if (finalCid == null) {
       _log.severe('Unable to log GA event as no CID provided.');
