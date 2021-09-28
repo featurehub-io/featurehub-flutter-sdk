@@ -223,9 +223,11 @@ you need to include that and its dependencies in your project to use this capabi
 Sample code might look like this:
 
 ```dart
-final _api = FeatureServiceApi(ApiClient(basePath: hostURL));
+final _api = FeatureServiceApiDelegate(ApiClient(basePath: hostURL));
 _api.setFeatureState(apiKey, featureKey, FeatureStateUpdate()..lock = false ..value = 'TEST'); 
 ```   
+
+[Integration test example](https://github.com/featurehub-io/featurehub-flutter-sdk/blob/main/client-dart-sdk/example/test/integration_test.dart) 
 
 ## Client-side evaluation
 
