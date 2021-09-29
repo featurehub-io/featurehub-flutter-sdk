@@ -27,9 +27,6 @@ import 'package:featurehub_client_sdk/featurehub.dart';
 ```
 
 Follow these 3 steps to connecting to FeatureHub:
-1) Copy Server evaluated FeatureHub API Key from the FeatureHub Admin Console
-2) Connect to the FeatureHub edge server
-3) Request feature state
 
 ### 1. Locate your API Key 
 Find and copy your Server evaluated API Key from the FeatureHub Admin Console on the API Keys page -
@@ -44,7 +41,7 @@ Create FeatureHub Repository that holds feature states by providing FeatureHub s
 ```dart
 repository = ClientFeatureRepository();
 
-featurehubApi = FeatureHubSimpleApi(
+fhConfig = FeatureHubConfig(
 'http://localhost:8903',
 [
 'default/806d0fe8-2842-4d17-9e1f-1c33eedc5f31/tnZHPUIKV9GPM4u0koKPk1yZ3aqZgKNI7b6CT76q'
@@ -52,11 +49,43 @@ featurehubApi = FeatureHubSimpleApi(
 repository!);
 ```
 
-### 3. Request features state:
-Make the following call to request feature state updates: 
+### 3. Get features state from your code:
 
 ```dart
-featurehubApi!.request();
+class Sample extends StatelessWidget {
+  const Sample({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+        appBar: AppBar(
+          title: Text('My app'),
+        ),
+        body: StreamBuilder<FeatureStateHolder>(
+            stream: repository!
+                .feature('COLOUR_VARIATION_FEATURE')
+                .featureUpdateStream,
+            builder: (context, snapshot) {
+              if (snapshot.hasData) {
+                return Container(
+                    color: snapshot.data?.booleanValue == true
+                        ? Colors.red
+                        : Colors.green,
+                    child: Text('Hello world!'));
+              } else {
+                return SizedBox.shrink();
+              }
+            })
+    );
+  }
+}
+```
+
+
+### 4. Make the following call to get latest feature states from the FeatureHub server: 
+
+```dart
+fhConfig!.request();
 ```
 
 `request` is an async method and it will return its content directly to the repository.
@@ -66,18 +95,20 @@ A failed call is caught and a Failure status is sent to the repository, which wi
 If the request has no data or an api key that doesn't exist, that is not considered an error because they may just
 not yet be available and you don't want your application to fail.
 
-## Supported feature state requests
+## Flutter sample app example
 
-* Get a raw feature value through "Get" methods (imperative way)
+There is a full [example](todo) you can follow that demonstrates how a feature with a key "CONTAINER_COLOUR" of type _string_ can be processed by Flutter app. The container colour will get updated states based on the feature value, which can be "yellow", "green", "purple" and so on as on the video clip above.
+
+
+## Feature state methods
+
+* Get a raw feature value through "Get" methods
     - `getFlag('FEATURE_KEY')` returns a boolean feature value or _null_ if the feature does not exist
     - `getNumber('FEATURE_KEY')` | `getString('FEATURE_KEY')` | `getJson('FEATURE_KEY')` returns the value or _null_ if the feature value is empty or does not exist
     - `exists('FEATURE_KEY')` returns true if feature key exists, otherwise false
     - `feature('FEATURE_KEY')` | `getFeatureState('FEATURE_KEY')` `returns FeatureStateHolder` if feature key exists or _null_ if the feature value is not set or does not exist
 
 
-## Flutter sample app example 
-
-There is a full [example](todo) you can follow that demonstrates how a feature with a key "CONTAINER_COLOUR" of type _string_ can be processed by Flutter app. The container colour will get updated states based on the feature value, which can be "yellow", "green", "purple" and so on as on the video clip above.  
 
 
 
