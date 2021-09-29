@@ -2,13 +2,13 @@ import 'package:featurehub_client_sdk/featurehub.dart';
 import 'package:flutter/material.dart';
 
 ClientFeatureRepository? repository;
-FeatureHubSimpleApi? featurehubApi;
+FeatureHubConfig? featurehubApi;
 
 void main() {
   repository = ClientFeatureRepository();
 
   // Provide host url (Edge FeatureHub server) and server eval api key for an application environment
-  featurehubApi = FeatureHubSimpleApi(
+  featurehubApi = FeatureHubConfig(
       'http://localhost:8903',
       [
         'default/806d0fe8-2842-4d17-9e1f-1c33eedc5f31/tnZHPUIKV9GPM4u0koKPk1yZ3aqZgKNI7b6CT76q'

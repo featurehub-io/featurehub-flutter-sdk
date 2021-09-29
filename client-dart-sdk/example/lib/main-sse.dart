@@ -2,7 +2,7 @@ import 'package:featurehub_client_sdk/featurehub.dart';
 import 'package:flutter/material.dart';
 
 ClientFeatureRepository? repository;
-FeatureHubSimpleApi? featurehubApi;
+FeatureHubConfig? featurehubApi;
 
 void main() {
   repository = ClientFeatureRepository();

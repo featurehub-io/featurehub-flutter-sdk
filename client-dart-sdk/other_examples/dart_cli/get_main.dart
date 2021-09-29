@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:featurehub_client_sdk/featurehub.dart';
-import 'package:featurehub_client_sdk/featurehub_get.dart';
+import 'package:featurehub_client_sdk/featurehub_config.dart';
 import 'package:logging/logging.dart';
 
 void main() async {
@@ -44,7 +44,7 @@ void main() async {
     });
   });
 
-  final es = FeatureHubSimpleApi(sdkHost, [sdkUrl], repo);
+  final es = FeatureHubConfig(sdkHost, [sdkUrl], repo);
 
   // ignore: unawaited_futures
   es.request();

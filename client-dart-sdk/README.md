@@ -69,10 +69,10 @@ not yet be available and you don't want your application to fail.
 ## Supported feature state requests
 
 * Get a raw feature value through "Get" methods (imperative way)
-    - `getFlag('FEATURE_KEY')` returns a boolean feature (by key) or _null_ if the feature does not exist
+    - `getFlag('FEATURE_KEY')` returns a boolean feature value or _null_ if the feature does not exist
     - `getNumber('FEATURE_KEY')` | `getString('FEATURE_KEY')` | `getJson('FEATURE_KEY')` returns the value or _null_ if the feature value is empty or does not exist
     - `exists('FEATURE_KEY')` returns true if feature key exists, otherwise false
-    - `feature('FEATURE_KEY')` | `getFeatureState('FEATURE_KEY')` `returns FeatureStateHolder` is feature key exists or _null_ if the feature value is empty or does not exist
+    - `feature('FEATURE_KEY')` | `getFeatureState('FEATURE_KEY')` `returns FeatureStateHolder` if feature key exists or _null_ if the feature value is not set or does not exist
 
 
 ## Flutter sample app example 

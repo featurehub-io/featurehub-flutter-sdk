@@ -22,7 +22,7 @@ void main() {
     var repository = ClientFeatureRepository();
 
     // Provide host url (Edge FeatureHub server) and server eval api key for an application environment
-    var featurehubApi = FeatureHubSimpleApi(path, [apiKey], repository);
+    var featurehubApi = FeatureHubConfig(path, [apiKey], repository);
 
     // Request feature updates via GET request
     await featurehubApi.request();

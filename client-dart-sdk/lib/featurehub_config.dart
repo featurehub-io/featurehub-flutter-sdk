@@ -3,13 +3,13 @@ import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_client_sdk/featurehub.dart';
 import 'package:openapi_dart_common/openapi.dart';
 
-class FeatureHubSimpleApi {
+class FeatureHubConfig {
   final List<String> _apiKeys;
   final FeatureServiceApi _api;
   final ClientFeatureRepository _repository;
   String? xFeaturehubHeader;
 
-  FeatureHubSimpleApi(String host, this._apiKeys, this._repository)
+  FeatureHubConfig(String host, this._apiKeys, this._repository)
       : _api = FeatureServiceApi(ApiClient(basePath: host)) {
     if (_apiKeys.any((key) => key.contains('*'))) {
       throw Exception(

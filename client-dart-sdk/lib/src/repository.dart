@@ -160,6 +160,8 @@ class ClientFeatureRepository {
 
   Iterable<String?> get availableFeatures => _features.keys;
 
+  /// used by a provider of features to tell the repository about updates to those features.
+  /// If you were storing features on your device you could use this to fill the repository before it was connected for example.
   void notify(SSEResultState? state, dynamic data) {
     _log.fine('Data is $state -> $data');
     if (state != null) {
@@ -256,6 +258,7 @@ class ClientFeatureRepository {
     }
   }
 
+  /// allows us to log an analytics event with this set of features
   void logAnalyticsEvent(String action, {Map<String, Object>? other}) {
     final featureStateAtCurrentTime =
         _features.values.where((f) => f.exists).map((f) => f.copy()).toList();
@@ -264,31 +267,46 @@ class ClientFeatureRepository {
         .add(AnalyticsEvent(action, featureStateAtCurrentTime, other));
   }
 
+  /// returns [FeatureStateHolder] if feature key exists or [null] if the feature value is not set or does not exist
   FeatureStateHolder getFeatureState(String? key) {
     return _features.putIfAbsent(
         key, () => _FeatureStateBaseHolder(null, _featureValueInterceptors));
   }
 
+  ///returns [FeatureStateHolder] if feature key exists or [null] if the feature value is not set or does not exist
   FeatureStateHolder feature(String? key) {
     return getFeatureState(key);
   }
 
+  /// @param key The feature key
+  /// @returns A boolean (flag) feature value or [null] if the feature does not exist.
   bool? getFlag(String key) {
     return feature(key).booleanValue;
   }
 
+  /// @param key The feature key
+  /// @returns The value of the number feature or [null]
+  /// if the feature value not set or does not exist
   num? getNumber(String key) {
     return feature(key).numberValue;
   }
 
+  /// @param key The feature key
+  /// @returns The value of the string feature or [null]
+  /// if the feature value not set or does not exist
   String? getString(String key) {
     return feature(key).stringValue;
   }
 
+  /// @param key The feature key
+  /// @returns The value of the json feature or [null]
+  /// if the feature value not set or does not exist
   dynamic getJson(String key) {
     return feature(key).jsonValue;
   }
 
+  /// @param key The feature key
+  /// returns true if the feature key exists, otherwise false
   bool exists(String key) {
     return feature(key).exists;
   }
@@ -354,7 +372,7 @@ class ClientFeatureRepository {
     _features.clear();
   }
 
-  /// after this this repository is not usable, create a new one.
+  /// after this method is called, the repository is not usable, create a new one.
   void shutdown() {
     _readynessListeners.close();
     _newFeatureStateAvailableListeners.close();
