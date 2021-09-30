@@ -7,7 +7,7 @@ class FeatureHubConfig {
   final List<String> _apiKeys;
   final FeatureServiceApi _api;
   final ClientFeatureRepository _repository;
-  String? xFeaturehubHeader;
+  String? xFeatureHubHeader;
 
   FeatureHubConfig(String host, this._apiKeys, this._repository)
       : _api = FeatureServiceApi(ApiClient(basePath: host)) {
@@ -17,14 +17,14 @@ class FeatureHubConfig {
     }
 
     _repository.clientContext.registerChangeHandler((header) async {
-      xFeaturehubHeader = header;
+      xFeatureHubHeader = header;
     });
   }
 
   Future<ClientFeatureRepository> request() async {
-    final options = xFeaturehubHeader == null
+    final options = xFeatureHubHeader == null
         ? null
-        : (Options()..headers = {'x-featurehub': xFeaturehubHeader});
+        : (Options()..headers = {'x-featurehub': xFeatureHubHeader});
 
     return _api
         .getFeatureStates(_apiKeys, options: options)
