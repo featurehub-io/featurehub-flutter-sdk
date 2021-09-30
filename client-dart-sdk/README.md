@@ -58,25 +58,21 @@ class Sample extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-        appBar: AppBar(
-          title: Text('My app'),
-        ),
-        body: StreamBuilder<FeatureStateHolder>(
-            stream: repository!
-                .feature('COLOUR_VARIATION_FEATURE')
-                .featureUpdateStream,
-            builder: (context, snapshot) {
-              if (snapshot.hasData) {
-                return Container(
-                    color: snapshot.data?.booleanValue == true
-                        ? Colors.red
-                        : Colors.green,
-                    child: Text('Hello world!'));
-              } else {
-                return SizedBox.shrink();
-              }
-            })
-    );
+            appBar: AppBar(
+              title: Text('My app'),
+            ),
+            body: StreamBuilder<FeatureStateHolder>(
+                    stream: repository!
+                            .feature('COLOUR_VARIATION_FEATURE')
+                            .featureUpdateStream,
+                    builder: (context, snapshot) {
+                      if (!snapshot.hasData) return SizedBox.shrink();
+                      return Container(
+                              color: snapshot.data?.booleanValue == true
+                                      ? Colors.red
+                                      : Colors.green,
+                              child: Text('Hello world!'));
+                    }));
   }
 }
 ```
