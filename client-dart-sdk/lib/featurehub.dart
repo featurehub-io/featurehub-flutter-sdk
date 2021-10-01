@@ -1,4 +1,4 @@
-export 'featurehub_get.dart';
+export 'featurehub_config.dart';
 export 'src/analytics_google.dart';
 export 'src/client_context.dart';
 export 'src/repository.dart';

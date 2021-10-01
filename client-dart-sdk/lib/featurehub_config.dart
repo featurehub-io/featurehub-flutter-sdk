@@ -3,13 +3,13 @@ import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_client_sdk/featurehub.dart';
 import 'package:openapi_dart_common/openapi.dart';
 
-class FeatureHubSimpleApi {
+class FeatureHubConfig {
   final List<String> _apiKeys;
   final FeatureServiceApi _api;
   final ClientFeatureRepository _repository;
-  String? xFeaturehubHeader;
+  String? xFeatureHubHeader;
 
-  FeatureHubSimpleApi(String host, this._apiKeys, this._repository)
+  FeatureHubConfig(String host, this._apiKeys, this._repository)
       : _api = FeatureServiceApi(ApiClient(basePath: host)) {
     if (_apiKeys.any((key) => key.contains('*'))) {
       throw Exception(
@@ -17,14 +17,14 @@ class FeatureHubSimpleApi {
     }
 
     _repository.clientContext.registerChangeHandler((header) async {
-      xFeaturehubHeader = header;
+      xFeatureHubHeader = header;
     });
   }
 
   Future<ClientFeatureRepository> request() async {
-    final options = xFeaturehubHeader == null
+    final options = xFeatureHubHeader == null
         ? null
-        : (Options()..headers = {'x-featurehub': xFeaturehubHeader});
+        : (Options()..headers = {'x-featurehub': xFeatureHubHeader});
 
     return _api
         .getFeatureStates(_apiKeys, options: options)

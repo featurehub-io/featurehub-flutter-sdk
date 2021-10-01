@@ -30,7 +30,6 @@ class SseClientTest extends EventSourceRepositoryListener {
       : mockedSource = eventSource,
         super(url, apiKey, repository, doInit: doInit);
 
-  @override
   Future<Stream<Event>> connect(String url) async {
     return mockedSource;
   }
