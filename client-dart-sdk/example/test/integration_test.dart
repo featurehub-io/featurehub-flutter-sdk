@@ -2,7 +2,7 @@ import 'package:featurehub_client_sdk/featurehub.dart';
 import 'package:openapi_dart_common/openapi.dart';
 import 'package:featurehub_client_api/api.dart';
 
-import "package:test/test.dart";
+import 'package:test/test.dart';
 
 void main() {
   test('Set feature value and get it back', () async {
