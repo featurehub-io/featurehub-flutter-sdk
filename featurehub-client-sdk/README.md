@@ -1,6 +1,6 @@
 # Flutter / Dart Client SDK for FeatureHub
 
-Flutter / Dart SDK implementation for [FeatureHub.io](https://featurehub.io) - Open source Feature flags management, A/B testing and remote configuration platform. Suitable for Flutter Web, Mobile and Desktop.
+Dart SDK implementation for [FeatureHub.io](https://featurehub.io) - Open source Feature flags management, A/B testing and remote configuration platform. Suitable for Flutter Web, Mobile and Desktop.
 
 It provides the core functionality of the Feature Repository 
 which holds features and their states and creates events, e.g. sends feature updates. This library depends on our own [fork](https://pub.dev/packages/featurehub_sse_client) of the EventSourcing library
