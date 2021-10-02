@@ -6,7 +6,7 @@ import 'package:test/test.dart';
 
 void main() {
   test('Set feature value and get it back', () async {
-    var path = 'https://zjbisc.demo.featurehub.io';
+    var path = 'http://localhost:8903';
     var apiKey =
         'default/806d0fe8-2842-4d17-9e1f-1c33eedc5f31/tnZHPUIKV9GPM4u0koKPk1yZ3aqZgKNI7b6CT76q';
     final _api = FeatureServiceApiDelegate(ApiClient(basePath: path));

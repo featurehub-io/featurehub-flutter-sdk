@@ -1,7 +1,7 @@
 import 'dart:io';
 
+import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_client_sdk/featurehub.dart';
-import 'package:featurehub_client_sdk/featurehub_config.dart';
 import 'package:logging/logging.dart';
 
 void main() async {
@@ -19,12 +19,12 @@ void main() async {
     }
   });
 
-  final sdkUrl = Platform.environment['SDK_URL'];
-  final sdkHost = Platform.environment['SDK_HOST'];
+  final apiKey = Platform.environment['SERVER_EVAL_API_KEY'];
+  final hostUrl = Platform.environment['FH_HOST_URL'];
 
-  if (sdkUrl == null || sdkHost == null) {
+  if (apiKey == null || hostUrl == null) {
     // ignore: avoid_print
-    print('Please set the SDK_URL and SDK_HOST values.');
+    print('Please set the SERVER_EVAL_API_KEY and FH_HOST_URL values.');
     exit(-1);
   }
 
@@ -35,6 +35,13 @@ void main() async {
     print('readyness $ready');
   });
 
+  repo.clientContext
+      .userKey(Platform.environment['USERKEY'] ?? 'some_unique_user_id')
+      .device(StrategyAttributeDeviceName.desktop)
+      .platform(StrategyAttributePlatformName.macos)
+      .attr('age', '21')
+      .build();
+
   repo.newFeatureStateAvailableStream.listen((event) {
     repo.availableFeatures.forEach((key) {
       final feature = repo.feature(key);
@@ -44,12 +51,11 @@ void main() async {
     });
   });
 
-  final es = FeatureHubConfig(sdkHost, [sdkUrl], repo);
-
-  // ignore: unawaited_futures
-  es.request();
+  final es = EventSourceRepositoryListener(hostUrl, apiKey, repo);
 
   // ignore: avoid_print
   print('hit <enter> to cancel');
   await stdin.first;
+
+  es.close();
 }
