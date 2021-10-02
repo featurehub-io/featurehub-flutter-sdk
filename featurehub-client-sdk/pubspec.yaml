@@ -9,13 +9,13 @@ dependencies:
   dio: ^4.0.0
   featurehub_sse_client: ^1.2.0
 #  featurehub_sse_client:
-#    path: ../dart-eventsource
+#    path: ../featurehub-sse-client
   collection: ^1.15.0
   logging: ^1.0.1
   rxdart: ^0.27.2
   featurehub_client_api: ^1.2.0
 #  featurehub_client_api:
-#    path: ../client-dart-api
+#    path: ../featurehub-client-api
   openapi_dart_common: ^4.1.0
 dev_dependencies:
   test: ^1.16.8
