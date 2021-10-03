@@ -13,7 +13,8 @@ Read detailed documentation on FeatureHub [here](https://docs.featurehub.io)
 
 Visit Demo FeatureHub Admin Console [here](https://demo.featurehub.io)
 
-![](images/flutter-sdk-example.mov)
+https://user-images.githubusercontent.com/9538697/135741127-d813595c-28a4-4d5b-81f2-f754e02d584e.mov
+
 
 ## Getting started
 
