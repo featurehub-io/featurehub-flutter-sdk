@@ -31,7 +31,8 @@ class EventSourceDecoder implements StreamTransformer<List<int>, Event> {
           // event is done
           // strip ending newline from data
           if (currentEvent.data != null) {
-            var match = removeEndingNewlineRegex.firstMatch(currentEvent.data!)!;
+            var match =
+                removeEndingNewlineRegex.firstMatch(currentEvent.data!)!;
             currentEvent.data = match.group(1);
           }
           controller.add(currentEvent);

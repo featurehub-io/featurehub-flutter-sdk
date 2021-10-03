@@ -1,3 +1,9 @@
+1.3.0
+=====
+* Introduce FeatureHubConfig
+* Documentation updates
+* Examples updates
+
 1.2.0
 =====
 * null safe version

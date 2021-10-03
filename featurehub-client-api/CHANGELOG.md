@@ -1,3 +1,7 @@
+1.2.1
+=====
+* Update GitHub repository URL
+
 1.2.0
 =====
 * Null safe version, minor API update

@@ -18,7 +18,7 @@ Add dependency:
 
 ```yaml
 dependencies:
-  featurehub_client_sdk: ^1.2.0 #latest version
+  featurehub_client_sdk: ^1.3.0 #latest version
 ```
 
 Add import package:
@@ -29,14 +29,14 @@ import 'package:featurehub_client_sdk/featurehub.dart';
 Follow these 3 steps to connecting to FeatureHub:
 
 ### 1. Locate your API Key 
-Find and copy your Server evaluated API Key from the FeatureHub Admin Console on the API Keys page -
+Find and copy your _Server evaluated API Key_ from the FeatureHub Admin Console on the API Keys page -
 you will use this in your code to configure feature updates for your environments.
 It should look similar to this: ```default/806d0fe8-2842-4d17-9e1f-1c33eedc5f31/tnZHPUIKV9GPM4u0koKPk1yZ3aqZgKNI7b6CT76q```.
-Note: This SDK only accepts server evaluated key as this is designed for insecure clients. (e.g. Browser or Mobile). This also means you evaluate one user per client. More on this [here](https://docs.featurehub.io/#_client_and_server_api_keys)
+Note: This SDK only accepts _Server evaluated API key_ which is designed for insecure clients, e.g. Browser or Mobile. This also means you evaluate one user per client. More on this [here](https://docs.featurehub.io/#_client_and_server_api_keys)
 
 ### 2. Connect to the FeatureHub server:
 
-Create FeatureHub Repository that holds feature states by providing FeatureHub server url and api key copied in the previous step:
+Create FeatureHub Repository that holds feature states by providing your FeatureHub server url and API Key from the previous step:
 
 ```dart
 repository = ClientFeatureRepository();
@@ -63,7 +63,7 @@ class Sample extends StatelessWidget {
             ),
             body: StreamBuilder<FeatureStateHolder>(
                     stream: repository!
-                            .feature('COLOUR_VARIATION_FEATURE')
+                            .feature('CONTAINER_COLOUR_FEATURE')
                             .featureUpdateStream,
                     builder: (context, snapshot) {
                       if (!snapshot.hasData) return SizedBox.shrink();
@@ -78,31 +78,31 @@ class Sample extends StatelessWidget {
 ```
 
 
-### 4. Make the following call to get latest feature states from the FeatureHub server: 
+### 4. Make the call to get latest feature states from the FeatureHub server: 
 
 ```dart
 fhConfig!.request();
 ```
 
-`request` is an async method and it will return its content directly to the repository.
+`request` is an async method and it will return its content directly to the Repository.
 A failed call is caught and a Failure status is sent to the repository, which will have an updated error status
 (such as FAILED, in the Readyness listener).
 
-If the request has no data or an api key that doesn't exist, that is not considered an error because they may just
+If the request has no data or an api key doesn't exist, that is not considered an error because they may just
 not yet be available and you don't want your application to fail.
 
 ## Flutter sample app example
 
-There is a full [example](todo) you can follow that demonstrates how a feature with a key "CONTAINER_COLOUR" of type _string_ can be processed by Flutter app. The container colour will get updated states based on the feature value, which can be "yellow", "green", "purple" and so on as on the video clip above.
+There is a full [example](https://github.com/featurehub-io/featurehub-flutter-sdk/blob/main/featurehub-client-sdk/example/lib/main.dart) you can follow that demonstrates how a feature with a key "CONTAINER_COLOUR" of type _string_ can be processed in the Flutter app. The container colour will get updated states based on the feature value, which can be "yellow", "green", "purple" and so on. (See the video clip above)
 
 
 ## Feature state methods
 
 * Get a raw feature value through "Get" methods
     - `getFlag('FEATURE_KEY')` returns a boolean feature value or _null_ if the feature does not exist
-    - `getNumber('FEATURE_KEY')` | `getString('FEATURE_KEY')` | `getJson('FEATURE_KEY')` returns the value or _null_ if the feature value is empty or does not exist
-    - `exists('FEATURE_KEY')` returns true if feature key exists, otherwise false
-    - `feature('FEATURE_KEY')` | `getFeatureState('FEATURE_KEY')` `returns FeatureStateHolder` if feature key exists or _null_ if the feature value is not set or does not exist
+    - `getNumber('FEATURE_KEY')` | `getString('FEATURE_KEY')` | `getJson('FEATURE_KEY')` returns the value of the feature or _null_ if the feature value is empty or does not exist
+    - `exists('FEATURE_KEY')` returns _true_ if feature key exists, otherwise _false_
+    - `feature('FEATURE_KEY')` | `getFeatureState('FEATURE_KEY')` returns `FeatureStateHolder` if feature key exists or _null_ if the feature value is not set or does not exist
 
 
 
@@ -208,7 +208,7 @@ Because these two update methods are interchangeable, you can include them in th
 could swap between *GET* when your app swaps to the background and *EventSource* when your app swaps to the foreground 
 if immediate updates are important.
 
-[SSE example](todo provide link)
+[SSE example](https://github.com/featurehub-io/featurehub-flutter-sdk/blob/main/featurehub-client-sdk/example/lib/main-sse.dart)
 
 ## Failure
 
@@ -254,7 +254,7 @@ final _api = FeatureServiceApiDelegate(ApiClient(basePath: hostURL));
 _api.setFeatureState(apiKey, featureKey, FeatureStateUpdate()..lock = false ..value = 'TEST'); 
 ```   
 
-[Integration test example](https://github.com/featurehub-io/featurehub-flutter-sdk/blob/main/client-dart-sdk/example/test/integration_test.dart) 
+[Integration test example](https://github.com/featurehub-io/featurehub-flutter-sdk/blob/main/featurehub-client-sdk/example/test/integration_test.dart) 
 
 ## Client-side evaluation
 
