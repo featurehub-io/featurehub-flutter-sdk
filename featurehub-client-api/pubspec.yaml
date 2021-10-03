@@ -1,5 +1,5 @@
 name: featurehub_client_api
-version: 1.2.0
+version: 1.3.0
 description: This is the OpenAPI client for the FeatureHub SDK. It is not likely to be used on its own.
 repository: https://github.com/featurehub-io/featurehub-flutter-sdk/tree/main/featurehub-client-api
 homepage: https://www.featurehub.io

@@ -7,6 +7,15 @@ FeatureHubConfig? featurehubApi;
 void main() {
   repository = ClientFeatureRepository();
 
+  // There is an option to check for Readyness in appropriate circumstances.
+  // repository!.readynessStream.listen((readyness) {
+  //   if (readyness == Readyness.Ready) {
+  //     //do something
+  //   }
+  //   else {
+  //     //do something else
+  //   }
+
   // Provide host url (Edge FeatureHub server) and server eval api key for an application environment
   featurehubApi = FeatureHubConfig(
       'http://localhost:8903',

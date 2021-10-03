@@ -36,4 +36,5 @@ pubspec.lock
 .openapi-generator-ignore
 final.yaml
 doc
+featurehub-client-api.iml
 
