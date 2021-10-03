@@ -1,6 +1,4 @@
-[![Build](https://github.com/featurehub-io/featurehub-flutter-sdk/actions/workflows/dart.yml/badge.svg)](https://github.com/featurehub-io/featurehub-flutter-sdk/actions/workflows/dart.yml)
-
-[![pub points](https://badges.bar/featurehub_client_sdk/pub%20points)](https://pub.dev/packages/featurehub_client_sdk/score)
+[![Build](https://github.com/featurehub-io/featurehub-flutter-sdk/actions/workflows/dart.yml/badge.svg)](https://github.com/featurehub-io/featurehub-flutter-sdk/actions/workflows/dart.yml) [![pub points](https://badges.bar/featurehub_client_sdk/pub%20points)](https://pub.dev/packages/featurehub_client_sdk/score)
 
 
 # Flutter / Dart Client SDK for FeatureHub
