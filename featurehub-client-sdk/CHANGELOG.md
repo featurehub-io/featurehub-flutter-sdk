@@ -1,3 +1,7 @@
+1.3.1
+=====
+* Add video
+
 1.3.0
 =====
 * Introduce FeatureHubConfig
