@@ -36,6 +36,8 @@ class EventSource extends Stream<Event> {
   final Uri url;
   final Map? headers;
 
+  StreamSubscription? _responseStreamSubscription;
+
   EventSourceReadyState get readyState => _readyState;
 
   Stream<Event> get onOpen => this.where((e) => e.event == "open");
@@ -114,13 +116,25 @@ class EventSource extends Stream<Event> {
   }
 
   void _lastStreamDisconnected() {
-    if (_closeOnLastListener && _incomingDataController != null) {
+    if (_closeOnLastListener) {
       // delay until next cycle, cannot disconnect while triggering this event
       Future.delayed(Duration(seconds: 0), () async {
+        // do these in the reverse order, we would normally have a
         try {
-          await _incomingDataController!.close();
-        } catch (e) {} // swallow the exception if there is one.
-        _incomingDataController = null;
+          await _incomingDataController?.close(); // close the transforming controller if we had one
+        } catch (e) {
+          // swallow the exception if there is one.
+        } finally {
+          _incomingDataController = null;
+        }
+        
+        try {
+          await _responseStreamSubscription?.cancel(); // cancel the sub to the original data GET
+        } catch (e) {
+          // swallow the exception if there is one.
+        } finally {
+          _responseStreamSubscription = null;
+        }
       });
     }
   }
@@ -154,7 +168,7 @@ class EventSource extends Stream<Event> {
     // push it through a StreamController so we can close it gracefully
     _incomingDataController = StreamController<List<int>>();
 
-    response.stream.listen((value) {
+    _responseStreamSubscription = response.stream.listen((value) {
       _incomingDataController!.add(value);
     },
         onError: _retry,
