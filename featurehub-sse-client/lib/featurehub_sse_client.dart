@@ -46,6 +46,7 @@ class EventSource extends Stream<Event> {
 
   late StreamController<Event> _streamController;
   StreamController<List<int>>? _incomingDataController;
+  StreamController<EventSourceReadyState> readyStateController;
 
   EventSourceReadyState _readyState = EventSourceReadyState.CLOSED;
 
@@ -92,12 +93,20 @@ class EventSource extends Stream<Event> {
       bool? openOnlyOnFirstStream,
       bool? closeOnLastStreamClosing)
       : _openOnlyOnFirstListener = openOnlyOnFirstStream ?? false,
-        _closeOnLastListener = closeOnLastStreamClosing ?? false {
+        _closeOnLastListener = closeOnLastStreamClosing ?? false,
+        readyStateController = StreamController.broadcast(){
     // initialize here so we can close the stream
-    _streamController = new StreamController<Event>.broadcast(
+    _streamController = StreamController<Event>.broadcast(
         onCancel: () => _lastStreamDisconnected());
 
+    readyStateController.add(_readyState);
+
     _decoder = new EventSourceDecoder(retryIndicator: _updateRetryDelay);
+  }
+
+  _setReadyState(EventSourceReadyState readyState) {
+    _readyState = readyState;
+    readyStateController.add(_readyState);
   }
 
   // proxy the listen call to the controller's listen call
@@ -127,7 +136,7 @@ class EventSource extends Stream<Event> {
 
   /// Attempt to start a new connection.
   Future _start() async {
-    _readyState = EventSourceReadyState.CONNECTING;
+    _setReadyState(EventSourceReadyState.CONNECTING);
     var request = new http.Request(_method, url);
     request.headers["Cache-Control"] = "no-cache";
     request.headers["Accept"] = "text/event-stream";
@@ -148,7 +157,7 @@ class EventSource extends Stream<Event> {
       String body = _encodingForHeaders(response.headers).decode(bodyBytes);
       throw new EventSourceSubscriptionException(response.statusCode, body);
     }
-    _readyState = EventSourceReadyState.OPEN;
+    _setReadyState(EventSourceReadyState.OPEN);
     // start streaming the data
 
     // push it through a StreamController so we can close it gracefully
@@ -159,7 +168,7 @@ class EventSource extends Stream<Event> {
     },
         onError: _retry,
         cancelOnError: true,
-        onDone: () => _readyState = EventSourceReadyState.CLOSED);
+        onDone: () => _setReadyState(EventSourceReadyState.CLOSED));
 
     _incomingDataController!.stream.transform(_decoder).listen((Event event) {
       _streamController.add(event);
@@ -167,12 +176,12 @@ class EventSource extends Stream<Event> {
     },
         cancelOnError: true,
         onError: _retry,
-        onDone: () => _readyState = EventSourceReadyState.CLOSED);
+        onDone: () => _setReadyState(EventSourceReadyState.CLOSED));
   }
 
   /// Retries until a new connection is established. Uses exponential backoff.
   Future _retry(dynamic e) async {
-    _readyState = EventSourceReadyState.CONNECTING;
+    _setReadyState(EventSourceReadyState.CONNECTING);
     // try reopening with exponential backoff
     Duration backoff = _retryDelay;
     while (true) {
