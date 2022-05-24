@@ -18,9 +18,9 @@ void main() {
 
   // Provide host url (Edge FeatureHub server) and server eval api key for an application environment
   featurehubApi = FeatureHubConfig(
-      'http://localhost:8903',
+      'https://app.test.featurehub.dev/pistachio',
       [
-        'default/806d0fe8-2842-4d17-9e1f-1c33eedc5f31/tnZHPUIKV9GPM4u0koKPk1yZ3aqZgKNI7b6CT76q'
+        'default/96f88200-a164-4d7c-8946-edc38f0b4520/leq9H9qGOJyb57sunVlGKW64w7OAgdhAKHXnNcos'
       ],
       repository!);
 

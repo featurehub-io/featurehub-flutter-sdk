@@ -21,11 +21,16 @@ enum EventSourceReadyState {
 class EventSourceSubscriptionException extends Event implements Exception {
   int statusCode;
   String message;
+  Object? exception;
+  StackTrace? stackTrace;
 
   @override
   String get data => "$statusCode: $message";
 
   EventSourceSubscriptionException(this.statusCode, this.message)
+      : super(event: "error");
+
+  EventSourceSubscriptionException.fromException(this.statusCode, this.message, this.exception, this.stackTrace)
       : super(event: "error");
 }
 
@@ -63,6 +68,8 @@ class EventSource extends Stream<Event> {
   http.ByteStream? responseStream;
 
   /// Create a new EventSource by connecting to the specified url.
+  /// If you want to be able to listen to the state changes you need to provide your
+  /// own readyStateController as broadcast controllers do not store state.
   static Future<EventSource> connect(url,
       {http.Client? client,
       String? lastEventId,
@@ -70,6 +77,7 @@ class EventSource extends Stream<Event> {
       String? body,
       String? method,
       bool? openOnlyOnFirstListener,
+      StreamController<EventSourceReadyState>? readyStateController,
       bool? closeOnLastListener}) async {
     // parameter initialization
     url = url is Uri ? url : Uri.parse(url);
@@ -78,7 +86,8 @@ class EventSource extends Stream<Event> {
     body = body ?? "";
     method = method ?? "GET";
     EventSource es = new EventSource._internal(url, client, lastEventId,
-        headers, body, method, openOnlyOnFirstListener, closeOnLastListener);
+        headers, body, method, openOnlyOnFirstListener, closeOnLastListener,
+        readyStateController);
     if (!es._openOnlyOnFirstListener) {
       await es._start();
     }
@@ -93,10 +102,11 @@ class EventSource extends Stream<Event> {
       this._body,
       this._method,
       bool? openOnlyOnFirstStream,
-      bool? closeOnLastStreamClosing)
+      bool? closeOnLastStreamClosing,
+      StreamController<EventSourceReadyState>? _readyStateController,)
       : _openOnlyOnFirstListener = openOnlyOnFirstStream ?? false,
         _closeOnLastListener = closeOnLastStreamClosing ?? false,
-        readyStateController = StreamController.broadcast(){
+        readyStateController = _readyStateController ?? StreamController.broadcast() {
     // initialize here so we can close the stream
     _streamController = StreamController<Event>.broadcast(
         onCancel: () => _lastStreamDisconnected());
@@ -107,6 +117,7 @@ class EventSource extends Stream<Event> {
   }
 
   _setReadyState(EventSourceReadyState readyState) {
+    print("setting ready state $readyState");
     _readyState = readyState;
     readyStateController.add(_readyState);
   }
@@ -136,7 +147,7 @@ class EventSource extends Stream<Event> {
         } finally {
           _incomingDataController = null;
         }
-        
+
         try {
           await _responseStreamSubscription?.cancel(); // cancel the sub to the original data GET
         } catch (e) {
@@ -145,6 +156,14 @@ class EventSource extends Stream<Event> {
           _responseStreamSubscription = null;
         }
       });
+    }
+  }
+
+  Future<void> reopen() async {
+    if (_readyState == EventSourceReadyState.CLOSED) {
+      return _start();
+    } else {
+      return Future.error("SSE client has not been closed.");
     }
   }
 
@@ -163,13 +182,22 @@ class EventSource extends Stream<Event> {
       });
     }
     request.body = _body;
-
-    var response = await client.send(request);
-    if (response.statusCode != 200) {
-      // server returned an error
-      var bodyBytes = await response.stream.toBytes();
-      String body = _encodingForHeaders(response.headers).decode(bodyBytes);
-      throw new EventSourceSubscriptionException(response.statusCode, body);
+    try {
+      var response = await client.send(request);
+      if (response.statusCode != 200) {
+        // server returned an error
+        var bodyBytes = await response.stream.toBytes();
+        String body = _encodingForHeaders(response.headers).decode(bodyBytes);
+        throw EventSourceSubscriptionException(response.statusCode, body);
+      }
+      _responseStreamSubscription = response.stream.listen((value) {
+        _incomingDataController!.add(value);
+      },
+          onError: _retry,
+          cancelOnError: true,
+          onDone: () => _setReadyState(EventSourceReadyState.CLOSED));
+    } catch (e, s) {
+      throw EventSourceSubscriptionException.fromException(500, e.toString(), e, s);
     }
     _setReadyState(EventSourceReadyState.OPEN);
     // start streaming the data
@@ -177,12 +205,6 @@ class EventSource extends Stream<Event> {
     // push it through a StreamController so we can close it gracefully
     _incomingDataController = StreamController<List<int>>();
 
-    _responseStreamSubscription = response.stream.listen((value) {
-      _incomingDataController!.add(value);
-    },
-        onError: _retry,
-        cancelOnError: true,
-        onDone: () => _setReadyState(EventSourceReadyState.CLOSED));
 
     _incomingDataController!.stream.transform(_decoder).listen((Event event) {
       _streamController.add(event);

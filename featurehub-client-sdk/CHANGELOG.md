@@ -1,3 +1,7 @@
+1.3.1
+=====
+* More robust reconnection in the face of disconnection
+
 1.3.0
 =====
 * Introduce FeatureHubConfig

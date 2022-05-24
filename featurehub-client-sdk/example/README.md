@@ -1,24 +1,16 @@
-# Flutter Examples
+# example
 
-## Using Rest api 
+A new Flutter project.
 
-For this example refer to `main.dart` file
+## Getting Started
 
-This example demonstrates FeatureHub Dart SDK implementation 
-using GET api request to get feature states from the FeatureHub repository.
+This project is a starting point for a Flutter application.
 
-In this case, the Refresh Feature State button is used to request updated features which
-trigger the stream to update and repaint the screen. 
+A few resources to get you started if this is your first Flutter project:
 
-It expects a string feature called CONTAINER_COLOUR to exist and have a set value of
-blue, purple, yellow, green or red .
+- [Lab: Write your first Flutter app](https://flutter.dev/docs/get-started/codelab)
+- [Cookbook: Useful Flutter samples](https://flutter.dev/docs/cookbook)
 
-## Using SSE protocol (server-sent events)
-
-For this example refer to `main-sse.dart` file
-
-In this case colour of the container will be updated in real-time. Please refer to the main readme for details on this method. 
-
-## Integration test 
-
-For this example refer to `test/integration_test.dart` file
+For help getting started with Flutter, view our
+[online documentation](https://flutter.dev/docs), which offers tutorials,
+samples, guidance on mobile development, and a full API reference.

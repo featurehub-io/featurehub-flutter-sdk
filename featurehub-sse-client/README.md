@@ -24,7 +24,7 @@ Browser usage is slightly different.
 EventSource eventSource = await EventSource.connect("http://example.com/events");
 // in browsers, you need to pass a http.BrowserClient:
 EventSource eventSource = await EventSource.connect("http://example.com/events", 
-    client: new http.BrowserClient());
+    client: http.BrowserClient());
 ```
 
 If you wish to have it connect only when the first listener attaches (and not otherwise), then pass the
@@ -35,6 +35,9 @@ pass the optional parmeter `closeOnLastListener`.
 EventSource eventSource = await EventSource.connect("http://example.com/events", 
   openOnlyOnFirstListener: true, closeOnLastListener: true);
 ```
+
+You can also listen for events from the event source now, but you will need to provide your own stream controller. If
+you wish to listen to the events as the stream opens and closes, please pass in a `StreamController<>`
 
 ## Licensing
 
