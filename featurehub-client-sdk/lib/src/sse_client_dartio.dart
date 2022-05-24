@@ -72,9 +72,9 @@ class EventSourceRepositoryListener {
     _closed = false;
     _log.fine('Connecting to $_url');
 
-    _es = await connect(_url);
+    final eventStream = await connect(_url);
 
-    _subscription = _es!.listen((event) {
+    _subscription = eventStream.listen((event) {
       print('Event is ${event.event} value ${event.data}');
       final readyness = _repository.readyness;
       if (event.event != null) {
@@ -96,14 +96,17 @@ class EventSourceRepositoryListener {
     });
   }
 
-  Future<EventSource> connect(String url) {
+  Future<Stream<Event>> connect(String url) async {
     var sourceHeaders = {'content-type': 'application/json'};
     if (_xFeaturehubHeader != null) {
       sourceHeaders['x-featurehub'] = _xFeaturehubHeader!;
     }
-    return EventSource.connect(url,
+
+    _es = await EventSource.connect(url,
         closeOnLastListener: true, headers: sourceHeaders,
         readyStateController: _readyStateController);
+
+    return _es!;
   }
 
   void close() {

@@ -10,7 +10,7 @@ void main() {
   // Listen to Feature Repository changes in real time using SSE (Server Sent Events protocol)
   // Provide host url (Edge FeatureHub server) and server eval api key for an application environment
   EventSourceRepositoryListener(
-      'https://app.test.featurehub.dev/pistachio',
+      'http://localhost:8903',
       'default/96f88200-a164-4d7c-8946-edc38f0b4520/leq9H9qGOJyb57sunVlGKW64w7OAgdhAKHXnNcos',
       repository!);
 
