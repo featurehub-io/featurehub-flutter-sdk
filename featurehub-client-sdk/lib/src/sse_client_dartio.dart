@@ -75,7 +75,7 @@ class EventSourceRepositoryListener {
     final eventStream = await connect(_url);
 
     _subscription = eventStream.listen((event) {
-      print('Event is ${event.event} value ${event.data}');
+      _log.fine('Event is ${event.event} value ${event.data}');
       final readyness = _repository.readyness;
       if (event.event != null) {
         _repository.notify(SSEResultStateExtension.fromJson(event.event),
@@ -85,10 +85,9 @@ class EventSourceRepositoryListener {
         retry();
       }
     }, onError: (e) {
-      print("error $e");
+      _log.fine("error $e");
       _repository.notify(SSEResultState.bye, null);
     }, onDone: () {
-      print("done");
       if (_repository.readyness != Readyness.Failed && !_closed) {
         _repository.notify(SSEResultState.bye, null);
         retry();
