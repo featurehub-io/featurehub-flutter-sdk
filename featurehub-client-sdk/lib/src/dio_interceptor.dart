@@ -34,6 +34,7 @@ class W3CTraceContextInterceptor extends InterceptorsWrapper {
 /// use this class if you wish to pass the state of your features with
 /// each request as an opentracing header that is compatible with Jaeger.
 /// this is called Baggage in OpenTracing and DistributedContext in OpenTelemetry
+@deprecated
 class JaegerDioInterceptor extends W3CTraceContextInterceptor {
   final ClientFeatureRepository repository;
 

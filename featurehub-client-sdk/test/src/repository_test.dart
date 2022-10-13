@@ -17,12 +17,7 @@ void main() {
       FeatureValueType type = FeatureValueType.BOOLEAN,
       dynamic value = false}) {
     return LocalApiClient.serialize([
-      FeatureState()
-        ..id = '1'
-        ..key = '1'
-        ..type = type
-        ..version = version
-        ..value = value
+      FeatureState(id: '1', key: '1', type: type, version: version, value: value)
     ]);
   }
 
@@ -173,12 +168,7 @@ void main() {
     expectLater(
         sub, emitsInOrder([emits(anything), emits(anything), emitsDone]));
     repo.notify(SSEResultState.features, _initialFeatures());
-    final data = FeatureState()
-      ..version = 2
-      ..id = '1'
-      ..key = '1'
-      ..value = true
-      ..type = FeatureValueType.BOOLEAN;
+    final data = FeatureState(id: '1', version: 2, key: '1', value: true, type: FeatureValueType.BOOLEAN);
     repo.notify(SSEResultState.feature, data.toJson());
     expect(repo.getFeatureState('1').exists, equals(true));
     repo.shutdown();
@@ -189,12 +179,7 @@ void main() {
     // should emit twice and shut down, even if we filled with features three times
     expectLater(sub, emitsInOrder([emits(anything), emitsDone]));
     repo.notify(SSEResultState.features, _initialFeatures());
-    final data = FeatureState()
-      ..version = 2
-      ..id = '1'
-      ..key = '1'
-      ..value = false
-      ..type = FeatureValueType.BOOLEAN;
+    final data = FeatureState(id: '1', version: 2, key: '1', value: false, type: FeatureValueType.BOOLEAN);
     repo.notify(SSEResultState.feature, data.toJson());
     repo.shutdown();
   });
@@ -208,12 +193,7 @@ void main() {
       () {
     repo.notify(SSEResultState.features, _initialFeatures());
     final copy = repo.getFeatureState('1').copy();
-    var data = FeatureState()
-      ..version = 2
-      ..id = '1'
-      ..key = '1'
-      ..value = true
-      ..type = FeatureValueType.BOOLEAN;
+    final data = FeatureState(id: '1', version: 2, key: '1', value: true, type: FeatureValueType.BOOLEAN);
     repo.notify(SSEResultState.feature, data.toJson());
     expect(copy.booleanValue, equals(false));
     expect(repo.getFeatureState('1').booleanValue, equals(true));
@@ -253,12 +233,7 @@ void main() {
     repo.notify(
         SSEResultState.features, _initialFeatures(version: 2, value: true));
     // now update just the feature
-    final data = FeatureState()
-      ..version = 3
-      ..id = '1'
-      ..key = '1'
-      ..value = true
-      ..type = FeatureValueType.BOOLEAN;
+    final data = FeatureState(id: '1', version: 3, key: '1', value: true, type: FeatureValueType.BOOLEAN);
 
     repo.notify(SSEResultState.feature, data.toJson());
 
@@ -270,12 +245,7 @@ void main() {
     expect(repo.getFeatureState('1').booleanValue, equals(true));
     expect(repo.getFeatureState('1').version, equals(3));
     // but the repo is still in catch mode
-    final data1 = FeatureState()
-      ..version = 4
-      ..id = '1'
-      ..key = '1'
-      ..value = false
-      ..type = FeatureValueType.BOOLEAN;
+    final data1 = FeatureState(id: '1', version: 4, key: '1', value: false, type: FeatureValueType.BOOLEAN);
 
     repo.notify(SSEResultState.feature, data1.toJson());
     expect(repo.getFlag('1'), equals(true));
@@ -293,12 +263,7 @@ void main() {
     expect(repo.availableFeatures, contains('1'));
     expect(repo.getFeatureState('1').booleanValue, equals(false));
     expect(repo.getFeatureState('1').value, equals(false));
-    final data = FeatureState()
-      ..version = 2
-      ..id = '1'
-      ..key = '1'
-      ..value = true
-      ..type = FeatureValueType.BOOLEAN;
+    final data = FeatureState(id: '1', version: 2, key: '1', value: true, type: FeatureValueType.BOOLEAN);
     repo.notify(SSEResultState.deleteFeature, data.toJson());
     expect(repo.getFeatureState('1').exists, isFalse);
   });

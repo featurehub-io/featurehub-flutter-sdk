@@ -19,7 +19,22 @@ class LocalApiClient {
       } else if (value is DateTime) {
         return value.toUtc().toIso8601String();
       }
-      if (value is Environment) {
+      if (value is ApplicationVersionInfo) {
+        return value.toJson();
+      }
+      if (value is BaseRolloutStrategy) {
+        return value.toJson();
+      }
+      if (value is BaseRolloutStrategyAttribute) {
+        return value.toJson();
+      }
+      if (value is FeatureEnvironmentCollection) {
+        return value.toJson();
+      }
+      if (value is FeatureRolloutStrategy) {
+        return value.toJson();
+      }
+      if (value is FeatureRolloutStrategyAttribute) {
         return value.toJson();
       }
       if (value is FeatureState) {
@@ -32,12 +47,6 @@ class LocalApiClient {
         return value.toJson();
       }
       if (value is RoleType) {
-        return value.toJson();
-      }
-      if (value is RolloutStrategy) {
-        return value.toJson();
-      }
-      if (value is RolloutStrategyAttribute) {
         return value.toJson();
       }
       if (value is RolloutStrategyAttributeConditional) {
@@ -96,8 +105,18 @@ class LocalApiClient {
           return value is bool ? value : '$value'.toLowerCase() == 'true';
         case 'double':
           return value is double ? value : double.parse('$value');
-        case 'Environment':
-          return Environment.fromJson(value);
+        case 'ApplicationVersionInfo':
+          return ApplicationVersionInfo.fromJson(value);
+        case 'BaseRolloutStrategy':
+          return BaseRolloutStrategy.fromJson(value);
+        case 'BaseRolloutStrategyAttribute':
+          return BaseRolloutStrategyAttribute.fromJson(value);
+        case 'FeatureEnvironmentCollection':
+          return FeatureEnvironmentCollection.fromJson(value);
+        case 'FeatureRolloutStrategy':
+          return FeatureRolloutStrategy.fromJson(value);
+        case 'FeatureRolloutStrategyAttribute':
+          return FeatureRolloutStrategyAttribute.fromJson(value);
         case 'FeatureState':
           return FeatureState.fromJson(value);
         case 'FeatureStateUpdate':
@@ -106,10 +125,6 @@ class LocalApiClient {
           return FeatureValueTypeExtension.fromJson(value);
         case 'RoleType':
           return RoleTypeExtension.fromJson(value);
-        case 'RolloutStrategy':
-          return RolloutStrategy.fromJson(value);
-        case 'RolloutStrategyAttribute':
-          return RolloutStrategyAttribute.fromJson(value);
         case 'RolloutStrategyAttributeConditional':
           return RolloutStrategyAttributeConditionalExtension.fromJson(value);
         case 'RolloutStrategyFieldType':

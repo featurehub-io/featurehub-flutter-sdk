@@ -1,3 +1,7 @@
+1.4.0
+=====
+* Updated SDK based on current Edge API
+
 1.3.0
 =====
 * Update GitHub repository URL

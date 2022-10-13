@@ -1,10 +1,17 @@
 import 'package:featurehub_client_sdk/featurehub.dart';
 import 'package:flutter/material.dart';
+import 'package:logging/logging.dart';
 
 ClientFeatureRepository? repository;
 FeatureHubConfig? featurehubApi;
 
 void main() {
+  Logger.root.level = Level.WARNING; // defaults to Level.INFO
+  Logger.root.onRecord.listen((record) {
+    // ignore: avoid_print
+    print('${record.level.name}: ${record.time}: ${record.message}');
+  });
+
   repository = ClientFeatureRepository();
 
   // There is an option to check for Readyness in appropriate circumstances.
@@ -18,11 +25,11 @@ void main() {
 
   // Provide host url (Edge FeatureHub server) and server eval api key for an application environment
   featurehubApi = FeatureHubConfig(
-      'http://localhost:8903',
+      'http://localhost:8064/pistachio',
       [
-        'default/96f88200-a164-4d7c-8946-edc38f0b4520/leq9H9qGOJyb57sunVlGKW64w7OAgdhAKHXnNcos'
+        '135f4735-f1ab-4061-b69c-3a3debf2e344/CFArRq8UfTHcaK1fkOAtnKnbrFG0xQMcZuFPfUBh'
       ],
-      repository!);
+      repository!, timeout: 2);
 
   // Request feature updates via Get request
   featurehubApi!.request();
