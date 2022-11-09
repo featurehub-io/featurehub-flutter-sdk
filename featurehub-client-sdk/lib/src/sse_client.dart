@@ -9,6 +9,8 @@ class EventSourceRepositoryListener {
     throw UnimplementedError('This is implemented in the concrete version');
   }
 
+  bool get closed => false;
+
   Future<void> init() {
     throw UnimplementedError('This is implemented in the concrete version');
   }

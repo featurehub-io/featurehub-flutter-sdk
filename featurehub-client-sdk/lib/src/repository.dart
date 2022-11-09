@@ -22,6 +22,9 @@ abstract class FeatureStateHolder {
   int? get version;
 
   Stream<FeatureStateHolder> get featureUpdateStream;
+
+  bool get isSet;
+  bool get isEnabled;
   FeatureStateHolder copy();
 }
 
@@ -67,6 +70,10 @@ class _FeatureStateBaseHolder implements FeatureStateHolder {
 
   @override
   dynamic get value => _value;
+
+  bool get isSet => _value != null;
+
+  bool get isEnabled => _featureState?.type == FeatureValueType.BOOLEAN && _value == true;
 
   set featureState(FeatureState fs) {
     _featureState = fs;
@@ -303,6 +310,14 @@ class ClientFeatureRepository {
   /// if the feature value not set or does not exist
   dynamic getJson(String key) {
     return feature(key).jsonValue;
+  }
+
+  bool isSet(String key) {
+    return feature(key).isSet;
+  }
+
+  bool isEnabled(String key) {
+    return feature(key).isEnabled;
   }
 
   /// @param key The feature key

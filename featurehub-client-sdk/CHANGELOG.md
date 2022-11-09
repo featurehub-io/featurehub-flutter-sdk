@@ -1,3 +1,11 @@
+1.4.0
+=====
+* Support for Fastly with GET requests and SSE requests
+* Support for server side control of polling intervals
+* Support for polling intervals (previous a check always called the server)
+* Support for expired environments
+* Deprecated jaeger interceptor
+
 1.3.1
 =====
 * More robust reconnection in the face of disconnection

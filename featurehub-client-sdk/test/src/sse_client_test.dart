@@ -38,13 +38,13 @@ class SseClientTest extends EventSourceRepositoryListener {
 void main() {
   late PublishSubject<Event> es;
   late _MockRepository rep;
-  // SseClientTest sse;
+  late SseClientTest sse;
 
   setUp(() {
     es = PublishSubject<Event>();
     rep = _MockRepository();
 
-    SseClientTest('', '', rep, es);
+    sse = SseClientTest('', '', rep, es);
   });
 
   test('A proper message is delivered to the repository', () {

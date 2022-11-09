@@ -31,14 +31,15 @@ class EventSourceRepositoryListener {
     }
   }
 
+  bool get closed => es == null;
+
   Future<void> init() async {
     if (!_initialized) {
       _initialized = true;
       await _repository.clientContext.registerChangeHandler((header) async {
         xFeaturehubHeader = header;
-        if (es != null) {
-          es!.close();
-        }
+        es!.close();
+        es = null;
         // ignore: unawaited_futures
         _init();
       });
@@ -61,6 +62,18 @@ class EventSourceRepositoryListener {
         msg.data == null ? null : jsonDecode(msg.data));
   }
 
+  void _configMessage(MessageEvent msg) {
+    _log.fine('Config event ${msg.data}');
+    if (msg.data != null) {
+      final config = jsonDecode(msg.data);
+      if (config['edge.stale']) {
+        close();
+        es?.close();
+        es = null;
+      }
+    }
+  }
+
   Future<void> _init() async {
     _log.fine('Connecting to $_url');
 
@@ -76,6 +89,7 @@ class EventSourceRepositoryListener {
       es!.close();
     });
     EventStreamProvider<MessageEvent>('ack').forTarget(es).listen(_msg);
+    EventStreamProvider<MessageEvent>('config').forTarget(es).listen(_configMessage);
     EventStreamProvider<MessageEvent>('delete_feature')
         .forTarget(es)
         .listen(_msg);

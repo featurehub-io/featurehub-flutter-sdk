@@ -68,6 +68,15 @@ class EventSourceRepositoryListener {
     }
   }
 
+  bool configEvent(Event event) {
+    if (event.data != null && jsonDecode(event.data!)?['edge.stale']) {
+      close();
+      return true;
+    }
+
+    return false;
+  }
+
   Future<void> _init() async {
     _closed = false;
     _log.fine('Connecting to $_url');
@@ -77,7 +86,11 @@ class EventSourceRepositoryListener {
     _subscription = eventStream.listen((event) {
       _log.fine('Event is ${event.event} value ${event.data}');
       final readyness = _repository.readyness;
-      if (event.event != null) {
+      if (event.event == 'config') {
+        if (configEvent(event)) {
+          return;
+        }
+      } else if (event.event != null) {
         _repository.notify(SSEResultStateExtension.fromJson(event.event),
             event.data == null ? null : jsonDecode(event.data!));
       }
