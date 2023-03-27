@@ -30,7 +30,7 @@ void main() async {
 
   final repo = ClientFeatureRepository();
 
-  repo.readynessStream.listen((ready) {
+  repo.readinessStream.listen((ready) {
     // ignore: avoid_print
     print('readyness $ready');
   });

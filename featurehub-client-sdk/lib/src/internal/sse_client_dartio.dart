@@ -4,12 +4,12 @@ import 'dart:convert';
 import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_sse_client/featurehub_sse_client.dart';
 import 'package:logging/logging.dart';
+import 'package:meta/meta.dart';
 
 import 'repository.dart';
 
-final _log = Logger('featurehub_io_eventsource');
-
 /// This listener will stop if we receive a failed message.
+@internal
 class EventSourceRepositoryListener {
   final ClientFeatureRepository _repository;
   StreamSubscription<Event>? _subscription;

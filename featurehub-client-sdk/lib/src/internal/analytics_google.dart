@@ -2,17 +2,19 @@ import 'dart:async';
 
 import 'package:dio/dio.dart';
 import 'package:featurehub_client_api/api.dart';
-import 'package:logging/logging.dart';
+import 'package:meta/meta.dart';
 
+import '../analytics.dart';
+import 'log.dart';
 import 'repository.dart';
 
-final _log = Logger('FeatureHub_GAListener');
 final _GA_KEY = '_gaev_value';
 
 void insertGoogleAnalyticsEvValue(Map<String, Object> other, String gaValue) {
   other[_GA_KEY] = gaValue;
 }
 
+@internal
 class GoogleAnalyticsListener {
   final ClientFeatureRepository _repository;
   final String ua;
@@ -38,7 +40,7 @@ class GoogleAnalyticsListener {
         (event.other != null) ? (event.other!['cid']?.toString() ?? cid) : cid;
 
     if (finalCid == null) {
-      _log.severe('Unable to log GA event as no CID provided.');
+      log.severe('Unable to log GA event as no CID provided.');
       return;
     }
 
@@ -64,13 +66,13 @@ class GoogleAnalyticsListener {
         case null:
           break;
         case FeatureValueType.BOOLEAN:
-          line = f.booleanValue! ? 'on' : 'off';
+          line = f.enabled ? 'on' : 'off';
           break;
         case FeatureValueType.STRING:
-          line = f.stringValue;
+          line = f.string;
           break;
         case FeatureValueType.NUMBER:
-          line = f.numberValue.toString();
+          line = f.number?.toString();
           break;
         case FeatureValueType.JSON:
           line = null;
@@ -90,10 +92,12 @@ class GoogleAnalyticsListener {
   }
 }
 
+@internal
 abstract class GoogleAnalyticsApiClient {
   void postAnalyticBatch(String data);
 }
 
+@internal
 class GoogleAnalyticsDioApiClient implements GoogleAnalyticsApiClient {
   final Dio _dio;
 
@@ -106,7 +110,7 @@ class GoogleAnalyticsDioApiClient implements GoogleAnalyticsApiClient {
             data: data,
             options: Options(contentType: 'application/x-www-form-urlencoded'))
         .catchError((e, s) {
-      _log.severe('Failed to update GA', e, s);
+      log.warning('Failed to update GA', e, s);
     });
   }
 }

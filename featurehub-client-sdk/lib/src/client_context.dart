@@ -1,17 +1,24 @@
 import 'package:featurehub_client_api/api.dart';
+import 'package:featurehub_client_sdk/src/config.dart';
+import 'package:meta/meta.dart';
 
-typedef ClientContextChangedHandler = Future<void> Function(String? header);
+import 'features.dart';
+import 'internal/internal_repository.dart';
 
 class ClientContext {
-  final Map<String, List<String>> _attributes = <String, List<String>>{};
-  final _handlers = <ClientContextChangedHandler>[];
+  @protected
+  final Map<String, List<String>> attributes = <String, List<String>>{};
+  @protected
+  final InternalFeatureRepository repo;
+
+  ClientContext(this.repo);
 
   /// Allows to set User Key context when using rollout strategy with User Key rule.
   /// userKey can be anything that identifies your user, e.g userId, email, etc.
   /// @param userKey
   /// returns [ClientContext]
   ClientContext userKey(String userkey) {
-    _attributes['userkey'] = [userkey];
+    attributes['userkey'] = [userkey];
     return this;
   }
 
@@ -20,7 +27,7 @@ class ClientContext {
   /// @param sessionKey
   /// returns [ClientContext]
   ClientContext sessionKey(String sessionKey) {
-    _attributes['session'] = [sessionKey];
+    attributes['session'] = [sessionKey];
     return this;
   }
 
@@ -28,7 +35,7 @@ class ClientContext {
   /// @param countryName name of the country provided as enum from [StrategyAttributeCountryName]
   /// returns [ClientContext]
   ClientContext country(StrategyAttributeCountryName countryName) {
-    _attributes['country'] = [countryName.name!];
+    attributes['country'] = [countryName.name!];
     return this;
   }
 
@@ -36,7 +43,7 @@ class ClientContext {
   /// @param device name of the device provided as enum from [StrategyAttributeDeviceName]
   /// returns [ClientContext]
   ClientContext device(StrategyAttributeDeviceName device) {
-    _attributes['device'] = [device.name!];
+    attributes['device'] = [device.name!];
     return this;
   }
 
@@ -44,7 +51,7 @@ class ClientContext {
   /// @param platform name of the platform provided as enum from [StrategyAttributePlatformName]
   /// returns [ClientContext]
   ClientContext platform(StrategyAttributePlatformName platform) {
-    _attributes['platform'] = [platform.name!];
+    attributes['platform'] = [platform.name!];
     return this;
   }
 
@@ -52,7 +59,7 @@ class ClientContext {
   /// @param version Semantic version
   /// returns [ClientContext]
   ClientContext version(String version) {
-    _attributes['version'] = [version];
+    attributes['version'] = [version];
     return this;
   }
 
@@ -61,7 +68,7 @@ class ClientContext {
   /// @param value Value of the Custom rule
   /// returns [ClientContext]
   ClientContext attr(String key, String value) {
-    _attributes[key] = [value];
+    attributes[key] = [value];
     return this;
   }
 
@@ -70,47 +77,30 @@ class ClientContext {
   /// @param values Values of the Custom rule
   /// returns [ClientContext]
   ClientContext attrs(key, List<String> values) {
-    _attributes[key] = values;
+    attributes[key] = values;
     return this;
   }
 
   /// Call this method to clear Context
   ClientContext clear() {
-    _attributes.clear();
+    attributes.clear();
     return this;
   }
 
+  FeatureStateHolder feature(String key) => repo.feat(key);
+
+  bool enabled(String key) => feature(key).enabled;
+  bool? flag(String key) => feature(key).flag;
+  bool hasValue(String key) => feature(key).hasValue;
+  bool exists(String key) => feature(key).exists;
+  num? number(String key) => feature(key).number;
+  String? string(String key) => feature(key).string;
+  dynamic json(String key) => feature(key).json;
+
+  Readiness get readiness => repo.readiness;
+
   /// Call this method to rebuild Context
+  @mustBeOverridden
   void build() {
-    final header = generateHeader();
-    for (var handler in _handlers) {
-      handler(header);
-    }
-  }
-
-  String? generateHeader() {
-    if (_attributes.isEmpty) {
-      return null;
-    }
-
-    var params = _attributes.entries.map((entry) {
-      return entry.key + '=' + Uri.encodeQueryComponent(entry.value.join(','));
-    }).toList();
-    params.sort(); // i so hate the sort function
-    return params.join(',');
-  }
-
-  Future<Function> registerChangeHandler(
-      ClientContextChangedHandler handler) async {
-    _handlers.add(
-        handler); // have to do this first in case other code triggers before this callback
-
-    try {
-      await handler(generateHeader());
-      return () => {_handlers.remove(handler)};
-    } catch (e) {
-      _handlers.remove(handler);
-      return () => {};
-    }
   }
 }

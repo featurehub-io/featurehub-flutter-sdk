@@ -3,53 +3,31 @@ import 'dart:convert';
 import 'dart:html';
 
 import 'package:featurehub_client_api/api.dart';
+import 'package:featurehub_client_sdk/src/config.dart';
 import 'package:logging/logging.dart';
+import 'package:meta/meta.dart';
 
-import 'repository.dart';
+import 'internal_repository.dart';
 
 final _log = Logger('featurehub_io_eventsource');
 
-class EventSourceRepositoryListener {
-  final ClientFeatureRepository _repository;
+@internal
+class EventSourceRepositoryListener implements EdgeService {
+  final InternalFeatureRepository _repository;
   StreamSubscription<Event>? _subscription;
   final String _url;
-  bool _initialized = false;
+  bool _connected = false;
   String? xFeaturehubHeader;
+  bool _stopped = false;
   EventSource? es;
 
-  EventSourceRepositoryListener(
-      String url, String apiKey, ClientFeatureRepository repository,
-      {bool doInit = true})
-      : _repository = repository,
-        _url = url + (url.endsWith('/') ? '' : '/') + 'features/' + apiKey {
-    if (apiKey.contains('*')) {
-      throw Exception(
-          'You are using a client evaluated API Key in Dart and this is not supported.');
-    }
-    if (doInit) {
-      init();
-    }
-  }
+  EventSourceRepositoryListener(FeatureHub config, this._repository)
+      : _url = "${config}/features/${config.apiKey}";
 
   bool get closed => es == null;
 
-  Future<void> init() async {
-    if (!_initialized) {
-      _initialized = true;
-      await _repository.clientContext.registerChangeHandler((header) async {
-        xFeaturehubHeader = header;
-        es!.close();
-        es = null;
-        // ignore: unawaited_futures
-        _init();
-      });
-    } else {
-      _repository.clientContext.build();
-    }
-  }
-
   void _done() {
-    _repository.notify(SSEResultState.bye, null);
+    _repository.notify(SSEResultState.bye);
   }
 
   void _error(event) {
@@ -64,38 +42,18 @@ class EventSourceRepositoryListener {
 
   void _configMessage(MessageEvent msg) {
     _log.fine('Config event ${msg.data}');
+
     if (msg.data != null) {
       final config = jsonDecode(msg.data);
       if (config['edge.stale']) {
+        _stopped = true;
         close();
-        es?.close();
-        es = null;
+        _esClose();
       }
     }
   }
 
-  Future<void> _init() async {
-    _log.fine('Connecting to $_url');
-
-    es = connect(_url)
-      ..onError.listen(_error, cancelOnError: true, onDone: _done);
-
-    EventStreamProvider<MessageEvent>('features').forTarget(es).listen(_msg);
-    EventStreamProvider<MessageEvent>('feature').forTarget(es).listen(_msg);
-    EventStreamProvider<MessageEvent>('bye').forTarget(es).listen(_msg);
-    EventStreamProvider<MessageEvent>('failed').forTarget(es).listen((e) {
-      _msg(e);
-      _log.fine('Failed connection to server, disconnecting');
-      es!.close();
-    });
-    EventStreamProvider<MessageEvent>('ack').forTarget(es).listen(_msg);
-    EventStreamProvider<MessageEvent>('config').forTarget(es).listen(_configMessage);
-    EventStreamProvider<MessageEvent>('delete_feature')
-        .forTarget(es)
-        .listen(_msg);
-  }
-
-  EventSource connect(String url) {
+  EventSource _connect(String url) {
     return EventSource(url +
         (xFeaturehubHeader == null ? '' : '?xfeaturehub=$xFeaturehubHeader'));
   }
@@ -106,4 +64,51 @@ class EventSourceRepositoryListener {
       _subscription = null;
     }
   }
+
+  void _esClose() {
+    es?.close();
+    es = null;
+    _connected = false;
+    if (!_stopped) {
+      poll();
+    }
+  }
+
+  @override
+  Future<void> contextChange(String header) async {
+    if (header != xFeaturehubHeader) {
+      xFeaturehubHeader = header;
+      _esClose(); // this will poll immediately
+    }
+  }
+
+  @override
+  Future<void> poll() async {
+    if (_connected) return;
+
+    _log.fine('Connecting to $_url');
+
+    es = _connect(_url)
+      ..onError.listen(_error, cancelOnError: true, onDone: _done);
+
+    EventStreamProvider<MessageEvent>('features').forTarget(es).listen(_msg);
+    EventStreamProvider<MessageEvent>('feature').forTarget(es).listen(_msg);
+    EventStreamProvider<MessageEvent>('bye').forTarget(es).listen(_msg);
+    EventStreamProvider<MessageEvent>('failed').forTarget(es).listen((e) {
+      _msg(e);
+      _log.fine('Failed connection to server, disconnecting');
+      _esClose();
+    });
+    EventStreamProvider<MessageEvent>('ack').forTarget(es).listen(_msg);
+    EventStreamProvider<MessageEvent>('config')
+        .forTarget(es)
+        .listen(_configMessage);
+    EventStreamProvider<MessageEvent>('delete_feature')
+        .forTarget(es)
+        .listen(_msg);
+  }
+
+  @override
+  // TODO: implement stopped
+  bool get stopped => throw UnimplementedError();
 }

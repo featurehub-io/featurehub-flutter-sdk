@@ -22,7 +22,7 @@ void main() {
   }
 
   test('Readyness should fire when features appear', () {
-    final sub = repo.readynessStream;
+    final sub = repo.readinessStream;
 
     repo.notify(SSEResultState.features, _initialFeatures());
 
@@ -30,7 +30,7 @@ void main() {
   });
 
   test('Failure in the stream should indicate failure', () {
-    final sub = repo.readynessStream;
+    final sub = repo.readinessStream;
     repo.notify(SSEResultState.failure, null);
     expect(sub, emits(Readyness.Failed));
   });
@@ -202,7 +202,7 @@ void main() {
   test(
       'Sending bye when not in catch and release will trigger a non ready state',
       () {
-    final sub = repo.readynessStream;
+    final sub = repo.readinessStream;
     expectLater(
         sub,
         emitsInOrder([
