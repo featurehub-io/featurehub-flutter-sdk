@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_client_sdk/featurehub.dart'
-    hide EventSourceRepositoryListener;
+    hide EdgeStreaming;
 import 'package:featurehub_client_sdk/featurehub.dart';
 import 'package:featurehub_sse_client/featurehub_sse_client.dart';
 import 'package:mocktail/mocktail.dart';
@@ -21,7 +21,7 @@ class _MockRepository extends Mock implements ClientFeatureRepository {
   Readyness get readyness => r;
 }
 
-class SseClientTest extends EventSourceRepositoryListener {
+class SseClientTest extends EdgeStreaming {
   final Stream<Event> mockedSource;
 
   SseClientTest(String url, String apiKey, ClientFeatureRepository repository,

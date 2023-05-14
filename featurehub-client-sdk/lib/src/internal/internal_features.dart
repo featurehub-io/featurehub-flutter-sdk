@@ -35,6 +35,8 @@ class FeatureStateBaseHolder implements FeatureStateHolder {
     _listeners = parentState?._listeners ?? BehaviorSubject<FeatureStateHolder>();
   }
 
+  String get id => _topFeatureState()._featureState?.id ?? '';
+
   @override
   String get key => _topFeatureState()._featureState?.key ?? _key;
 

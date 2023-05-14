@@ -1,5 +1,4 @@
 import 'package:featurehub_client_api/api.dart';
-import 'package:featurehub_client_sdk/src/config.dart';
 import 'package:meta/meta.dart';
 
 import 'features.dart';
@@ -90,17 +89,24 @@ class ClientContext {
   FeatureStateHolder feature(String key) => repo.feat(key);
 
   bool enabled(String key) => feature(key).enabled;
+
   bool? flag(String key) => feature(key).flag;
+
   bool hasValue(String key) => feature(key).hasValue;
+
   bool exists(String key) => feature(key).exists;
+
   num? number(String key) => feature(key).number;
+
   String? string(String key) => feature(key).string;
+
   dynamic json(String key) => feature(key).json;
 
   Readiness get readiness => repo.readiness;
 
+  void logAnalyticsEvent(String action, {Map<String, Object>? other}) {}
+
   /// Call this method to rebuild Context
   @mustBeOverridden
-  void build() {
-  }
+  Future<void> build() async {}
 }

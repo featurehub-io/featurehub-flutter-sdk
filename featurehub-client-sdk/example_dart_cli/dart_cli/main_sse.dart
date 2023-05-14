@@ -51,7 +51,7 @@ void main() async {
     });
   });
 
-  final es = EventSourceRepositoryListener(hostUrl, apiKey, repo);
+  final es = EdgeStreaming(hostUrl, apiKey, repo);
 
   // ignore: avoid_print
   print('hit <enter> to cancel');

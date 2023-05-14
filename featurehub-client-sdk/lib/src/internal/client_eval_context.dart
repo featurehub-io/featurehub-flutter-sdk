@@ -5,18 +5,25 @@ import 'package:featurehub_client_sdk/src/internal/internal_context.dart';
 import 'package:featurehub_client_sdk/src/internal/internal_repository.dart';
 import 'package:meta/meta.dart';
 
+import '../config.dart';
 import '../features.dart';
 
 @internal
 class ClientEvalContext extends InternalContext {
-  ClientEvalContext(InternalFeatureRepository repo) : super(repo);
+  final EdgeService edgeService;
+
+  ClientEvalContext(InternalFeatureRepository repo, this.edgeService) : super(repo);
 
   @override
   FeatureStateHolder feature(String key) => repo.feat(key);
 
   @override
-  used(String key, String id, val, FeatureValueType valueType) {
-    // TODO: implement used
-    throw UnimplementedError();
+  Future<void> build() async {
+    await edgeService.poll();
+  }
+
+  @override
+  Future<void> used(String key, String id, dynamic val, FeatureValueType valueType) async {
+    await edgeService.poll();
   }
 }

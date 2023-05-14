@@ -98,7 +98,7 @@ class EdgeRest implements EdgeService {
 
     _ignoreCacheTimeout = false;
 
-    final options = _featureHubHeader == null
+    final options = (_featureHubHeader == null || _featureHubHeader!.isEmpty)
         ? null
         : (Options()
       ..headers = {'x-featurehub': _featureHubHeader});
@@ -114,7 +114,7 @@ class EdgeRest implements EdgeService {
   Future<void> contextChange(String header) async {
     if (header != _featureHubHeader && !_deadConnection) {
       _featureHubHeader = header;
-      _shaOfHeader = sha256.convert(utf8.encode(_featureHubHeader!)).toString();
+      _shaOfHeader = header.isEmpty ? '0' : sha256.convert(utf8.encode(_featureHubHeader!)).toString();
       _ignoreCacheTimeout = true;
 
       await poll();

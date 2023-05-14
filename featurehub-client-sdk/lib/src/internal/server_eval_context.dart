@@ -4,8 +4,12 @@ import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_client_sdk/src/internal/internal_context.dart';
 import 'package:featurehub_client_sdk/src/internal/internal_repository.dart';
 
+import '../config.dart';
+
 class ServerEvalClientContext extends InternalContext {
-  ServerEvalClientContext(InternalFeatureRepository repo) : super(repo);
+  final EdgeService edgeService;
+
+  ServerEvalClientContext(InternalFeatureRepository repo, this.edgeService) : super(repo);
 
   String? generateHeader() {
     if (attributes.isEmpty) {
@@ -20,9 +24,14 @@ class ServerEvalClientContext extends InternalContext {
   }
 
   @override
-  used(String key, String id, val, FeatureValueType valueType) {
-    // TODO: implement used
-    throw UnimplementedError();
+  Future<void> build() async {
+    await edgeService.contextChange(generateHeader() ?? '');
+  }
+
+
+  @override
+  Future<void> used(String key, String id, dynamic val, FeatureValueType valueType) async {
+    await edgeService.poll();
   }
 
 }

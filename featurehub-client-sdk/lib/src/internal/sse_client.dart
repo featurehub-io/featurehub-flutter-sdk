@@ -1,13 +1,11 @@
+import 'package:featurehub_client_sdk/src/internal/internal_repository.dart';
 import 'package:meta/meta.dart';
 
 import '../config.dart';
-import 'repository.dart';
 
 @internal
-class EventSourceRepositoryListener implements EdgeService {
-  EventSourceRepositoryListener(
-      String hostUrl, String apiKey, ClientFeatureRepository repository,
-      {bool doInit = true});
+class EdgeStreaming implements EdgeService {
+  EdgeStreaming(FeatureHub config, InternalFeatureRepository repository);
 
   void close() {
     throw UnimplementedError('This is implemented in the concrete version');

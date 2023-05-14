@@ -1,4 +1,5 @@
 
+import 'client_context.dart';
 import 'features.dart';
 
 abstract class EdgeService {
@@ -12,6 +13,11 @@ abstract class FeatureHub {
   List<String> get apiKeys;
   String get apiKey;
   String get baseUrl;
+  FeatureHub timeout(int seconds);
+  Future<ClientContext> start();
+  ClientContext newContext();
+  FeatureHub streaming();
+  Stream<Readiness> get readinessStream;
 }
 
 abstract class FeatureRepository {

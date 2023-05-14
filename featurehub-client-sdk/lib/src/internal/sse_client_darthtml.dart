@@ -12,7 +12,7 @@ import 'internal_repository.dart';
 final _log = Logger('featurehub_io_eventsource');
 
 @internal
-class EventSourceRepositoryListener implements EdgeService {
+class EdgeStreaming implements EdgeService {
   final InternalFeatureRepository _repository;
   StreamSubscription<Event>? _subscription;
   final String _url;
@@ -21,7 +21,7 @@ class EventSourceRepositoryListener implements EdgeService {
   bool _stopped = false;
   EventSource? es;
 
-  EventSourceRepositoryListener(FeatureHub config, this._repository)
+  EdgeStreaming(FeatureHub config, this._repository)
       : _url = "${config}/features/${config.apiKey}";
 
   bool get closed => es == null;
@@ -34,14 +34,8 @@ class EventSourceRepositoryListener implements EdgeService {
     _log.severe('Lost connection to feature repository ${event ?? 'unknown'}');
   }
 
-  void _msg(MessageEvent msg) {
-    _log.fine('Event is ${msg.type} value ${msg.data}');
-    _repository.notify(SSEResultStateExtension.fromJson(msg.type),
-        msg.data == null ? null : jsonDecode(msg.data));
-  }
-
   void _configMessage(MessageEvent msg) {
-    _log.fine('Config event ${msg.data}');
+    _log.fine('received config event ${msg.data}');
 
     if (msg.data != null) {
       final config = jsonDecode(msg.data);
@@ -91,24 +85,27 @@ class EventSourceRepositoryListener implements EdgeService {
     es = _connect(_url)
       ..onError.listen(_error, cancelOnError: true, onDone: _done);
 
-    EventStreamProvider<MessageEvent>('features').forTarget(es).listen(_msg);
-    EventStreamProvider<MessageEvent>('feature').forTarget(es).listen(_msg);
-    EventStreamProvider<MessageEvent>('bye').forTarget(es).listen(_msg);
+    EventStreamProvider<MessageEvent>('features').forTarget(es).listen((msg) {
+      _repository.updateFeatures(FeatureState.listFromJson(jsonDecode(msg.data)));
+    });
+    EventStreamProvider<MessageEvent>('feature').forTarget(es).listen((msg) {
+      _repository.updateFeature(FeatureState.fromJson(jsonDecode(msg.data)));
+    });
+    EventStreamProvider<MessageEvent>('bye').forTarget(es).listen((msg) {});
     EventStreamProvider<MessageEvent>('failed').forTarget(es).listen((e) {
-      _msg(e);
-      _log.fine('Failed connection to server, disconnecting');
+      _repository.notify(SSEResultState.failure);
+      _log.warning('Failed connection to server, disconnecting');
       _esClose();
     });
-    EventStreamProvider<MessageEvent>('ack').forTarget(es).listen(_msg);
+    EventStreamProvider<MessageEvent>('ack').forTarget(es).listen((msg) {});
     EventStreamProvider<MessageEvent>('config')
         .forTarget(es)
         .listen(_configMessage);
     EventStreamProvider<MessageEvent>('delete_feature')
         .forTarget(es)
-        .listen(_msg);
+        .listen((msg) => _repository.deleteFeature(FeatureState.fromJson(jsonDecode(msg.data))));
   }
 
   @override
-  // TODO: implement stopped
-  bool get stopped => throw UnimplementedError();
+  bool get stopped => _stopped;
 }

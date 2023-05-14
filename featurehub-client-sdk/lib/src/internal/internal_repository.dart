@@ -36,4 +36,6 @@ abstract class InternalFeatureRepository extends FeatureRepository {
 
   // for historic support of Google Analytics
   Set<String> get features;
+
+  Stream<Readiness> get readinessStream;
 }

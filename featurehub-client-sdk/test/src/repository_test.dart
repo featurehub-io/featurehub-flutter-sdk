@@ -21,18 +21,18 @@ void main() {
     ]);
   }
 
-  test('Readyness should fire when features appear', () {
+  test('Readiness should fire when features appear', () {
     final sub = repo.readinessStream;
 
     repo.notify(SSEResultState.features, _initialFeatures());
 
-    expect(sub, emits(Readyness.Ready));
+    expect(sub, emits(Readiness.Ready));
   });
 
   test('Failure in the stream should indicate failure', () {
     final sub = repo.readinessStream;
     repo.notify(SSEResultState.failure, null);
-    expect(sub, emits(Readyness.Failed));
+    expect(sub, emits(Readiness.Failed));
   });
 
   test(
@@ -206,9 +206,9 @@ void main() {
     expectLater(
         sub,
         emitsInOrder([
-          emits(Readyness.NotReady),
-          emits(Readyness.Ready),
-          emits(Readyness.NotReady),
+          emits(Readiness.NotReady),
+          emits(Readiness.Ready),
+          emits(Readiness.NotReady),
           emitsDone
         ]));
     repo.notify(SSEResultState.features, _initialFeatures());
@@ -222,9 +222,9 @@ void main() {
       'We get initial events for features but once catch and release is enabled, it stops until we release.',
       () async {
     final sub = repo.newFeatureStateAvailableStream;
-    expect(repo.readyness, equals(Readyness.NotReady));
+    expect(repo.readyness, equals(Readiness.NotReady));
     repo.notify(SSEResultState.features, _initialFeatures());
-    expect(repo.readyness, equals(Readyness.Ready));
+    expect(repo.readyness, equals(Readiness.Ready));
     repo.catchAndReleaseMode = true;
     // ignore: unawaited_futures
     expectLater(repo.catchAndReleaseMode, true);

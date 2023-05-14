@@ -2,8 +2,8 @@ import 'package:featurehub_client_sdk/featurehub.dart';
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
 
-ClientFeatureRepository? repository;
-FeatureHubConfig? featurehubApi;
+FeatureHub? featurehubApi;
+ClientContext? fhContext;
 
 void main() {
   Logger.root.level = Level.WARNING; // defaults to Level.INFO
@@ -11,8 +11,6 @@ void main() {
     // ignore: avoid_print
     print('${record.level.name}: ${record.time}: ${record.message}');
   });
-
-  repository = ClientFeatureRepository();
 
   // There is an option to check for Readyness in appropriate circumstances.
   // repository!.readynessStream.listen((readyness) {
@@ -28,11 +26,9 @@ void main() {
       'http://localhost:8064/pistachio',
       [
         '135f4735-f1ab-4061-b69c-3a3debf2e344/CFArRq8UfTHcaK1fkOAtnKnbrFG0xQMcZuFPfUBh'
-      ],
-      repository!, timeout: 2);
+      ]).timeout(2);
 
-  // Request feature updates via Get request
-  featurehubApi!.request();
+  featurehubApi?.start().then((value) => fhContext = value);
 
   // Uncomment below if you would like to pass context when using split targeting rules
 
@@ -86,7 +82,7 @@ class _MyHomePageState extends State<MyHomePage> {
         title: Text(widget.title),
       ),
       body: StreamBuilder<FeatureStateHolder>(
-          stream: repository!.feature('CONTAINER_COLOUR').featureUpdateStream,
+          stream: fhContext?.feature('CONTAINER_COLOUR').featureUpdateStream,
           builder: (context, snapshot) {
             return ListView(
               children: [
@@ -105,7 +101,7 @@ class _MyHomePageState extends State<MyHomePage> {
                         ),
                         ElevatedButton(
                             // Request feature updates via Get request
-                            onPressed: () => featurehubApi!.request(),
+                            onPressed: () async => await fhContext?.build(),
                             child: Text('Refresh feature state'))
                       ],
                     ),
@@ -129,8 +125,8 @@ class _MyHomePageState extends State<MyHomePage> {
       return Colors.white;
     }
     // ignore: avoid_print
-    print('colour is ${data.stringValue}');
-    switch (data.stringValue) {
+    print('colour is ${data.string}');
+    switch (data.string) {
       case 'blue':
         return Colors.blue;
       case 'yellow':
