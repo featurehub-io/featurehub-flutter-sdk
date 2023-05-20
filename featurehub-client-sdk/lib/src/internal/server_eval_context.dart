@@ -31,6 +31,7 @@ class ServerEvalClientContext extends InternalContext {
 
   @override
   Future<void> used(String key, String id, dynamic val, FeatureValueType valueType) async {
+    await repo.used(key, id, val, valueType, attributes);
     await edgeService.poll();
   }
 

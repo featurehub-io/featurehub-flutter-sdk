@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:featurehub_client_api/api.dart';
+import 'package:featurehub_client_sdk/featurehub.dart';
 import 'package:featurehub_client_sdk/src/internal/internal_context.dart';
 import 'package:featurehub_client_sdk/src/internal/internal_repository.dart';
 import 'package:meta/meta.dart';
@@ -20,20 +21,26 @@ class _InterceptorHolder {
 @internal
 class ClientFeatureRepository extends InternalFeatureRepository {
   bool _hasReceivedInitialState = false;
+
   // indexed by key
   final Map<String, FeatureStateBaseHolder> _features = {};
   final Map<String, FeatureStateBaseHolder> _featuresById = {};
   Readiness _readiness = Readiness.NotReady;
   final _readinessListeners =
-      BehaviorSubject<Readiness>.seeded(Readiness.NotReady);
+  BehaviorSubject<Readiness>.seeded(Readiness.NotReady);
+  final _analyticsSource = BehaviorSubject<AnalyticsEvent>();
   final _newFeatureStateAvailableListeners =
-      PublishSubject<FeatureRepository>();
+  PublishSubject<FeatureRepository>();
   bool _catchAndReleaseMode = false;
+
   // indexed by id (not key)
   final Map<String?, FeatureState> _catchReleaseStates = {};
   final List<_InterceptorHolder> _featureValueInterceptors = [];
 
+  Stream<AnalyticsEvent> get analyticsStream => _analyticsSource.stream;
+
   Stream<Readiness> get readinessStream => _readinessListeners.stream;
+
   Stream<FeatureRepository> get newFeatureStateAvailableStream =>
       _newFeatureStateAvailableListeners.stream;
 
@@ -50,7 +57,12 @@ class ClientFeatureRepository extends InternalFeatureRepository {
             _broadcastReadynessState();
           }
           break;
-        case SSEResultState.bye: // this is only temporary
+        case SSEResultState.bye: // this is only temporary but needs to be notified in case it becomes permanent for a health check
+          _readiness = Readiness.NotReady;
+          if (!_catchAndReleaseMode) {
+            _broadcastReadynessState();
+          }
+          break;
         case SSEResultState.ack:
         case SSEResultState.features:
         case SSEResultState.feature:
@@ -101,6 +113,7 @@ class ClientFeatureRepository extends InternalFeatureRepository {
   }
 
   bool get catchAndReleaseMode => _catchAndReleaseMode;
+
   set catchAndReleaseMode(bool val) {
     if (_catchAndReleaseMode && !val) {
       release(disableCatchAndRelease: true);
@@ -123,8 +136,8 @@ class ClientFeatureRepository extends InternalFeatureRepository {
 
   /// register an interceptor, indicating whether it is allowed to override
   /// the locking coming from the server
-  void registerFeatureValueInterceptor(
-      bool allowLockOverride, FeatureValueInterceptor fvi) {
+  void registerFeatureValueInterceptor(bool allowLockOverride,
+      FeatureValueInterceptor fvi) {
     _featureValueInterceptors.add(_InterceptorHolder(allowLockOverride, fvi));
   }
 
@@ -142,7 +155,8 @@ class ClientFeatureRepository extends InternalFeatureRepository {
   }
 
   @override
-  AppliedValue apply(List<FeatureRolloutStrategy> strategies, String key, String id, InternalContext? clientContext) {
+  AppliedValue apply(List<FeatureRolloutStrategy> strategies, String key,
+      String id, InternalContext? clientContext) {
     // TODO: implement apply
     throw UnimplementedError();
   }
@@ -197,8 +211,9 @@ class ClientFeatureRepository extends InternalFeatureRepository {
     if (holder == null) {
       holder = FeatureStateBaseHolder(feature.key, this);
     } else {
-      if (holder.version != null && feature.version != -1) { // delete takes precedence with -1
-        if (holder.version! > feature.version! ||
+      if (holder.version != null &&
+          feature.version != -1) { // delete takes precedence with -1
+        if (holder.version > feature.version! ||
             (holder.version == feature.version &&
                 holder.value == feature.value)) {
           return false;
@@ -208,6 +223,7 @@ class ClientFeatureRepository extends InternalFeatureRepository {
 
     holder.featureState = feature;
     _features[feature.key] = holder;
+    _featuresById[feature.id] = holder;
 
     return true;
   }
@@ -230,7 +246,21 @@ class ClientFeatureRepository extends InternalFeatureRepository {
     } else {
       var _updated = false;
 
+      final Map<String,FeatureState> newFeaturesById = Map.fromIterable(features, key: (f) => f.id, value: (f) => f);
       features.forEach((f) => _updated = _featureUpdate(f) || _updated);
+      final toDeleteHolders = <FeatureStateBaseHolder>[];
+      final toDeleteIds = <String>[];
+      _featuresById.values.forEach((f) {
+        var id = f.id;
+        if (!newFeaturesById.containsKey(id)) {
+          toDeleteHolders.add(f);
+          toDeleteIds.add(id);
+        }
+      });
+
+      toDeleteIds.forEach((id) => _featuresById.remove(id) );
+      // we do this directly as the implication is that it has already gone through the catchAndRelease mechanism.
+      toDeleteHolders.forEach((f) => f.delete());
 
       if (!_hasReceivedInitialState) {
         _hasReceivedInitialState = true;
@@ -245,4 +275,22 @@ class ClientFeatureRepository extends InternalFeatureRepository {
 
   @override
   Set<String> get features => _features.keys.toSet();
+
+  void logFeature() {}
+
+  /// allows us to log an analytics event with this set of features
+  void logFeaturesAsCollection({Map<String, String?>? other}) {
+    final featureStateAtCurrentTime =
+    _features.values.where((f) => f.exists).map((f) => f.copy()).map((e) =>
+        FeatureHubAnalyticsValue(e)).toList();
+
+    _analyticsSource.add(AnalyticsFeatureCollection(
+        featureValues: featureStateAtCurrentTime,
+        additionalParams: other ?? const {}));
+  }
+
+  @override
+  Future<void> used(String key, String id, dynamic val, FeatureValueType valueType, Map<String, List<String>> attributes) async {
+    _analyticsSource.add(AnalyticsFeature(FeatureHubAnalyticsValue.byValue(id, key, val, valueType), attributes));
+  }
 }

@@ -35,15 +35,15 @@ class FeatureStateBaseHolder implements FeatureStateHolder {
     _listeners = parentState?._listeners ?? BehaviorSubject<FeatureStateHolder>();
   }
 
-  String get id => _topFeatureState()._featureState?.id ?? '';
+  String get id => _topFeatureStateHolder()._featureState?.id ?? '';
 
   @override
-  String get key => _topFeatureState()._featureState?.key ?? _key;
+  String get key => _topFeatureStateHolder()._featureState?.key ?? _key;
 
   @override
   dynamic get value => _value;
 
-  bool get set => _value != null;
+  bool get set => exists && _getValue(type) != null;
 
   bool get enabled => _featureState?.type == FeatureValueType.BOOLEAN && _value == true;
 
@@ -57,13 +57,12 @@ class FeatureStateBaseHolder implements FeatureStateHolder {
   }
 
   @override
-  int? get version => _featureState?.version;
+  int get version =>  _featureState?.version ?? -1;
+
+  void delete() => _topFeatureStateHolder()._featureState?.version = -1;
 
   @override
-  bool get hasValue => exists && _getValue(type) != null;
-
-  @override
-  bool get exists => _topFeatureState()._featureState?.version != -1;
+  bool get exists => (_topFeatureStateHolder()._featureState?.version ?? -1) != -1;
 
   @override
   bool? get flag => _getValue(FeatureValueType.BOOLEAN) as bool?;
@@ -86,7 +85,7 @@ class FeatureStateBaseHolder implements FeatureStateHolder {
 
   @override
   FeatureStateHolder copy() {
-    return FeatureStateBaseHolder(this.key, this.repo, featureState: this._featureState, parentState: this, ctx: this.clientContext);
+    return FeatureStateBaseHolder(this.key, this.repo, featureState: _topFeatureStateHolder()._featureState?.copyWith(), ctx: this.clientContext);
   }
 
   FeatureStateHolder withContext(InternalContext ctx) {
@@ -105,9 +104,9 @@ class FeatureStateBaseHolder implements FeatureStateHolder {
     return false;
   }
 
-  FeatureStateBaseHolder _topFeatureState() {
+  FeatureStateBaseHolder _topFeatureStateHolder() {
     if (_parentState != null) {
-      return _parentState!._topFeatureState();
+      return _parentState!._topFeatureStateHolder();
     }
 
     return this;
@@ -122,7 +121,7 @@ class FeatureStateBaseHolder implements FeatureStateHolder {
       // do interceptors
     }
 
-    final top = _topFeatureState();
+    final top = _topFeatureStateHolder();
     if (top._featureState == null) {
       return null;
     }
@@ -136,7 +135,7 @@ class FeatureStateBaseHolder implements FeatureStateHolder {
     if (clientContext != null && state.strategies.isNotEmpty) {
       final matched = repo.apply(state.strategies, key, state.id, clientContext);
       if (matched.matched) {
-        return _used(state.key, state.id, InterceptorValue(true, matched.value).cast(type), type);
+        return _used(state.key, state.id, matched.value, type);
       }
     }
 
@@ -150,4 +149,7 @@ class FeatureStateBaseHolder implements FeatureStateHolder {
 
     return val;
   }
+
+  @override
+  String get rawJson => _getValue(FeatureValueType.JSON) as String;
 }

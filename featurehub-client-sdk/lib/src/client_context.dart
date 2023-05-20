@@ -62,21 +62,24 @@ class ClientContext {
     return this;
   }
 
-  /// Allows to set Custom context attribute when using rollout strategy with Custom rule.
-  /// @param key Name of the Custom rule
-  /// @param value Value of the Custom rule
-  /// returns [ClientContext]
-  ClientContext attr(String key, String value) {
-    attributes[key] = [value];
-    return this;
+  List<String>? operator [](String key) {
+    return attributes[key];
   }
 
   /// Allows to set a Custom context attribute with a list of values when using rollout strategy with Custom rule.
   /// @param key Name of the Custom rule
   /// @param values Values of the Custom rule
   /// returns [ClientContext]
-  ClientContext attrs(key, List<String> values) {
-    attributes[key] = values;
+  void operator []=(String key, List<String> value) {
+    attributes[key] = value;
+  }
+
+  /// Allows to set Custom context attribute when using rollout strategy with Custom rule.
+  /// @param key Name of the Custom rule
+  /// @param value Value of the Custom rule
+  /// returns [ClientContext]
+  ClientContext attr(String key, String value) {
+    attributes[key] = [value];
     return this;
   }
 
@@ -88,11 +91,11 @@ class ClientContext {
 
   FeatureStateHolder feature(String key) => repo.feat(key);
 
+  bool set(String key) => feature(key).set;
+
   bool enabled(String key) => feature(key).enabled;
 
   bool? flag(String key) => feature(key).flag;
-
-  bool hasValue(String key) => feature(key).hasValue;
 
   bool exists(String key) => feature(key).exists;
 

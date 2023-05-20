@@ -1,4 +1,5 @@
 import 'package:featurehub_client_api/api.dart';
+import 'package:featurehub_client_sdk/featurehub.dart';
 
 import '../internal/internal_features.dart';
 
@@ -7,20 +8,18 @@ class FeatureHubAnalyticsValue {
   final String key;
   final String? value;
 
-  static String? _convert(FeatureStateBaseHolder f) {
+  static String? _convert(dynamic value, FeatureValueType type) {
     String? line;
 
-    switch (f.type) {
-      case null:
-        break;
+    switch (type) {
       case FeatureValueType.BOOLEAN:
-        line = f.enabled ? 'on' : 'off';
+        line = value == true ? 'on' : 'off';
         break;
       case FeatureValueType.STRING:
-        line = f.string;
+        line = value?.toString();
         break;
       case FeatureValueType.NUMBER:
-        line = f.number?.toString();
+        line = value?.toString();
         break;
       case FeatureValueType.JSON:
         line = null;
@@ -30,10 +29,13 @@ class FeatureHubAnalyticsValue {
     return line;
   }
 
-  FeatureHubAnalyticsValue(FeatureStateBaseHolder holder):
+  FeatureHubAnalyticsValue(FeatureStateHolder holder):
         id = holder.id,
         key = holder.key,
-        value = FeatureHubAnalyticsValue._convert(holder);
+        value = holder.type == null ? null : FeatureHubAnalyticsValue._convert(holder.value, holder.type!);
+
+  FeatureHubAnalyticsValue.byValue(this.id, this.key, dynamic value, FeatureValueType type):
+      this.value = _convert(value, type);
 }
 
 // /// allows us to log an analytics event with this set of features

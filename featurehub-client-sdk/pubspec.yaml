@@ -20,6 +20,7 @@ dependencies:
   featurehub_client_api:
     path: ../featurehub-client-api
 dev_dependencies:
-  mocktail: 0.1.4
+  file: ^6.1.4
+  mocktail: 0.3.0
   test: ^1.23.1
   flutter_lints: ^2.0.1

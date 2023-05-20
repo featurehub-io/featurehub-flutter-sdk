@@ -1,6 +1,7 @@
 
 
 import 'package:featurehub_client_api/api.dart';
+import 'package:featurehub_client_sdk/featurehub.dart';
 import 'package:featurehub_client_sdk/src/config.dart';
 import 'package:featurehub_client_sdk/src/internal/internal_context.dart';
 import 'package:featurehub_client_sdk/src/internal/internal_features.dart';
@@ -36,6 +37,9 @@ abstract class InternalFeatureRepository extends FeatureRepository {
 
   // for historic support of Google Analytics
   Set<String> get features;
-
   Stream<Readiness> get readinessStream;
+  Stream<AnalyticsEvent> get analyticsStream;
+
+  void logFeaturesAsCollection({Map<String, String?>? other});
+  Future<void> used(String key, String id, val, FeatureValueType valueType, Map<String, List<String>> attributes);
 }
