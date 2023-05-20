@@ -1,18 +1,16 @@
 
 
-import 'package:featurehub_client_sdk/src/features.dart';
+import 'package:featurehub_client_sdk/features.dart';
 
 import 'client_context.dart';
-import 'internal/client_eval_context.dart';
-import 'internal/edge_rest.dart';
+import 'src/client_eval_context.dart';
+import 'src/edge_rest.dart';
 
 import 'config.dart';
-import 'internal/internal_repository.dart';
-import 'internal/repository.dart';
-import 'internal/server_eval_context.dart';
-import 'internal/sse_client.dart'
-  if (dart.library.io) 'internal/sse_client_dartio.dart'
-  if (dart.library.html) 'internal/sse_client_darthtml.dart';
+import 'src/internal_repository.dart';
+import 'src/repository.dart';
+import 'src/server_eval_context.dart';
+import 'src/sse_client.dart';
 
 enum EdgeClient { REST, STREAM }
 
@@ -116,4 +114,7 @@ class FeatureHubConfig implements FeatureHub {
 
   @override
   Stream<Readiness> get readinessStream => _repo.readinessStream;
+
+  @override
+  FeatureRepository get repository => _repo;
 }

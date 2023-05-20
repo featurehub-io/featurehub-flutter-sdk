@@ -2,12 +2,9 @@
 
 import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_client_sdk/featurehub.dart';
-import 'package:featurehub_client_sdk/src/config.dart';
-import 'package:featurehub_client_sdk/src/internal/internal_context.dart';
-import 'package:featurehub_client_sdk/src/internal/internal_features.dart';
+import 'package:featurehub_client_sdk/src/internal_context.dart';
+import 'package:featurehub_client_sdk/src/internal_features.dart';
 import 'package:meta/meta.dart';
-
-import '../features.dart';
 
 abstract class AppliedValue {
   final bool matched;

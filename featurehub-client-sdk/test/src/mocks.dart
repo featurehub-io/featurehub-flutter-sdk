@@ -1,8 +1,8 @@
 
 
 import 'package:featurehub_client_sdk/featurehub.dart';
-import 'package:featurehub_client_sdk/src/internal/internal_features.dart';
-import 'package:featurehub_client_sdk/src/internal/internal_repository.dart';
+import 'package:featurehub_client_sdk/src/internal_features.dart';
+import 'package:featurehub_client_sdk/src/internal_repository.dart';
 import 'package:mocktail/mocktail.dart';
 
 class MockFeatureStateBaseHolder extends Mock implements FeatureStateBaseHolder {
@@ -24,4 +24,8 @@ class MockInternalFeatureRepository extends Mock implements InternalFeatureRepos
     when(() => fe.key).thenReturn(key);
     return fe;
   }
+}
+
+class MockFeatureHubConfig extends Mock implements FeatureHubConfig {
+
 }

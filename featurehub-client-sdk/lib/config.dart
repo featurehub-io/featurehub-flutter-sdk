@@ -1,4 +1,5 @@
 
+import 'analytics/analytics_event.dart';
 import 'client_context.dart';
 import 'features.dart';
 
@@ -15,6 +16,7 @@ abstract class FeatureHub {
   String get baseUrl;
   FeatureHub timeout(int seconds);
   Future<ClientContext> start();
+  FeatureRepository get repository;
   ClientContext newContext();
   FeatureHub streaming();
   Stream<Readiness> get readinessStream;
@@ -23,5 +25,8 @@ abstract class FeatureHub {
 abstract class FeatureRepository {
   FeatureStateHolder feature(String key);
   Readiness get readiness;
+  Stream<FeatureRepository> get newFeatureStateAvailableStream;
+  Stream<AnalyticsEvent> get analyticsStream;
+  Iterable<String> get availableFeatures;
 }
 

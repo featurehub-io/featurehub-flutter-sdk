@@ -2,14 +2,12 @@ import 'dart:async';
 
 import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_client_sdk/featurehub.dart';
-import 'package:featurehub_client_sdk/src/internal/internal_context.dart';
-import 'package:featurehub_client_sdk/src/internal/internal_repository.dart';
 import 'package:meta/meta.dart';
 import 'package:rxdart/rxdart.dart';
 
-import '../config.dart';
-import '../features.dart';
+import 'internal_context.dart';
 import 'internal_features.dart';
+import 'internal_repository.dart';
 
 class _InterceptorHolder {
   final bool allowLockOverride;
@@ -29,8 +27,7 @@ class ClientFeatureRepository extends InternalFeatureRepository {
   final _readinessListeners =
   BehaviorSubject<Readiness>.seeded(Readiness.NotReady);
   final _analyticsSource = BehaviorSubject<AnalyticsEvent>();
-  final _newFeatureStateAvailableListeners =
-  PublishSubject<FeatureRepository>();
+  final _newFeatureStateAvailableListeners = PublishSubject<FeatureRepository>();
   bool _catchAndReleaseMode = false;
 
   // indexed by id (not key)
@@ -44,7 +41,7 @@ class ClientFeatureRepository extends InternalFeatureRepository {
   Stream<FeatureRepository> get newFeatureStateAvailableStream =>
       _newFeatureStateAvailableListeners.stream;
 
-  Iterable<String?> get availableFeatures => _features.keys;
+  Iterable<String> get availableFeatures => _features.keys;
 
   /// used by a provider of features to tell the repository about updates to those features.
   /// If you were storing features on your device you could use this to fill the repository before it was connected for example.
@@ -211,8 +208,7 @@ class ClientFeatureRepository extends InternalFeatureRepository {
     if (holder == null) {
       holder = FeatureStateBaseHolder(feature.key, this);
     } else {
-      if (holder.version != null &&
-          feature.version != -1) { // delete takes precedence with -1
+      if (feature.version != -1) { // delete takes precedence with -1
         if (holder.version > feature.version! ||
             (holder.version == feature.version &&
                 holder.value == feature.value)) {

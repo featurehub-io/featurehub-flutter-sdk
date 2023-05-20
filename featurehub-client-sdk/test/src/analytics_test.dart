@@ -1,6 +1,6 @@
 import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_client_sdk/featurehub.dart';
-import 'package:featurehub_client_sdk/src/internal/repository.dart';
+import 'package:featurehub_client_sdk/src/repository.dart';
 import 'package:test/test.dart';
 
 /// We are just testing the analytics stream coming from the repository

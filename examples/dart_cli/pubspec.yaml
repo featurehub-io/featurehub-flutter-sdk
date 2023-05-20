@@ -4,10 +4,10 @@ description: Example client for SDK
 homepage: https://featurehub.io
 publish_to: none
 environment:
-  sdk: '>=2.7.0 <3.0.0'
+  sdk: '>=2.17.0 <3.0.0'
 dependencies:
-  dio: ^4.0.0
+  dio: ^5.0.0
   logging: ^1.0.1
   featurehub_client_sdk:
-    path: ../..
+    path: ../../featurehub-client-sdk
 #dev_dependencies:

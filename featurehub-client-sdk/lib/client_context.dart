@@ -2,7 +2,7 @@ import 'package:featurehub_client_api/api.dart';
 import 'package:meta/meta.dart';
 
 import 'features.dart';
-import 'internal/internal_repository.dart';
+import 'src/internal_repository.dart';
 
 class ClientContext {
   @protected
@@ -111,5 +111,7 @@ class ClientContext {
 
   /// Call this method to rebuild Context
   @mustBeOverridden
-  Future<void> build() async {}
+  Future<ClientContext> build() async {
+    return this;
+  }
 }

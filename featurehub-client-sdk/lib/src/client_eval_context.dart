@@ -1,12 +1,10 @@
 
 
 import 'package:featurehub_client_api/api.dart';
-import 'package:featurehub_client_sdk/src/internal/internal_context.dart';
-import 'package:featurehub_client_sdk/src/internal/internal_repository.dart';
+import 'package:featurehub_client_sdk/featurehub.dart';
+import 'package:featurehub_client_sdk/src/internal_context.dart';
+import 'package:featurehub_client_sdk/src/internal_repository.dart';
 import 'package:meta/meta.dart';
-
-import '../config.dart';
-import '../features.dart';
 
 @internal
 class ClientEvalContext extends InternalContext {
@@ -18,8 +16,9 @@ class ClientEvalContext extends InternalContext {
   FeatureStateHolder feature(String key) => repo.feat(key);
 
   @override
-  Future<void> build() async {
+  Future<ClientContext> build() async {
     await edgeService.poll();
+    return this;
   }
 
   @override

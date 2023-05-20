@@ -10,7 +10,7 @@ class EventCache {
   final bool comparableIds;
   Map<String, List<Event>> _caches = new Map<String, List<Event>>();
 
-  EventCache({this.cacheCapacity, this.comparableIds: true});
+  EventCache({this.cacheCapacity, this.comparableIds = true});
 
   void replay(Sink<Event> sink, String lastEventId, [String channel = ""]) {
     List<Event>? cache = _caches[channel];

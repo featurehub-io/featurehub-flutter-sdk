@@ -1,7 +1,5 @@
 import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_client_sdk/featurehub.dart';
-import 'package:featurehub_client_sdk/src/internal/internal_repository.dart';
-import 'package:featurehub_client_sdk/src/internal/repository.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
 

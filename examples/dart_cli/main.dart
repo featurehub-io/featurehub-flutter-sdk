@@ -1,7 +1,7 @@
 import 'dart:io';
 
-import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_client_sdk/featurehub.dart';
+import 'package:featurehub_client_api/api.dart';
 import 'package:logging/logging.dart';
 
 void main() async {
@@ -19,23 +19,29 @@ void main() async {
     }
   });
 
-  final apiKey = Platform.environment['SERVER_EVAL_API_KEY'];
-  final hostUrl = Platform.environment['FH_HOST_URL'];
+  final apiKey = Platform.environment['FEATUREHUB_SERVER_API_KEY'];
+  final hostUrl = Platform.environment['FEATUREHUB_EDGE_URL'];
 
   if (apiKey == null || hostUrl == null) {
     // ignore: avoid_print
-    print('Please set the SERVER_EVAL_API_KEY and FH_HOST_URL values.');
+    print('Please set the FEATUREHUB_SERVER_API_KEY and FEATUREHUB_EDGE_URL values.');
     exit(-1);
   }
 
-  final repo = ClientFeatureRepository();
+  var config = FeatureHubConfig(hostUrl, [apiKey]).timeout(5);
 
-  repo.readinessStream.listen((ready) {
+  if (Platform.environment['STREAMING'] != null) {
+    config = config.streaming();
+  }
+
+  final repo = config.repository;
+
+  config.readinessStream.listen((ready) {
     // ignore: avoid_print
     print('readyness $ready');
   });
 
-  repo.clientContext
+  final ctx = await config.newContext()
       .userKey(Platform.environment['USERKEY'] ?? 'some_unique_user_id')
       .device(StrategyAttributeDeviceName.desktop)
       .platform(StrategyAttributePlatformName.macos)
@@ -44,18 +50,15 @@ void main() async {
 
   repo.newFeatureStateAvailableStream.listen((event) {
     repo.availableFeatures.forEach((key) {
-      final feature = repo.feature(key);
+      final feature = ctx.feature(key);
+      final repoFeature = repo.feature(key);
       // ignore: avoid_print
       print(
-          'feature $key is of type ${feature.type} and has the value ${feature.value}');
+          'feature $key is of type ${feature.type} and has the value (context) ${feature.value} vs repo ${repoFeature.value}');
     });
   });
-
-  final es = EdgeStreaming(hostUrl, apiKey, repo);
 
   // ignore: avoid_print
   print('hit <enter> to cancel');
   await stdin.first;
-
-  es.close();
 }

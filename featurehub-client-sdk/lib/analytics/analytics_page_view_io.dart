@@ -1,6 +1,7 @@
 
 
-import 'package:featurehub_client_sdk/src/analytics/analytics_event.dart';
+
+import 'analytics_event.dart';
 
 class AnalyticsPageView extends AnalyticsEvent {
   final Map<String, dynamic> additionalParams;

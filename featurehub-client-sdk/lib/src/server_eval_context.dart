@@ -1,10 +1,9 @@
 
 
 import 'package:featurehub_client_api/api.dart';
-import 'package:featurehub_client_sdk/src/internal/internal_context.dart';
-import 'package:featurehub_client_sdk/src/internal/internal_repository.dart';
-
-import '../config.dart';
+import 'package:featurehub_client_sdk/featurehub.dart';
+import 'package:featurehub_client_sdk/src/internal_context.dart';
+import 'package:featurehub_client_sdk/src/internal_repository.dart';
 
 class ServerEvalClientContext extends InternalContext {
   final EdgeService edgeService;
@@ -24,10 +23,10 @@ class ServerEvalClientContext extends InternalContext {
   }
 
   @override
-  Future<void> build() async {
+  Future<ClientContext> build() async {
     await edgeService.contextChange(generateHeader() ?? '');
+    return this;
   }
-
 
   @override
   Future<void> used(String key, String id, dynamic val, FeatureValueType valueType) async {

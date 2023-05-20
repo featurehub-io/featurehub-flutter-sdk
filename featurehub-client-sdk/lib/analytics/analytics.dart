@@ -1,8 +1,6 @@
 import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_client_sdk/featurehub.dart';
 
-import '../internal/internal_features.dart';
-
 class FeatureHubAnalyticsValue {
   final String id;
   final String key;
