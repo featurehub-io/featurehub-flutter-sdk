@@ -1,36 +1,16 @@
-import 'dart:convert';
-
-import 'package:meta/meta.dart';
+import 'package:featurehub_analytics_api/analytics.dart';
 
 import 'analytics.dart';
 
-abstract class AnalyticsEvent {
-  AnalyticsEvent({
-    required this.name,
-    this.userKey
-  });
-
-  final String name;
-  String? userKey;
-
-  /// this is just a convenience function, all data should be made available so any appropriate
-  /// analytics providers can grab the requisite information.
-  Map<String, dynamic> toMap() {
-    return {
-    };
-  }
-}
-
 /// This is the base class for an individual feature being evaluated. Users can descend from
 /// this class and add custom features of their own if they wish.
-class AnalyticsFeature extends AnalyticsEvent {
+class AnalyticsFeature extends AnalyticsEvent implements AnalyticsEventName {
   final Map<String, List<String>> attributes;
   final String? userKey;
   FeatureHubAnalyticsValue feature;
 
   AnalyticsFeature(FeatureHubAnalyticsValue val, this.attributes, this.userKey):
-    this.feature = val,
-    super(name: 'feature');
+    this.feature = val;
 
   @override
   Map<String, dynamic> toMap() {
@@ -43,6 +23,9 @@ class AnalyticsFeature extends AnalyticsEvent {
       ...super.toMap()
     };
   }
+
+  @override
+  String get eventName => 'feature';
 }
 
 /**
@@ -51,7 +34,7 @@ class AnalyticsFeature extends AnalyticsEvent {
  * request the recording of one of these events and it will be filled by the context then the repository
  *
  */
-class AnalyticsCollectionEvent extends AnalyticsEvent {
+class AnalyticsFeaturesCollection extends AnalyticsEvent {
   final Map<String, dynamic> additionalParams;
   /// these represent the attributes from the context of the user
   Map<String, List<String>> attributes = {};
@@ -59,7 +42,7 @@ class AnalyticsCollectionEvent extends AnalyticsEvent {
   /// these represent the features at the time of the collection event
   List<FeatureHubAnalyticsValue> featureValues = [];
 
-  AnalyticsCollectionEvent({this.additionalParams = const {}, String? name}): super(name: name ?? 'feature-collection');
+  AnalyticsFeaturesCollection({this.additionalParams = const {}, String? userKey}): super(userKey: userKey, additionalParams: additionalParams);
 
   // repo + clientContext have filled with data
   void ready() {}
@@ -81,5 +64,5 @@ class AnalyticsProvider {
   AnalyticsFeature createAnalyticsFeatureEvent(FeatureHubAnalyticsValue val, Map<String, List<String>> attributes, String? userKey) => AnalyticsFeature(val, attributes, userKey);
 
   /// This is the event created when "build" is called on the context (server or client).
-  AnalyticsCollectionEvent createAnalyticsCollectionEvent({Map<String, dynamic>? additionalParams, String? name }) => AnalyticsCollectionEvent(additionalParams: additionalParams ?? const {}, name: name);
+  AnalyticsFeaturesCollection createAnalyticsCollectionEvent({Map<String, dynamic>? additionalParams, String? name }) => AnalyticsFeaturesCollection(additionalParams: additionalParams ?? const {});
 }

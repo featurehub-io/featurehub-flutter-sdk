@@ -1,5 +1,4 @@
 import 'package:featurehub_client_api/api.dart';
-import 'package:meta/meta.dart';
 
 
 abstract class FeatureStateHolder {
@@ -57,9 +56,11 @@ class InterceptorValue {
 
   InterceptorValue(this.matched, this.val);
 
-  cast(FeatureValueType expectedType) {
-    // TODO: implement cast
-    throw UnimplementedError();
+  // override this if you wish to be more specific
+  FeatureValueType get inferType {
+    if (val is bool) return FeatureValueType.BOOLEAN;
+    if (val is num) return FeatureValueType.NUMBER;
+    return FeatureValueType.STRING;
   }
 }
 

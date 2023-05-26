@@ -2,7 +2,9 @@ import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_client_sdk/analytics/analytics_event.dart';
 import 'package:meta/meta.dart';
 
+import 'analytics/analytics.dart';
 import 'features.dart';
+import 'src/internal_features.dart';
 import 'src/internal_repository.dart';
 
 class ClientContext {
@@ -90,6 +92,12 @@ class ClientContext {
     return this;
   }
 
+  /// direct setting of values, easier to use in flow-API
+  ClientContext attrs(String key, List<String> value) {
+    attributes[key] = value;
+    return this;
+  }
+
   /// Call this method to clear Context
   ClientContext clear() {
     attributes.clear();
@@ -114,8 +122,23 @@ class ClientContext {
 
   Readiness get readiness => repo.readiness;
 
-  void recordAnalyticsEvent(AnalyticsCollectionEvent analyticsEvent) {
-    analyticsEvent.userKey = analyticsUserKey();
+  AnalyticsFeaturesCollection _fillAnalyticsCollection(AnalyticsFeaturesCollection analytics) {
+    analytics
+      ..attributes = attributes
+      ..featureValues = repo.features.map((key) => feature(key) as FeatureStateBaseHolder).map((f) => FeatureHubAnalyticsValue(f)).toList()
+      ..userKey=analyticsUserKey();
+
+    return analytics;
+  }
+
+  @protected
+  recordRelativeValuesForUser() {
+    repo.recordAnalyticsEvent(
+        _fillAnalyticsCollection(repo.analyticsProvider.createAnalyticsCollectionEvent()));
+  }
+
+  void recordAnalyticsEvent(AnalyticsFeaturesCollection analyticsEvent) {
+    _fillAnalyticsCollection(analyticsEvent);
   }
 
   /// Call this method to rebuild Context

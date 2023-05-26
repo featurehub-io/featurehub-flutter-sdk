@@ -1,0 +1,14 @@
+name: featurehub_analytics_api
+version: 2.0.0
+description: Dart Analytics API for FeatureHub
+repository: https://github.com/featurehub-io/featurehub-flutter-sdk/tree/main/featurehub-analytics-api
+homepage: https://www.featurehub.io
+environment:
+  sdk: '>2.17.0 <3.1.0'
+dependencies:
+  collection: ^1.15.0
+  logging: ^1.0.1
+  meta: ^1.8.0
+dev_dependencies:
+  test: ^1.23.1
+  flutter_lints: ^2.0.1

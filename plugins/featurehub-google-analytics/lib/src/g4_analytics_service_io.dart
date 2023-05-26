@@ -1,6 +1,6 @@
 
 
-import 'package:featurehub_client_sdk/featurehub.dart';
+import 'package:featurehub_analytics_api/analytics.dart';
 import 'g4_analytics_service.dart';
 
 G4AnalyticsService createGoogleAnalytics4Service({

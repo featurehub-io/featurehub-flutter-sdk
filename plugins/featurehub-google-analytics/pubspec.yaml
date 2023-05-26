@@ -8,8 +8,8 @@ environment:
 dependencies:
   dio: '^5.0.1'
   crypto: ^3.0.2
-  featurehub_client_sdk:
-    path: ../../featurehub-client-sdk
+  featurehub_analytics_api:
+    path: ../../featurehub-analytics-api
   collection: ^1.15.0
   logging: ^1.0.1
 dev_dependencies:

@@ -29,3 +29,5 @@ class MockInternalFeatureRepository extends Mock implements InternalFeatureRepos
 class MockFeatureHubConfig extends Mock implements FeatureHubConfig {
 
 }
+
+class MockEdgeService extends Mock implements EdgeService {}

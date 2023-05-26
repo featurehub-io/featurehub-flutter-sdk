@@ -1,6 +1,7 @@
 
-import 'package:featurehub_client_sdk/analytics/analytics_plugin.dart';
+import 'package:featurehub_analytics_api/analytics.dart';
 
+import 'analytics/analytics_adapter.dart';
 import 'analytics/analytics_event.dart';
 import 'client_context.dart';
 import 'features.dart';
@@ -23,7 +24,7 @@ abstract class FeatureHub {
   ClientContext newContext();
   FeatureHub streaming();
   Stream<Readiness> get readinessStream;
-  void recordAnalyticsEvent(AnalyticsCollectionEvent event);
+  void recordAnalyticsEvent(AnalyticsFeaturesCollection event);
 
   void close() {}
 }

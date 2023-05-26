@@ -1,5 +1,6 @@
 
 
+import 'package:featurehub_analytics_api/analytics.dart';
 import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_client_sdk/featurehub.dart';
 import 'package:featurehub_client_sdk/src/internal_context.dart';
@@ -15,7 +16,7 @@ abstract class AppliedValue {
 
 @internal
 abstract class InternalFeatureRepository extends FeatureRepository {
-  void recordAnalyticsEvent(AnalyticsCollectionEvent event);
+  void recordAnalyticsEvent(AnalyticsFeaturesCollection event);
 
   /// there were no features returned for a valid set of API Keys, so repository is ready but empty
   repositoryEmpty();

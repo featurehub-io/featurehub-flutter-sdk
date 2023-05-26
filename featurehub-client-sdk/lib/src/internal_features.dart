@@ -41,7 +41,7 @@ class FeatureStateBaseHolder implements FeatureStateHolder {
   String get key => _topFeatureStateHolder()._featureState?.key ?? _key;
 
   @override
-  dynamic get value => _value;
+  dynamic get value => _getValue(type);
 
   bool get set => exists && _getValue(type) != null;
 
@@ -81,7 +81,7 @@ class FeatureStateBaseHolder implements FeatureStateHolder {
   }
 
   @override
-  FeatureValueType? get type => _featureState!.type;
+  FeatureValueType? get type => _topFeatureStateHolder()._featureState?.type;
 
   @override
   FeatureStateHolder copy() {
@@ -112,16 +112,22 @@ class FeatureStateBaseHolder implements FeatureStateHolder {
     return this;
   }
 
-  dynamic _getValue(FeatureValueType? type) {
+  /// this simply gets the value of this feature without triggering any analytics, it
+  /// is required in the contexts because they gather the values of the features
+  dynamic get analyticsFreeValue => _getValue(type, triggerUsed: false);
+
+  dynamic _getValue(FeatureValueType? type, {bool triggerUsed = true}) {
     if (type == null) {
       return null;
     }
 
-    if (!locked) {
-      // do interceptors
+    final top = _topFeatureStateHolder();
+
+    final interceptor = repo.findInterceptor(key, top._featureState?.l ?? false);
+    if (interceptor != null && interceptor.matched) {
+      return triggerUsed ? _used(top._key, top._featureState?.id ?? top._key, interceptor.val, top._featureState?.type ?? interceptor.inferType) : interceptor.val;
     }
 
-    final top = _topFeatureStateHolder();
     if (top._featureState == null) {
       return null;
     }
@@ -135,14 +141,15 @@ class FeatureStateBaseHolder implements FeatureStateHolder {
     if (clientContext != null && state.strategies.isNotEmpty) {
       final matched = repo.apply(state.strategies, key, state.id, clientContext);
       if (matched.matched) {
-        return _used(state.key, state.id, matched.value, type);
+        return triggerUsed ? _used(state.key, state.id, matched.value, type) : matched.value;
       }
     }
 
-    return _used(state.key, state.id, state.value, type);
+    return triggerUsed ? _used(state.key, state.id, state.value, type) : state.value;
   }
 
   dynamic _used(String featureKey, String featureId, dynamic val, FeatureValueType type) {
+    print("used, ${clientContext != null}");
     if (clientContext != null) {
       clientContext!.used(featureKey, featureId, val, type);
     }

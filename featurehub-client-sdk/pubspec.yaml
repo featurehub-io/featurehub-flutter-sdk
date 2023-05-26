@@ -16,6 +16,8 @@ dependencies:
   logging: ^1.0.1
   rxdart: ^0.27.2
   meta: ^1.8.0
+  featurehub_analytics_api:
+    path: ../featurehub-analytics-api
 #  featurehub_client_api: ^1.5.0
   featurehub_client_api:
     path: ../featurehub-client-api

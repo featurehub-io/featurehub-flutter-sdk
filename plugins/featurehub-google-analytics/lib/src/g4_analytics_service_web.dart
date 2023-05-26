@@ -3,8 +3,8 @@ import 'dart:convert';
 import 'dart:html'; // ignore: avoid_web_libraries_in_flutter
 import 'dart:js' as js; // ignore: avoid_web_libraries_in_flutter
 
+import 'package:featurehub_analytics_api/analytics.dart';
 import 'package:logging/logging.dart';
-import 'package:featurehub_client_sdk/featurehub.dart';
 import 'g4_analytics_service.dart';
 
 final _urlTemplate = Uri.parse('https://www.googletagmanager.com/gtag/js');
@@ -80,20 +80,24 @@ class GoogleAnalytics4ServiceWeb extends G4AnalyticsService {
   Future<void> sendProtected(AnalyticsEvent event) async {
     await _readyCompleter.future;
 
-    final name = analyticNameMapping[event.name];
+    if (event is AnalyticsEventName) {
+      // Google Analytics cannot use event names as a dimension,
+      // so also add the event name as a parameter.
+      final params = {
+        ...defaultEventParameters,
+        _eventNameParam: (event as AnalyticsEventName).eventName,
+        ...event.toMap(),
+      };
 
-    if (name == null) {
-      _logger.severe('Attempted to log analytics event with no mapping ${event.name}');
+      _log('event', [(event as AnalyticsEventName).eventName, params]);
+    } else {
+      // it is actually a set of shared settings which we just set on the context
+      final params = {
+        ...defaultEventParameters,
+        ...event.toMap(),
+      };
+
+      _log('set', [params]);
     }
-
-    // Google Analytics cannot use event names as a dimension,
-    // so also add the event name as a parameter.
-    final params = {
-      ...defaultEventParameters,
-      _eventNameParam: event.name,
-      ...event.toMap(),
-    };
-
-    _log('event', [event.name, params]);
   }
 }

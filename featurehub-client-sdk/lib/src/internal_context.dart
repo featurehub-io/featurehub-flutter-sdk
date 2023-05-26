@@ -15,4 +15,7 @@ abstract class InternalContext  extends ClientContext {
   Future<ClientContext> build() async {
     return this;
   }
+
+  void close() {
+  }
 }

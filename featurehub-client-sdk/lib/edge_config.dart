@@ -1,9 +1,9 @@
 
 
 import 'package:featurehub_client_sdk/analytics/analytics_event.dart';
-import 'package:featurehub_client_sdk/analytics/analytics_plugin.dart';
 import 'package:featurehub_client_sdk/features.dart';
 
+import 'analytics/analytics_adapter.dart';
 import 'client_context.dart';
 import 'src/client_eval_context.dart';
 import 'src/edge_rest.dart';
@@ -145,6 +145,7 @@ class FeatureHubConfig implements FeatureHub {
     _edgeConnections.forEach((ec) => ec.close());
     _edgeConnections.clear();
     _edge = null;
+    _serverEvalClientContext?.close();
     _serverEvalClientContext = null;
   }
 
@@ -158,7 +159,7 @@ class FeatureHubConfig implements FeatureHub {
   }
 
   @override
-  void recordAnalyticsEvent(AnalyticsCollectionEvent event) {
+  void recordAnalyticsEvent(AnalyticsFeaturesCollection event) {
     _repo.recordAnalyticsEvent(event);
   }
 }

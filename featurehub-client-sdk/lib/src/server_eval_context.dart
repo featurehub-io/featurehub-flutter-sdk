@@ -1,4 +1,4 @@
-
+import 'dart:async';
 
 import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_client_sdk/featurehub.dart';
@@ -9,8 +9,13 @@ import 'log.dart';
 
 class ServerEvalClientContext extends InternalContext {
   final EdgeService edgeService;
+  late StreamSubscription<FeatureRepository> featureUpdateStream;
 
-  ServerEvalClientContext(InternalFeatureRepository repo, this.edgeService) : super(repo);
+  ServerEvalClientContext(InternalFeatureRepository repo, this.edgeService) : super(repo) {
+    featureUpdateStream = repo.newFeatureStateAvailableStream.listen((event) {
+      recordRelativeValuesForUser();
+    });
+  }
 
   String? generateHeader() {
     log.finest(("ServerContext - generating header ${attributes}"));
@@ -29,16 +34,17 @@ class ServerEvalClientContext extends InternalContext {
   Future<ClientContext> build() async {
     await edgeService.contextChange(generateHeader() ?? '');
 
-    repo.recordAnalyticsEvent(
-        repo.analyticsProvider.createAnalyticsCollectionEvent()
-          ..attributes = attributes
-          ..userKey=analyticsUserKey());
+    // we may not get any new state but the context changed, so we need to update it
+    recordRelativeValuesForUser();
 
     return this;
   }
 
   @override
-  void recordAnalyticsEvent(AnalyticsCollectionEvent analyticsEvent) {
+  FeatureStateHolder feature(String key) => repo.feat(key).withContext(this);
+
+  @override
+  void recordAnalyticsEvent(AnalyticsFeaturesCollection analyticsEvent) {
     super.recordAnalyticsEvent(analyticsEvent);
 
     repo.recordAnalyticsEvent(analyticsEvent);
@@ -50,4 +56,7 @@ class ServerEvalClientContext extends InternalContext {
     await edgeService.poll();
   }
 
+  void close() {
+    featureUpdateStream.cancel();
+  }
 }

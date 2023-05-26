@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:featurehub_analytics_api/analytics.dart';
 import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_client_sdk/featurehub.dart';
 import 'package:meta/meta.dart';
@@ -287,12 +288,15 @@ class ClientFeatureRepository extends InternalFeatureRepository {
   }
 
   @override
-  void recordAnalyticsEvent(AnalyticsCollectionEvent event) {
-    final featureStateAtCurrentTime =
-    _features.values.where((f) => f.exists).map((f) => f.copy()).map((e) =>
-        FeatureHubAnalyticsValue(e)).toList();
+  void recordAnalyticsEvent(AnalyticsFeaturesCollection event) {
+    if (event.featureValues.isEmpty) {
+      // these ones are context-less
+      final featureStateAtCurrentTime =
+      _features.values.map((e) => FeatureHubAnalyticsValue(e)).toList();
 
-    event.featureValues = featureStateAtCurrentTime;
+      event.featureValues = featureStateAtCurrentTime;
+      event.ready();
+    }
 
     _analyticsSource.add(event);
   }

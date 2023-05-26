@@ -8,5 +8,3 @@ export 'dotenv_override.dart';
 
 export 'analytics/analytics.dart';
 export 'analytics/analytics_event.dart';
-export 'analytics/analytics_page_view.dart';
-export 'analytics/analytics_plugin.dart';

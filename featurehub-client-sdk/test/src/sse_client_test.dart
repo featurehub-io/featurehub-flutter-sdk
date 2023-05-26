@@ -16,9 +16,10 @@ class SseClientTest extends EdgeStreaming {
   bool closed = false;
   bool polled = false;
 
-  SseClientTest(FeatureHubConfig config, MockInternalFeatureRepository repository,
-      Stream<Event> eventSource)
-      : mockedSource = eventSource, super.create(config, repository);
+  SseClientTest(FeatureHubConfig config,
+      MockInternalFeatureRepository repository, Stream<Event> eventSource)
+      : mockedSource = eventSource,
+        super.create(config, repository);
 
   Future<Stream<Event>> connect(String url) async {
     return mockedSource;
@@ -45,28 +46,31 @@ class SseClientTest extends EdgeStreaming {
 }
 
 void main() {
-  late PublishSubject<Event> es;
-  late MockInternalFeatureRepository rep;
-  late FeatureHubConfig config;
-  late SseClientTest sse;
+  group("sse client tests", () {
+    late PublishSubject<Event> es;
+    late MockInternalFeatureRepository rep;
+    late FeatureHubConfig config;
+    late SseClientTest sse;
 
-  setUp(() {
-    es = PublishSubject<Event>();
-    rep = MockInternalFeatureRepository();
-    config = MockFeatureHubConfig();
-    when(() => config.baseUrl).thenReturn('http://localhost');
-    when(() => config.apiKey).thenReturn('1234');
-    sse = SseClientTest(config, rep, es);
-  });
+    setUp(() {
+      es = PublishSubject<Event>();
+      rep = MockInternalFeatureRepository();
+      config = MockFeatureHubConfig();
+      when(() => config.baseUrl).thenReturn('http://localhost');
+      when(() => config.apiKey).thenReturn('1234');
+      sse = SseClientTest(config, rep, es);
+    });
 
-  test('A failure is reported to the repository and the connection is closed', () {
-    sse.process(SSEResultState.failure, null);
-    expect(sse.closed, isTrue);
-    verify(() => rep.notify(SSEResultState.failure)).called(1);
-  });
+    test('A failure is reported to the repository and the connection is closed',
+        () {
+      sse.process(SSEResultState.failure, null);
+      expect(sse.closed, isTrue);
+      verify(() => rep.notify(SSEResultState.failure)).called(1);
+    });
 
-  test('A bye causes the repository to be not-ready', () {
-    sse.process(SSEResultState.bye, null);
-    verify(() => rep.notify(SSEResultState.bye)).called(1);
+    test('A bye causes the repository to be not-ready', () {
+      sse.process(SSEResultState.bye, null);
+      verify(() => rep.notify(SSEResultState.bye)).called(1);
+    });
   });
 }

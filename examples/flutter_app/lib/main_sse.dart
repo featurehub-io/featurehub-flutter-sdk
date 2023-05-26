@@ -1,10 +1,11 @@
 import 'package:featurehub_client_sdk/featurehub.dart';
-import 'package:featurehub_google_analytics_plugin/g4_analytics_service.dart';
+import 'package:featurehub_google_analytics_plugin/featurehub_plugin_g4.dart';
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
 
 late FeatureHub featurehubApi;
 ClientContext? fhContext;
+late G4AnalyticsService g4;
 
 void main() {
   Logger.root.level = Level.ALL; // defaults to Level.INFO
@@ -13,6 +14,8 @@ void main() {
     print('${record.level.name}: ${record.time}: ${record.message}');
   });
 
+  g4 = G4AnalyticsService(measurementId: '', debugMode: true);
+
   // Provide host url (Edge FeatureHub server) and server eval api key for an application environment
   featurehubApi = FeatureHubConfig(
       'http://localhost:8085',
@@ -20,7 +23,7 @@ void main() {
         'ddd28309-7a5d-4e5a-b060-3f02ddd9e771/NTd8uaqslH068AhAa5lOR7nOqzQISVciYuVsE6IV'
       ]).streaming();
 
-  featurehubApi.analyticsAdapter.registerPlugin(G4AnalyticsService(measurementId: '', debugMode: true));
+  featurehubApi.analyticsAdapter.registerPlugin(g4);
 
   featurehubApi.start().then((value) => fhContext = value);
 
@@ -65,7 +68,7 @@ class _MyHomePageState extends State<MyHomePage> {
   int _counter = 0;
 
   void _incrementCounter() {
-    featurehubApi.recordAnalyticsEvent(AnalyticsPageView(title: 'exampleapp'));
+    featurehubApi.recordAnalyticsEvent(g4.pageView(title: 'exampleapp'));
     setState(() {
       _counter++;
     });
