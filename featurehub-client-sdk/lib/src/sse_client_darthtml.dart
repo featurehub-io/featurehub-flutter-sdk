@@ -8,6 +8,7 @@ import 'package:logging/logging.dart';
 import 'package:meta/meta.dart';
 
 import 'internal_repository.dart';
+import 'log.dart';
 
 final _log = Logger('featurehub_io_eventsource');
 
@@ -23,6 +24,7 @@ class WebEdgeStreaming extends EdgeStreaming {
   WebEdgeStreaming(FeatureHub config, InternalFeatureRepository repository): super.create(config, repository);
 
   void _done() {
+    print("got done from error stream");
     repository.notify(SSEResultState.bye);
   }
 
@@ -49,6 +51,7 @@ class WebEdgeStreaming extends EdgeStreaming {
     if (header != xFeaturehubHeader) {
       xFeaturehubHeader = header;
       close();
+      repository.repositoryNotReady();
       if (!stopped) {
         await poll();
       }
@@ -72,7 +75,8 @@ class WebEdgeStreaming extends EdgeStreaming {
     final connectedSource = EventSource(url +
         (xFeaturehubHeader == null ? '' : '?xfeaturehub=$xFeaturehubHeader'));
 
-    _errorStream = connectedSource.onError.listen((error) => process(SSEResultState.failure, null), cancelOnError: true, onDone: _done);
+    _errorStream = connectedSource.onError.listen((error) => log.info("connection failed"), cancelOnError: false, onDone: _done, onError: (e) => print("error $e"));
+    connectedSource.onOpen.listen((event) {print("event is ${event}, ready state is ${connectedSource.readyState}");});
     _es = connectedSource;
 
     _listen('features', (msg) => process(SSEResultState.features, msg.data));

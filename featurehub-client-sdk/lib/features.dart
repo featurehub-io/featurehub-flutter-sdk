@@ -57,7 +57,6 @@ class InterceptorValue {
 
   InterceptorValue(this.matched, this.val);
 
-  @mustBeOverridden
   cast(FeatureValueType expectedType) {
     // TODO: implement cast
     throw UnimplementedError();

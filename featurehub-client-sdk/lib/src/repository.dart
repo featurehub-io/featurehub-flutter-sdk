@@ -29,6 +29,7 @@ class ClientFeatureRepository extends InternalFeatureRepository {
   final _analyticsSource = BehaviorSubject<AnalyticsEvent>();
   final _newFeatureStateAvailableListeners = PublishSubject<FeatureRepository>();
   bool _catchAndReleaseMode = false;
+  AnalyticsProvider analyticsProvider = AnalyticsProvider();
 
   // indexed by id (not key)
   final Map<String?, FeatureState> _catchReleaseStates = {};
@@ -72,7 +73,9 @@ class ClientFeatureRepository extends InternalFeatureRepository {
   }
 
   void _broadcastReadynessState() {
-    _readinessListeners.add(_readiness);
+    if (!_readinessListeners.hasValue || _readinessListeners.value != _readiness ) {
+      _readinessListeners.add(_readiness);
+    }
   }
 
   void _catchUpdatedFeatures(List<FeatureState> features) {
@@ -243,20 +246,10 @@ class ClientFeatureRepository extends InternalFeatureRepository {
       var _updated = false;
 
       final Map<String,FeatureState> newFeaturesById = Map.fromIterable(features, key: (f) => f.id, value: (f) => f);
-      features.forEach((f) => _updated = _featureUpdate(f) || _updated);
-      final toDeleteHolders = <FeatureStateBaseHolder>[];
-      final toDeleteIds = <String>[];
-      _featuresById.values.forEach((f) {
-        var id = f.id;
-        if (!newFeaturesById.containsKey(id)) {
-          toDeleteHolders.add(f);
-          toDeleteIds.add(id);
-        }
-      });
 
-      toDeleteIds.forEach((id) => _featuresById.remove(id) );
-      // we do this directly as the implication is that it has already gone through the catchAndRelease mechanism.
-      toDeleteHolders.forEach((f) => f.delete());
+      features.forEach((f) => _updated = _featureUpdate(f) || _updated);
+
+      _removeDeletedFeatures(newFeaturesById);
 
       if (!_hasReceivedInitialState) {
         _hasReceivedInitialState = true;
@@ -269,24 +262,43 @@ class ClientFeatureRepository extends InternalFeatureRepository {
     }
   }
 
+  void _removeDeletedFeatures(Map<String, FeatureState> newFeaturesById) {
+    final toDeleteHolders = <FeatureStateBaseHolder>[];
+    final toDeleteIds = <String>[];
+    _featuresById.values.forEach((f) {
+      var id = f.id;
+      if (!newFeaturesById.containsKey(id)) {
+        toDeleteHolders.add(f);
+        toDeleteIds.add(id);
+      }
+    });
+
+    toDeleteIds.forEach((id) => _featuresById.remove(id) );
+    // we do this directly as the implication is that it has already gone through the catchAndRelease mechanism.
+    toDeleteHolders.forEach((f) => f.delete());
+  }
+
   @override
   Set<String> get features => _features.keys.toSet();
 
-  void logFeature() {}
+  @override
+  Future<void> used(String key, String id, dynamic val, FeatureValueType valueType, Map<String, List<String>> attributes, String? analyticsUserKey) async {
+    _analyticsSource.add(analyticsProvider.createAnalyticsFeatureEvent(FeatureHubAnalyticsValue.byValue(id, key, val, valueType), attributes, analyticsUserKey));
+  }
 
-  /// allows us to log an analytics event with this set of features
-  void logFeaturesAsCollection({Map<String, String?>? other}) {
+  @override
+  void recordAnalyticsEvent(AnalyticsCollectionEvent event) {
     final featureStateAtCurrentTime =
     _features.values.where((f) => f.exists).map((f) => f.copy()).map((e) =>
         FeatureHubAnalyticsValue(e)).toList();
 
-    _analyticsSource.add(AnalyticsFeatureCollection(
-        featureValues: featureStateAtCurrentTime,
-        additionalParams: other ?? const {}));
+    event.featureValues = featureStateAtCurrentTime;
+
+    _analyticsSource.add(event);
   }
 
   @override
-  Future<void> used(String key, String id, dynamic val, FeatureValueType valueType, Map<String, List<String>> attributes) async {
-    _analyticsSource.add(AnalyticsFeature(FeatureHubAnalyticsValue.byValue(id, key, val, valueType), attributes));
+  void registerAnalyticsProvider(AnalyticsProvider provider) {
+    analyticsProvider = provider;
   }
 }

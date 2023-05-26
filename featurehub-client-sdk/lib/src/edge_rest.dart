@@ -103,6 +103,7 @@ class EdgeRest implements EdgeService {
         : (Options()
       ..headers = {'x-featurehub': _featureHubHeader});
 
+    log.finest("requesting REST api ${config.baseUrl} : ${config.apiKeys}, sha: ${_shaOfHeader},  headers: ${_featureHubHeader}");
     // added to break any caching if we change the header on the client side
     final response = await _api.apiDelegate
         .getFeatureStates(config.apiKeys, options: options, contextSha: _shaOfHeader);
@@ -114,11 +115,13 @@ class EdgeRest implements EdgeService {
   Future<void> contextChange(String header) async {
     if (header != _featureHubHeader && !_deadConnection) {
       _featureHubHeader = header;
-      _shaOfHeader = header.isEmpty ? '0' : sha256.convert(utf8.encode(_featureHubHeader!)).toString();
+      _shaOfHeader =
+      header.isEmpty ? '0' : sha256.convert(utf8.encode(_featureHubHeader!))
+          .toString();
       _ignoreCacheTimeout = true;
-
-      await poll();
     }
+
+    await poll();
   }
 
   @override

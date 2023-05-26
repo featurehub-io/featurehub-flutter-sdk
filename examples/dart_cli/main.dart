@@ -4,7 +4,7 @@ import 'package:featurehub_client_sdk/featurehub.dart';
 import 'package:featurehub_client_api/api.dart';
 import 'package:logging/logging.dart';
 
-void main() async {
+_logging() {
   Logger.root.level = Level.ALL; // defaults to Level.INFO
   Logger.root.onRecord.listen((record) {
     // ignore: avoid_print
@@ -18,6 +18,10 @@ void main() async {
       print('stackTrace:${record.stackTrace}');
     }
   });
+}
+
+void main() async {
+  _logging();
 
   final apiKey = Platform.environment['FEATUREHUB_SERVER_API_KEY'];
   final hostUrl = Platform.environment['FEATUREHUB_EDGE_URL'];
@@ -36,12 +40,23 @@ void main() async {
 
   final repo = config.repository;
 
+  ClientContext? ctx;
+
   config.readinessStream.listen((ready) {
     // ignore: avoid_print
     print('readyness $ready');
+    if (ctx != null) {
+      repo.availableFeatures.forEach((key) {
+        final feature = ctx!.feature(key);
+        final repoFeature = repo.feature(key);
+        // ignore: avoid_print
+        print(
+            'feature $key is of type ${feature.type} and has the value (context) ${feature.value} vs repo ${repoFeature.value}');
+      });
+    }
   });
 
-  final ctx = await config.newContext()
+  ctx = await config.newContext()
       .userKey(Platform.environment['USERKEY'] ?? 'some_unique_user_id')
       .device(StrategyAttributeDeviceName.desktop)
       .platform(StrategyAttributePlatformName.macos)
@@ -50,7 +65,7 @@ void main() async {
 
   repo.newFeatureStateAvailableStream.listen((event) {
     repo.availableFeatures.forEach((key) {
-      final feature = ctx.feature(key);
+      final feature = ctx!.feature(key);
       final repoFeature = repo.feature(key);
       // ignore: avoid_print
       print(
@@ -61,4 +76,5 @@ void main() async {
   // ignore: avoid_print
   print('hit <enter> to cancel');
   await stdin.first;
+  config.close();
 }

@@ -6,33 +6,24 @@ FeatureHub? featurehubApi;
 ClientContext? fhContext;
 
 void main() {
-  Logger.root.level = Level.WARNING; // defaults to Level.INFO
+  Logger.root.level = Level.ALL; // defaults to Level.INFO
   Logger.root.onRecord.listen((record) {
     // ignore: avoid_print
     print('${record.level.name}: ${record.time}: ${record.message}');
   });
 
-  // There is an option to check for Readyness in appropriate circumstances.
-  // repository!.readynessStream.listen((readyness) {
-  //   if (readyness == Readyness.Ready) {
-  //     //do something
-  //   }
-  //   else {
-  //     //do something else
-  //   }
-
   // Provide host url (Edge FeatureHub server) and server eval api key for an application environment
   featurehubApi = FeatureHubConfig(
-      'http://localhost:8064/pistachio',
+      'http://localhost:8085',
       [
-        '135f4735-f1ab-4061-b69c-3a3debf2e344/CFArRq8UfTHcaK1fkOAtnKnbrFG0xQMcZuFPfUBh'
-      ]).timeout(2);
+        'ddd28309-7a5d-4e5a-b060-3f02ddd9e771/NTd8uaqslH068AhAa5lOR7nOqzQISVciYuVsE6IV'
+      ]).timeout(10);
 
   featurehubApi?.start().then((value) => fhContext = value);
 
   // Uncomment below if you would like to pass context when using split targeting rules
 
-  // repository!.clientContext
+  // featurehubApi!.newContext()
   //     .userKey('susanna')
   //     .device(StrategyAttributeDeviceName.desktop)
   //     .platform(StrategyAttributePlatformName.macos)
@@ -44,15 +35,17 @@ void main() {
 }
 
 class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
+      title: 'UseBased Demo',
       theme: ThemeData(
         primarySwatch: Colors.blue,
         visualDensity: VisualDensity.adaptivePlatformDensity,
       ),
-      home: MyHomePage(title: 'Flutter Demo Home Page'),
+      home: MyHomePage(title: 'Will refresh only on use'),
     );
   }
 }
@@ -60,7 +53,7 @@ class MyApp extends StatelessWidget {
 class MyHomePage extends StatefulWidget {
   final String title;
 
-  MyHomePage({Key? key, required this.title}) : super(key: key);
+  const MyHomePage({Key? key, required this.title}) : super(key: key);
 
   @override
   _MyHomePageState createState() => _MyHomePageState();
@@ -82,7 +75,7 @@ class _MyHomePageState extends State<MyHomePage> {
         title: Text(widget.title),
       ),
       body: StreamBuilder<FeatureStateHolder>(
-          stream: fhContext?.feature('CONTAINER_COLOUR').featureUpdateStream,
+          stream: fhContext?.feature('text_colour').featureUpdateStream,
           builder: (context, snapshot) {
             return ListView(
               children: [
@@ -97,12 +90,12 @@ class _MyHomePageState extends State<MyHomePage> {
                         ),
                         Text(
                           '$_counter',
-                          style: Theme.of(context).textTheme.headline4,
+                          style: Theme.of(context).textTheme.headlineMedium,
                         ),
                         ElevatedButton(
                             // Request feature updates via Get request
                             onPressed: () async => await fhContext?.build(),
-                            child: Text('Refresh feature state'))
+                            child: Text('Refresh feature state (at most every 10 seconds)'))
                       ],
                     ),
                   ),
@@ -137,6 +130,8 @@ class _MyHomePageState extends State<MyHomePage> {
         return Colors.green;
       case 'red':
         return Colors.red;
+      case 'orange':
+        return Colors.orange;
       default:
         return Colors.white;
     }

@@ -1,4 +1,5 @@
 import 'package:featurehub_client_api/api.dart';
+import 'package:featurehub_client_sdk/analytics/analytics_event.dart';
 import 'package:meta/meta.dart';
 
 import 'features.dart';
@@ -28,6 +29,12 @@ class ClientContext {
   ClientContext sessionKey(String sessionKey) {
     attributes['session'] = [sessionKey];
     return this;
+  }
+
+  String? getAttr(String key) => attributes.containsKey(key) ? attributes[key]![0] : null;
+
+  String? analyticsUserKey() {
+    return getAttr('session') ?? getAttr('userkey') ?? null;
   }
 
   /// Allows to set Country context when using rollout strategy with Country rule.
@@ -107,10 +114,11 @@ class ClientContext {
 
   Readiness get readiness => repo.readiness;
 
-  void logAnalyticsEvent(String action, {Map<String, Object>? other}) {}
+  void recordAnalyticsEvent(AnalyticsCollectionEvent analyticsEvent) {
+    analyticsEvent.userKey = analyticsUserKey();
+  }
 
   /// Call this method to rebuild Context
-  @mustBeOverridden
   Future<ClientContext> build() async {
     return this;
   }

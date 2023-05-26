@@ -1,5 +1,7 @@
 
+import 'dart:async';
 import 'dart:collection';
+import 'package:featurehub_client_sdk/config.dart';
 import 'package:meta/meta.dart';
 import 'analytics_event.dart';
 
@@ -34,3 +36,24 @@ abstract class FeatureHubAnalyticsPlugin {
     sendProtected(event);
   }
 }
+
+class AnalyticsAdapter {
+  List<FeatureHubAnalyticsPlugin> _plugins = [];
+  FeatureRepository _repository;
+  late StreamSubscription<AnalyticsEvent> _analyticsSub;
+
+  AnalyticsAdapter(this._repository) {
+    _analyticsSub = this._repository.analyticsStream.listen((event) {
+      _plugins.forEach((p) => p.send(event));
+    });
+  }
+
+  void close() {
+    _analyticsSub.cancel();
+  }
+
+  registerPlugin(FeatureHubAnalyticsPlugin plugin) {
+    _plugins.add(plugin);
+  }
+}
+

@@ -3,7 +3,7 @@
 
 import 'analytics_event.dart';
 
-class AnalyticsPageView extends AnalyticsEvent {
+class AnalyticsPageView extends AnalyticsCollectionEvent {
   final Map<String, dynamic> additionalParams;
   final String title;
 

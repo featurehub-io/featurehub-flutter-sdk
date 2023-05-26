@@ -1,66 +1,85 @@
-//
+import 'dart:convert';
+
+import 'package:meta/meta.dart';
 
 import 'analytics.dart';
 
 abstract class AnalyticsEvent {
-  const AnalyticsEvent({
+  AnalyticsEvent({
     required this.name,
+    this.userKey
   });
 
   final String name;
+  String? userKey;
 
+  /// this is just a convenience function, all data should be made available so any appropriate
+  /// analytics providers can grab the requisite information.
   Map<String, dynamic> toMap() {
-    return {};
+    return {
+    };
   }
 }
 
-/// This maps a feature evaluated in a context into an analytics event.
-/// It is up to the analytics plugin to filter out fields that shouldn't be included.
+/// This is the base class for an individual feature being evaluated. Users can descend from
+/// this class and add custom features of their own if they wish.
 class AnalyticsFeature extends AnalyticsEvent {
   final Map<String, List<String>> attributes;
-  final String key;
-  final String? value;
-  final String id;
+  final String? userKey;
+  FeatureHubAnalyticsValue feature;
 
-  AnalyticsFeature(FeatureHubAnalyticsValue val, this.attributes):
-    this.key = val.key,
-    this.value = val.value,
-    this.id = val.id,
+  AnalyticsFeature(FeatureHubAnalyticsValue val, this.attributes, this.userKey):
+    this.feature = val,
     super(name: 'feature');
 
   @override
   Map<String, dynamic> toMap() {
     return {
-      'feature': key,
-      'value': value,
-      'id': id,
+      'feature': feature.key,
+      'value': feature.value,
+      'id': feature.id,
       if (attributes.length > 0)
-        'attributes': attributes,
+        ...attributes,
       ...super.toMap()
     };
   }
-
 }
 
 /**
- * This represents a collection of feature states that are passed to the analytics provider
+ * This represents a collection of feature states that are passed to the analytics provider. It is
+ * triggered when there is an update for one or more features or contexts from the user. Something can
+ * request the recording of one of these events and it will be filled by the context then the repository
+ *
  */
-class AnalyticsFeatureCollection extends AnalyticsEvent {
+class AnalyticsCollectionEvent extends AnalyticsEvent {
   final Map<String, dynamic> additionalParams;
-  late Map<String, dynamic> featureValuePairs;
-  final List<FeatureHubAnalyticsValue> featureValues; // ensure this data is visible
+  /// these represent the attributes from the context of the user
+  Map<String, List<String>> attributes = {};
 
-  AnalyticsFeatureCollection({required List<FeatureHubAnalyticsValue> this.featureValues, this.additionalParams = const {}, }): super(name: 'featurehub-collection') {
-    featureValuePairs =  Map.fromIterable(this.featureValues, key: (e) => e.key, value: (e) => {'value': e.value, 'id': e.id});
-  }
+  /// these represent the features at the time of the collection event
+  List<FeatureHubAnalyticsValue> featureValues = [];
+
+  AnalyticsCollectionEvent({this.additionalParams = const {}, String? name}): super(name: name ?? 'feature-collection');
+
+  // repo + clientContext have filled with data
+  void ready() {}
 
   @override
   Map<String, dynamic> toMap() {
     return {
-      'keys': featureValues.map((e) => e.key),
-      ...featureValuePairs,
+      if (featureValues.isNotEmpty)
+        ...Map<String, dynamic>.fromIterable(featureValues, key: (e) => e.key, value: (e) => e.value),
       ...additionalParams,
       ...super.toMap()
     };
   }
+}
+
+/// use this as an interface and create your own to override the events
+class AnalyticsProvider {
+  /// This is the event created when an individual feature is used or evaluated within a context
+  AnalyticsFeature createAnalyticsFeatureEvent(FeatureHubAnalyticsValue val, Map<String, List<String>> attributes, String? userKey) => AnalyticsFeature(val, attributes, userKey);
+
+  /// This is the event created when "build" is called on the context (server or client).
+  AnalyticsCollectionEvent createAnalyticsCollectionEvent({Map<String, dynamic>? additionalParams, String? name }) => AnalyticsCollectionEvent(additionalParams: additionalParams ?? const {}, name: name);
 }

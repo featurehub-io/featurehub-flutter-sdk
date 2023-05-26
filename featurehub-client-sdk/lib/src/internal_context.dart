@@ -12,7 +12,6 @@ abstract class InternalContext  extends ClientContext {
   Future<void> used(String key, String id, dynamic val, FeatureValueType valueType);
 
   /// Call this method to rebuild Context
-  @mustBeOverridden
   Future<ClientContext> build() async {
     return this;
   }

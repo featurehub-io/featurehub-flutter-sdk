@@ -34,6 +34,14 @@ class FeatureHubAnalyticsValue {
 
   FeatureHubAnalyticsValue.byValue(this.id, this.key, dynamic value, FeatureValueType type):
       this.value = _convert(value, type);
+
+  static Map<String, dynamic> toJson(FeatureHubAnalyticsValue val) {
+    return {
+      'id': val.id,
+      'feature': val.key,
+      'value': val.value
+    };
+  }
 }
 
 // /// allows us to log an analytics event with this set of features

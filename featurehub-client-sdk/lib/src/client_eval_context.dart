@@ -5,6 +5,7 @@ import 'package:featurehub_client_sdk/featurehub.dart';
 import 'package:featurehub_client_sdk/src/internal_context.dart';
 import 'package:featurehub_client_sdk/src/internal_repository.dart';
 import 'package:meta/meta.dart';
+import 'log.dart';
 
 @internal
 class ClientEvalContext extends InternalContext {
@@ -17,13 +18,18 @@ class ClientEvalContext extends InternalContext {
 
   @override
   Future<ClientContext> build() async {
+    log.fine('SSE: client eval context poll');
     await edgeService.poll();
+    repo.recordAnalyticsEvent(
+        repo.analyticsProvider.createAnalyticsCollectionEvent()
+          ..attributes = attributes
+          ..userKey=analyticsUserKey());
     return this;
   }
 
   @override
   Future<void> used(String key, String id, dynamic val, FeatureValueType valueType) async {
-    await repo.used(key, id, val, valueType, attributes);
+    await repo.used(key, id, val, valueType, attributes, analyticsUserKey());
     await edgeService.poll();
   }
 }

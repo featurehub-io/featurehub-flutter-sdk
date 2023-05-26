@@ -8,7 +8,8 @@ import 'g4_analytics_service_io.dart'
 abstract class G4AnalyticsService extends FeatureHubAnalyticsPlugin {
   factory G4AnalyticsService({
     String? measurementId,
-    String? apiKey
+    String? apiKey,
+    bool  debugMode = false
   }) =>
     createGoogleAnalytics4Service(measurementId: measurementId, apiKey: apiKey); // platform specific func
 

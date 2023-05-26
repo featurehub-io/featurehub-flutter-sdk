@@ -17,35 +17,42 @@ var _logger = Logger("google-tag");
 
 G4AnalyticsService createGoogleAnalytics4Service({
   String? measurementId,
-  String? apiKey
+  String? apiKey,
+  bool  debugMode = false
 }) =>
-    GoogleAnalytics4ServiceWeb(measurementId: measurementId);
+    GoogleAnalytics4ServiceWeb(measurementId: measurementId, debugMode: debugMode);
 
 /// Submits data to a Google Analytics 4 property using JavaScript.
 class GoogleAnalytics4ServiceWeb extends G4AnalyticsService {
   final String? measurementId;
   final _readyCompleter = Completer<void>();
+  final bool debugMode;
 
   GoogleAnalytics4ServiceWeb({
     required this.measurementId,
+    required this.debugMode
   }) : super.create() {
     if (this.measurementId != null)
       _loadGoogleJs();
   }
 
   void _loadGoogleJs() {
-    // Replicating the JS from the installation manual for websites.
-    _evalJs('window.dataLayer = window.dataLayer || [];');
-    _evalJs('window.$_function = function () { dataLayer.push(arguments); }');
-    _logJsDate();
-    _logConfig();
-
     final url = _urlTemplate.replace(queryParameters: {'id': measurementId});
-    final element = document.createElement('script') as ScriptElement;
-    element.async = true;
-    element.src = url.toString(); // ignore: unsafe_html
-    element.onLoad.listen(_readyCompleter.complete);
-    document.head!.append(element);
+    final gtagSrc = url.toString();
+
+    if (document.querySelectorAll("head script[src='${gtagSrc}']").isEmpty) {
+      // Replicating the JS from the installation manual for websites.
+      _evalJs('window.dataLayer = window.dataLayer || [];');
+      _evalJs('window.$_function = function () { dataLayer.push(arguments); }');
+      _logJsDate();
+      _logConfig();
+
+      final element = document.createElement('script') as ScriptElement;
+      element.async = true;
+      element.src = gtagSrc; // ignore: unsafe_html
+      element.onLoad.listen(_readyCompleter.complete);
+      document.head!.append(element);
+    }
   }
 
   static dynamic _evalJs(String code) {
@@ -58,7 +65,7 @@ class GoogleAnalytics4ServiceWeb extends G4AnalyticsService {
   }
 
   void _logConfig() {
-    _log('config', [measurementId]);
+    _log('config', [measurementId, { 'debug_mode':  debugMode }] );
   }
 
   void _log(String command, List<Object?> arguments) {

@@ -1,5 +1,7 @@
 
 
+import 'package:featurehub_client_sdk/analytics/analytics_event.dart';
+import 'package:featurehub_client_sdk/analytics/analytics_plugin.dart';
 import 'package:featurehub_client_sdk/features.dart';
 
 import 'client_context.dart';
@@ -8,6 +10,7 @@ import 'src/edge_rest.dart';
 
 import 'config.dart';
 import 'src/internal_repository.dart';
+import 'src/log.dart';
 import 'src/repository.dart';
 import 'src/server_eval_context.dart';
 import 'src/sse_client.dart';
@@ -22,6 +25,8 @@ class FeatureHubConfig implements FeatureHub {
   InternalFeatureRepository _repo;
   EdgeService? _edge;
   int _timeout = 300;
+  List<EdgeService> _edgeConnections = [];
+  AnalyticsAdapter? _analyticsAdapter;
 
   FeatureHubConfig(this._featurehubUrl, this._apiKeys) : _repo = ClientFeatureRepository() {
     if (_apiKeys.isEmpty) {
@@ -54,6 +59,7 @@ class FeatureHubConfig implements FeatureHub {
       throw Exception("FeatureHub SaaS does not supported streaming for server side evaluation, please use REST");
     }
 
+    log.fine("SSE: ${_clientEvaluated}");
     if (!_clientEvaluated) {
       if (_serverEvalClientContext != null) {
         return _serverEvalClientContext!;
@@ -61,6 +67,8 @@ class FeatureHubConfig implements FeatureHub {
 
       // server contexts need a connection each
       _serverEvalClientContext = ServerEvalClientContext(_repo, _createEdgeService());
+
+      return _serverEvalClientContext!;
     }
 
     // client contexts share a single connection
@@ -76,11 +84,9 @@ class FeatureHubConfig implements FeatureHub {
   }
 
   EdgeService _createEdgeService() {
-    if (client == EdgeClient.REST) {
-      return EdgeRest(this, _repo, timeout: _timeout);
-    }
-
-    return EdgeStreaming(this, _repo);
+    final edge = (client == EdgeClient.REST) ? EdgeRest(this, _repo, timeout: _timeout) : EdgeStreaming(this, _repo);
+    _edgeConnections.add(edge);
+    return edge;
   }
 
   @override
@@ -89,12 +95,25 @@ class FeatureHubConfig implements FeatureHub {
       throw Exception("Cannot have more than one API key for streaming");
     }
 
-    client = EdgeClient.STREAM;
+    if (client != EdgeClient.STREAM) {
+      if (_edge != null) {
+        _edge!.close();
+        _edgeConnections.remove(_edge);
+        _edge = null;
+      }
+
+      client = EdgeClient.STREAM;
+    }
+
     return this;
   }
 
   @override
   FeatureHub timeout(int seconds) {
+    if (client == EdgeClient.STREAM) {
+      throw Exception('Cannot use streaming and set a timeout');
+    }
+
     _timeout = seconds;
     return this;
   }
@@ -117,4 +136,29 @@ class FeatureHubConfig implements FeatureHub {
 
   @override
   FeatureRepository get repository => _repo;
+
+  @override
+  void close() {
+    log.finest("FH: closing");
+    _analyticsAdapter?.close();
+    _analyticsAdapter = null;
+    _edgeConnections.forEach((ec) => ec.close());
+    _edgeConnections.clear();
+    _edge = null;
+    _serverEvalClientContext = null;
+  }
+
+  @override
+  AnalyticsAdapter get analyticsAdapter {
+    if (_analyticsAdapter == null) { // lazy init
+      _analyticsAdapter = AnalyticsAdapter(_repo);
+    }
+
+    return _analyticsAdapter!;
+  }
+
+  @override
+  void recordAnalyticsEvent(AnalyticsCollectionEvent event) {
+    _repo.recordAnalyticsEvent(event);
+  }
 }

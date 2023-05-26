@@ -1,55 +1,53 @@
 import 'package:featurehub_client_sdk/featurehub.dart';
+import 'package:featurehub_google_analytics_plugin/g4_analytics_service.dart';
 import 'package:flutter/material.dart';
+import 'package:logging/logging.dart';
 
-ClientFeatureRepository? repository;
-FeatureHubConfig? featurehubApi;
+late FeatureHub featurehubApi;
+ClientContext? fhContext;
 
 void main() {
-  repository = ClientFeatureRepository();
-
-  // There is an option to check for Readyness in appropriate circumstances.
-  // repository!.readynessStream.listen((readyness) {
-  //   if (readyness == Readyness.Ready) {
-  //     //do something
-  //   }
-  //   else {
-  //     //do something else
-  //   }
+  Logger.root.level = Level.ALL; // defaults to Level.INFO
+  Logger.root.onRecord.listen((record) {
+    // ignore: avoid_print
+    print('${record.level.name}: ${record.time}: ${record.message}');
+  });
 
   // Provide host url (Edge FeatureHub server) and server eval api key for an application environment
   featurehubApi = FeatureHubConfig(
-      'http://localhost:8903',
+      'http://localhost:8085',
       [
-        'default/806d0fe8-2842-4d17-9e1f-1c33eedc5f31/tnZHPUIKV9GPM4u0koKPk1yZ3aqZgKNI7b6CT76q'
-      ],
-      repository!);
+        'ddd28309-7a5d-4e5a-b060-3f02ddd9e771/NTd8uaqslH068AhAa5lOR7nOqzQISVciYuVsE6IV'
+      ]).streaming();
 
-  // Request feature updates via Get request
-  featurehubApi!.request();
+  featurehubApi.analyticsAdapter.registerPlugin(G4AnalyticsService(measurementId: '', debugMode: true));
+
+  featurehubApi.start().then((value) => fhContext = value);
 
   // Uncomment below if you would like to pass context when using split targeting rules
 
-  // repository!.clientContext
+  // featurehubApi!.newContext()
   //     .userKey('susanna')
   //     .device(StrategyAttributeDeviceName.desktop)
   //     .platform(StrategyAttributePlatformName.macos)
   //     .attr('sausage', 'cumberlands')
   //     .build();
-  // featurehubApi!.request();
 
   runApp(MyApp());
 }
 
 class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
+      title: 'Streaming Demo',
       theme: ThemeData(
         primarySwatch: Colors.blue,
         visualDensity: VisualDensity.adaptivePlatformDensity,
       ),
-      home: MyHomePage(title: 'Flutter Demo Home Page'),
+      home: MyHomePage(title: 'Streaming Demo Home Page'),
     );
   }
 }
@@ -57,7 +55,7 @@ class MyApp extends StatelessWidget {
 class MyHomePage extends StatefulWidget {
   final String title;
 
-  MyHomePage({Key? key, required this.title}) : super(key: key);
+  const MyHomePage({Key? key, required this.title}) : super(key: key);
 
   @override
   _MyHomePageState createState() => _MyHomePageState();
@@ -67,6 +65,7 @@ class _MyHomePageState extends State<MyHomePage> {
   int _counter = 0;
 
   void _incrementCounter() {
+    featurehubApi.recordAnalyticsEvent(AnalyticsPageView(title: 'exampleapp'));
     setState(() {
       _counter++;
     });
@@ -74,12 +73,16 @@ class _MyHomePageState extends State<MyHomePage> {
 
   @override
   Widget build(BuildContext context) {
+    if (fhContext == null) {
+      return const CircularProgressIndicator();
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.title),
       ),
       body: StreamBuilder<FeatureStateHolder>(
-          stream: repository!.feature('CONTAINER_COLOUR').featureUpdateStream,
+          stream: fhContext!.feature('text_colour').featureUpdateStream,
           builder: (context, snapshot) {
             return ListView(
               children: [
@@ -94,12 +97,8 @@ class _MyHomePageState extends State<MyHomePage> {
                         ),
                         Text(
                           '$_counter',
-                          style: Theme.of(context).textTheme.headline4,
+                          style: Theme.of(context).textTheme.headlineMedium,
                         ),
-                        ElevatedButton(
-                            // Request feature updates via Get request
-                            onPressed: () => featurehubApi!.request(),
-                            child: Text('Refresh feature state'))
                       ],
                     ),
                   ),
@@ -122,8 +121,8 @@ class _MyHomePageState extends State<MyHomePage> {
       return Colors.white;
     }
     // ignore: avoid_print
-    print('colour is ${data.stringValue}');
-    switch (data.stringValue) {
+    print('colour is ${data.string}');
+    switch (data.string) {
       case 'blue':
         return Colors.blue;
       case 'yellow':

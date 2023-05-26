@@ -19,8 +19,8 @@ class NativeEdgeStreaming extends EdgeStreaming {
   StreamSubscription<Event>? _subscription;
   String? _xFeaturehubHeader;
   EventSource? _es;
-  StreamSubscription<EventSourceReadyState>? _readyStateListener;
-  StreamController<EventSourceReadyState> _readyStateController =
+  StreamSubscription<EventSourceState>? _readyStateListener;
+  StreamController<EventSourceState> _readyStateController =
       StreamController.broadcast();
 
   NativeEdgeStreaming(FeatureHub config, InternalFeatureRepository repository)
@@ -40,14 +40,13 @@ class NativeEdgeStreaming extends EdgeStreaming {
       return;
     }
 
-    log.fine('Connecting to $url');
-
     final eventStream = await _connect(url);
 
     closed = false;
     connected = true;
 
     _subscription = eventStream.listen((event) {
+      log.finest("SSE: received ${event.event}");
       SSEResultState? status;
 
       try {
@@ -57,13 +56,14 @@ class NativeEdgeStreaming extends EdgeStreaming {
           process(status, event.data);
         }
       } catch (e) {
-        log.fine("unrecognized status ${event.event}: ${event.data}");
+        log.warning("unrecognized status ${event.event}: ${event.data}");
       }
     }, onError: (e) {
       log.warning("error $e");
       repository.repositoryNotReady();
       close();
     }, onDone: () {
+      log.finest("SSE: done, checking for re-open");
       if (repository.readiness != Readiness.Failed && !closed) {
         retry();
       }
@@ -76,46 +76,61 @@ class NativeEdgeStreaming extends EdgeStreaming {
       sourceHeaders['x-featurehub'] = _xFeaturehubHeader!;
     }
 
+    var receivedFirstConnecting = false;
+
     // listen for the connection to close and if it didn't fail, re-open it
     _readyStateListener = _readyStateController.stream.listen((event) {
-      if (event == EventSourceReadyState.CLOSED &&
+      log.finest("SSE: Ready state ${event}");
+      if (event.eq(EventSourceReadyState.CONNECTING)) {
+        receivedFirstConnecting = true;
+      } else if (event.eq(EventSourceReadyState.CLOSED) &&
           repository.readiness != Readiness.Failed &&
+          receivedFirstConnecting &&
           !closed) {
+        log.finest("SSE: closed and not failed, so retrying");
         retry();
       }
     });
 
+    log.fine('SSE: connecting to $url with headers:${sourceHeaders}');
     _es = await EventSource.connect(url,
         closeOnLastListener: true,
         headers: sourceHeaders,
+        openOnlyOnFirstListener: true,
         readyStateController: _readyStateController);
 
     return _es!;
   }
 
   void close() {
+    if (!closed) {
+      log.fine("SSE: closing");
+    }
+
     closed = true;
     connected = false;
 
-    if (_subscription != null) {
-      _subscription!.cancel();
-      _subscription = null;
-    }
+    _subscription?.cancel();
+    _subscription = null;
 
     _xFeaturehubHeader = null;
 
     // no longer interested in ready state of source
     _readyStateListener?.cancel();
-
     _readyStateListener = null;
   }
 
   @override
+  // TODO: refactor this out, identical between two
   Future<void> contextChange(String header) async {
     if (header != _xFeaturehubHeader) {
-      _xFeaturehubHeader = header;
+      log.finest("SSE: changing header ${header}");
       close();
-      await poll();
+      repository.repositoryNotReady();
+      _xFeaturehubHeader = header;
+      if (!stopped) {
+        await poll();
+      }
     }
   }
 }
