@@ -18,9 +18,10 @@ var _logger = Logger("google-tag");
 G4AnalyticsService createGoogleAnalytics4Service({
   String? measurementId,
   String? apiKey,
-  bool  debugMode = false
+  bool  debugMode = false,
+  bool unnamedBecomeEventParameters = false
 }) =>
-    GoogleAnalytics4ServiceWeb(measurementId: measurementId, debugMode: debugMode);
+    GoogleAnalytics4ServiceWeb(measurementId: measurementId, debugMode: debugMode, unnamedBecomeEventParameters: unnamedBecomeEventParameters);
 
 /// Submits data to a Google Analytics 4 property using JavaScript.
 class GoogleAnalytics4ServiceWeb extends G4AnalyticsService {
@@ -30,8 +31,9 @@ class GoogleAnalytics4ServiceWeb extends G4AnalyticsService {
 
   GoogleAnalytics4ServiceWeb({
     required this.measurementId,
-    required this.debugMode
-  }) : super.create() {
+    required this.debugMode,
+    bool unnamedBecomeEventParameters = false
+  }) : super.create(unnamedBecomeEventParameters: unnamedBecomeEventParameters) {
     if (this.measurementId != null)
       _loadGoogleJs();
   }
@@ -85,24 +87,15 @@ class GoogleAnalytics4ServiceWeb extends G4AnalyticsService {
       // so also add the event name as a parameter.
       final params = {
         ...defaultEventParameters,
-        // _eventNameParam: (event as AnalyticsEventName).eventName,
         ...event.toMap(),
       };
+
+      // cull if there are too many
+      while (params.length > 25) {
+        params.remove(params.keys.first);
+      }
 
       _log('event', [(event as AnalyticsEventName).eventName, params]);
-    } else {
-      // it is actually a set of shared settings which we just set on the context
-      final params = {
-        ...defaultEventParameters,
-        ...event.toMap(),
-      };
-
-      _log('config', [measurementId, {
-        'debug_mode':  debugMode,
-        ...defaultEventParameters,
-        ...event.toMap()
-      }] );
-      // _log('set', [params]);
     }
   }
 }

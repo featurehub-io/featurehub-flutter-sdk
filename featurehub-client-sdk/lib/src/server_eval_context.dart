@@ -51,7 +51,7 @@ class ServerEvalClientContext extends InternalContext {
   FeatureStateHolder feature(String key) => repo.feat(key).withContext(this);
 
   @override
-  void recordAnalyticsEvent(AnalyticsFeaturesCollectionContext analyticsEvent) {
+  void recordAnalyticsEvent(AnalyticsEvent analyticsEvent) {
     super.recordAnalyticsEvent(analyticsEvent);
 
     repo.recordAnalyticsEvent(analyticsEvent);

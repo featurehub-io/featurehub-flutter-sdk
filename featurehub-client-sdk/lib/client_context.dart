@@ -1,7 +1,6 @@
 import 'package:featurehub_analytics_api/analytics.dart';
 import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_client_sdk/analytics/analytics_event.dart';
-import 'package:featurehub_client_sdk/config.dart';
 import 'package:meta/meta.dart';
 
 import 'analytics/analytics.dart';
@@ -138,6 +137,15 @@ class ClientContext {
         ..attributes = attributes;
     }
 
+    // if we have been handed a different heirarchy and the additional params is actually empty, lets fill it with
+    // if (!(analytics is AnalyticsFeaturesCollection) && analytics.additionalParams.isEmpty) {
+    //   final newParams = AnalyticsFeaturesCollectionContext()
+    //     ..featureValues = repo.features.map((key) => feature(key) as FeatureStateBaseHolder).map((f) => FeatureHubAnalyticsValue(f)).toList()
+    //     ..attributes = attributes;
+    //
+    //   analytics.additionalParams = newParams.toMap();
+    // }
+
     return analytics;
   }
 
@@ -147,7 +155,7 @@ class ClientContext {
         _fillAnalyticsCollection(repo.analyticsProvider.createAnalyticsContextCollectionEvent()));
   }
 
-  void recordAnalyticsEvent(AnalyticsFeaturesCollectionContext analyticsEvent) {
+  void recordAnalyticsEvent(AnalyticsEvent analyticsEvent) {
     _fillAnalyticsCollection(analyticsEvent);
   }
 

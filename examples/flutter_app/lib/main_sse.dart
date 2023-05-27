@@ -1,3 +1,4 @@
+import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_client_sdk/featurehub.dart';
 import 'package:featurehub_google_analytics_plugin/featurehub_plugin_g4.dart';
 import 'package:flutter/material.dart';
@@ -14,7 +15,7 @@ void main() {
     print('${record.level.name}: ${record.time}: ${record.message}');
   });
 
-  g4 = G4AnalyticsService(measurementId: '', debugMode: true);
+  g4 = G4AnalyticsService(measurementId: '', debugMode: true, unnamedBecomeEventParameters: true);
 
   // Provide host url (Edge FeatureHub server) and server eval api key for an application environment
   featurehubApi = FeatureHubConfig(
@@ -25,16 +26,16 @@ void main() {
 
   featurehubApi.analyticsAdapter.registerPlugin(g4);
 
-  featurehubApi.start().then((value) => fhContext = value);
+  // featurehubApi.start().then((value) => fhContext = value);
 
   // Uncomment below if you would like to pass context when using split targeting rules
 
-  // featurehubApi!.newContext()
-  //     .userKey('susanna')
-  //     .device(StrategyAttributeDeviceName.desktop)
-  //     .platform(StrategyAttributePlatformName.macos)
-  //     .attr('sausage', 'cumberlands')
-  //     .build();
+  featurehubApi!.newContext()
+      .userKey('susanna')
+      .device(StrategyAttributeDeviceName.desktop)
+      .platform(StrategyAttributePlatformName.macos)
+      .attr('sausage', 'cumberlands')
+      .build().then((value) => fhContext = value);
 
   runApp(MyApp());
 }
@@ -68,7 +69,7 @@ class _MyHomePageState extends State<MyHomePage> {
   int _counter = 0;
 
   void _incrementCounter() {
-    featurehubApi.recordAnalyticsEvent(g4.pageView(title: 'exampleapp'));
+    fhContext?.recordAnalyticsEvent(g4.pageView(title: 'exampleapp'));
     setState(() {
       _counter++;
     });

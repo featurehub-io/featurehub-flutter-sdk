@@ -32,6 +32,8 @@ dependencies:
   logging: ^1.0.1
   featurehub_client_sdk:
     path: ../../featurehub-client-sdk
+  featurehub_client_api:
+    path: ../../featurehub-client-api
   featurehub_google_analytics_plugin:
     path: ../../plugins/featurehub-google-analytics
 

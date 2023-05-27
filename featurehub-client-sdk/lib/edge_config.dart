@@ -1,15 +1,13 @@
 
 
 import 'package:featurehub_analytics_api/analytics.dart';
-import 'package:featurehub_client_sdk/analytics/analytics_event.dart';
 import 'package:featurehub_client_sdk/features.dart';
 
 import 'analytics/analytics_adapter.dart';
 import 'client_context.dart';
+import 'config.dart';
 import 'src/client_eval_context.dart';
 import 'src/edge_rest.dart';
-
-import 'config.dart';
 import 'src/internal_repository.dart';
 import 'src/log.dart';
 import 'src/repository.dart';

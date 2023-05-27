@@ -1,7 +1,6 @@
 
 
 import 'package:featurehub_client_api/api.dart';
-import 'package:featurehub_client_sdk/client_context.dart';
 import 'package:featurehub_client_sdk/featurehub.dart';
 import 'package:featurehub_client_sdk/src/internal_context.dart';
 import 'package:featurehub_client_sdk/src/repository.dart';

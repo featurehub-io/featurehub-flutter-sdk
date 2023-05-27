@@ -10,6 +10,8 @@ abstract class AnalyticsPlugin {
   AnalyticsEvent? get lastShared => _lastShared;
 
   final _defaultEventParameters = <String, dynamic>{};
+  /// if this is true, then unnamed events will automatically get pushed into the defaultEventParmeters
+  final bool unnamedBecomeEventParameters;
 
   /// The parameters sent with all events.
   ///
@@ -22,13 +24,23 @@ abstract class AnalyticsPlugin {
     _defaultEventParameters.addAll(newValue);
   }
 
+  AnalyticsPlugin(this.unnamedBecomeEventParameters);
+
   @protected
   Future<void> sendProtected(AnalyticsEvent event) async {}
 
   // so we don't need to have to await it and lint it everywhere
   void send(AnalyticsEvent event) {
-    _lastShared = event;
-    sendProtected(event);
+    if (event is AnalyticsEventName) {
+      sendProtected(event);
+    }
+    else {
+      print("received unnamed event ${event.toMap()} -> ${unnamedBecomeEventParameters}");
+      _lastShared = event;
+      if (unnamedBecomeEventParameters) {
+        defaultEventParameters = event.toMap();
+      }
+    }
   }
 }
 
