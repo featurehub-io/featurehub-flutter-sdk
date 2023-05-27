@@ -31,17 +31,26 @@ main() {
       ];
     }
 
+    test('just loading the features for the 1st time should trigger async feature collection', () {
+      repo.updateFeatures(_initialFeatures());
+      repo.analyticsStream.listen(expectAsync1((e) {
+        expect(e, isA<AnalyticsFeaturesCollection>());
+      }));
+    });
+
     test(
         'if we subscribe to the analytics events we get a copy of the list of current features',
-        () {
+        () async {
       repo.updateFeatures(_initialFeatures());
       repo.analyticsStream.listen(expectAsync1((e) {
         expect(e, isA<AnalyticsFeaturesCollection>());
         final col = e.toMap();
         // expect(col['keys'], equals(['feature_x']));
         expect(col['feature_x'], equals('off'));
-        expect(col['half'], equals('1.0'));
-      }));
+        if  ((e as AnalyticsFeaturesCollection).additionalParams.isNotEmpty) {
+          expect(col['half'], equals('1.0'));
+        }
+      }, max: 2));
 
       repo.recordAnalyticsEvent(
           AnalyticsFeaturesCollection(additionalParams: {'half': '1.0'}));
@@ -85,27 +94,32 @@ main() {
       test(
           'I can deliberately record a new analytics event via the client context',
           () async {
-        AnalyticsFeaturesCollection afc = AnalyticsFeaturesCollection(
+        final afc = AnalyticsFeaturesCollectionContext(
             additionalParams: {'host': 'mine'}, userKey: 'no-key');
 
+        var counter = 0;
         // then: the analytics stream should only contain a collection event. This would normally
         // trigger individual evals for each feature but we have to stomp on those
         repo.analyticsStream.listen(expectAsync1((e) {
-          expect(e, isA<AnalyticsFeaturesCollection>());
-          final rec = e as AnalyticsFeaturesCollection;
-          expect(rec.featureValues.length, equals(1));
-          expect(rec.featureValues[0].value, equals('off'));
-          expect(rec.featureValues[0].id, equals('1'));
-          expect(rec.additionalParams, equals({'host': 'mine'}));
-          expect(rec.userKey, equals('sessionKey'));
-          expect(
-              rec.attributes,
-              equals({
-                'session': ['sessionKey'],
-                'warehouseId': ['134AB'],
-                'countries': ['nz', 'au']
-              }));
-        }));
+          if (counter++ == 0) {
+            expect(e, isA<AnalyticsFeaturesCollection>());
+          } else {
+            expect(e, isA<AnalyticsFeaturesCollectionContext>());
+            final rec = e as AnalyticsFeaturesCollectionContext;
+            expect(rec.featureValues.length, equals(1));
+            expect(rec.featureValues[0].value, equals('off'));
+            expect(rec.featureValues[0].id, equals('1'));
+            expect(rec.additionalParams, equals({'host': 'mine'}));
+            expect(rec.userKey, equals('sessionKey'));
+            expect(
+                rec.attributes,
+                equals({
+                  'session': ['sessionKey'],
+                  'warehouseId': ['134AB'],
+                  'countries': ['nz', 'au']
+                }));
+          }
+        }, max:2));
 
         // when: we send the send the event off
         serverContext.recordAnalyticsEvent(afc);
@@ -113,19 +127,24 @@ main() {
 
       test('If I evaluate a feature via the context it will get a use trigger',
           () async {
+        var counter = 0;
         repo.analyticsStream.listen(expectAsync1((e) {
-          expect(e, isA<AnalyticsFeature>());
-          final rec = e as AnalyticsFeature;
-          expect(
-              rec.attributes,
-              equals({
-                'session': ['sessionKey'],
-                'warehouseId': ['134AB'],
-                'countries': ['nz', 'au']
-              }));
-          expect(rec.feature.value, equals('off'));
-          expect(rec.feature.key, equals('feature_x'));
-        }));
+          if (counter++ == 0) {
+            expect(e, isA<AnalyticsFeaturesCollection>());
+          } else {
+            expect(e, isA<AnalyticsFeature>());
+            final rec = e as AnalyticsFeature;
+            expect(
+                rec.attributes,
+                equals({
+                  'session': ['sessionKey'],
+                  'warehouseId': ['134AB'],
+                  'countries': ['nz', 'au']
+                }));
+            expect(rec.feature.value, equals('off'));
+            expect(rec.feature.key, equals('feature_x'));
+          }
+        }, max:2));
 
         expect(serverContext.feature('feature_x').flag, isFalse);
       });

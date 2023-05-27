@@ -8,7 +8,7 @@ import 'package:logging/logging.dart';
 import 'g4_analytics_service.dart';
 
 final _urlTemplate = Uri.parse('https://www.googletagmanager.com/gtag/js');
-const _eventNameParam = 'eventName';
+// const _eventNameParam = 'eventName';
 
 /// The global JS function to submit analytics data.
 const _function = 'gtag';
@@ -85,7 +85,7 @@ class GoogleAnalytics4ServiceWeb extends G4AnalyticsService {
       // so also add the event name as a parameter.
       final params = {
         ...defaultEventParameters,
-        _eventNameParam: (event as AnalyticsEventName).eventName,
+        // _eventNameParam: (event as AnalyticsEventName).eventName,
         ...event.toMap(),
       };
 
@@ -97,7 +97,12 @@ class GoogleAnalytics4ServiceWeb extends G4AnalyticsService {
         ...event.toMap(),
       };
 
-      _log('set', [params]);
+      _log('config', [measurementId, {
+        'debug_mode':  debugMode,
+        ...defaultEventParameters,
+        ...event.toMap()
+      }] );
+      // _log('set', [params]);
     }
   }
 }

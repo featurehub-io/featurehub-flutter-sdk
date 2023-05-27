@@ -27,6 +27,8 @@ abstract class FeatureStateHolder {
   /// always returns true/false for a flag (true if exists, has value and value is true, otherwise false)
   bool get enabled;
 
+  bool get locked;
+
   /// the key of the feature, always has a value as it is provided by the call even if the holder is empty of state
   String get key;
 

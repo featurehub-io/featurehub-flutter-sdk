@@ -24,7 +24,7 @@ abstract class FeatureHub {
   ClientContext newContext();
   FeatureHub streaming();
   Stream<Readiness> get readinessStream;
-  void recordAnalyticsEvent(AnalyticsFeaturesCollection event);
+  void recordAnalyticsEvent(AnalyticsEvent event);
 
   void close() {}
 }

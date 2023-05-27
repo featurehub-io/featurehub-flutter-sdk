@@ -13,7 +13,6 @@ import 'internal_repository.dart';
 
 @internal
 class FeatureStateBaseHolder implements FeatureStateHolder {
-  dynamic _value;
   FeatureState? _featureState;
   BehaviorSubject<FeatureStateHolder>? _listeners;
   InternalFeatureRepository repo;
@@ -43,21 +42,24 @@ class FeatureStateBaseHolder implements FeatureStateHolder {
   @override
   dynamic get value => _getValue(type);
 
+  /// this is used by the repository to get the raw value
+  dynamic get rawValue => _topFeatureStateHolder()._featureState?.value;
+
   bool get set => exists && _getValue(type) != null;
 
-  bool get enabled => _featureState?.type == FeatureValueType.BOOLEAN && _value == true;
+  bool get enabled => _getValue(FeatureValueType.BOOLEAN) == true;
 
-  set featureState(FeatureState fs) {
+  /// this always happens at a top level feature
+  set featureState(FeatureState? fs) {
+    final oldValue = _featureState?.value;
     _featureState = fs;
-    final oldValue = _value;
-    _value = fs.value;
-    if (oldValue != _value) {
+    if (fs?.value != oldValue) {
       _listeners!.add(this);
     }
   }
 
   @override
-  int get version =>  _featureState?.version ?? -1;
+  int get version =>  _topFeatureStateHolder()._featureState?.version ?? -1;
 
   void delete() => _topFeatureStateHolder()._featureState?.version = -1;
 
@@ -89,20 +91,14 @@ class FeatureStateBaseHolder implements FeatureStateHolder {
   }
 
   FeatureStateHolder withContext(InternalContext ctx) {
-    return FeatureStateBaseHolder(this.key, this.repo, featureState: this._featureState, parentState: this, ctx: ctx);
+    return FeatureStateBaseHolder(this.key, this.repo, parentState: this, ctx: ctx);
   }
 
   void shutdown() {
     _listeners!.close();
   }
 
-  bool get locked {
-    if (exists) {
-      return _featureState?.l == true;
-    }
-
-    return false;
-  }
+  bool get locked => _topFeatureStateHolder()._featureState?.l == true;
 
   FeatureStateBaseHolder _topFeatureStateHolder() {
     if (_parentState != null) {
@@ -122,8 +118,9 @@ class FeatureStateBaseHolder implements FeatureStateHolder {
     }
 
     final top = _topFeatureStateHolder();
+    final topKey = top.key;
 
-    final interceptor = repo.findInterceptor(key, top._featureState?.l ?? false);
+    final interceptor = repo.findInterceptor(topKey, top._featureState?.l ?? false);
     if (interceptor != null && interceptor.matched) {
       return triggerUsed ? _used(top._key, top._featureState?.id ?? top._key, interceptor.val, top._featureState?.type ?? interceptor.inferType) : interceptor.val;
     }
@@ -139,9 +136,9 @@ class FeatureStateBaseHolder implements FeatureStateHolder {
     }
 
     if (clientContext != null && state.strategies.isNotEmpty) {
-      final matched = repo.apply(state.strategies, key, state.id, clientContext);
+      final matched = repo.apply(state.strategies, topKey, state.id, clientContext);
       if (matched.matched) {
-        return triggerUsed ? _used(state.key, state.id, matched.value, type) : matched.value;
+        return triggerUsed ? _used(topKey, state.id, matched.value, type) : matched.value;
       }
     }
 

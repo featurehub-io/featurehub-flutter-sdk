@@ -21,7 +21,7 @@ class ClientEvalContext extends InternalContext {
     log.fine('SSE: client eval context poll');
     await edgeService.poll();
     repo.recordAnalyticsEvent(
-        repo.analyticsProvider.createAnalyticsCollectionEvent()
+        repo.analyticsProvider.createAnalyticsContextCollectionEvent()
           ..attributes = attributes
           ..userKey=analyticsUserKey());
     return this;

@@ -16,7 +16,7 @@ abstract class AppliedValue {
 
 @internal
 abstract class InternalFeatureRepository extends FeatureRepository {
-  void recordAnalyticsEvent(AnalyticsFeaturesCollection event);
+  void recordAnalyticsEvent(AnalyticsEvent event);
 
   /// there were no features returned for a valid set of API Keys, so repository is ready but empty
   repositoryEmpty();
@@ -40,6 +40,7 @@ abstract class InternalFeatureRepository extends FeatureRepository {
   Stream<Readiness> get readinessStream;
   Stream<AnalyticsEvent> get analyticsStream;
   AnalyticsProvider get analyticsProvider;
+  Stream<FeatureStateBaseHolder> get featureUpdatedStream;
 
   Future<void> used(String key, String id, val, FeatureValueType valueType, Map<String, List<String>> attributes, String? analyticsUserKey);
 }

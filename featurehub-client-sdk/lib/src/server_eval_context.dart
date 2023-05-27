@@ -1,19 +1,26 @@
 import 'dart:async';
 
+import 'package:featurehub_analytics_api/analytics.dart';
 import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_client_sdk/featurehub.dart';
 import 'package:featurehub_client_sdk/src/internal_context.dart';
 import 'package:featurehub_client_sdk/src/internal_repository.dart';
 
+import 'internal_features.dart';
 import 'log.dart';
 
 class ServerEvalClientContext extends InternalContext {
   final EdgeService edgeService;
   late StreamSubscription<FeatureRepository> featureUpdateStream;
+  late StreamSubscription<FeatureStateBaseHolder> featureListener;
 
   ServerEvalClientContext(InternalFeatureRepository repo, this.edgeService) : super(repo) {
     featureUpdateStream = repo.newFeatureStateAvailableStream.listen((event) {
       recordRelativeValuesForUser();
+    });
+
+    featureListener = repo.featureUpdatedStream.listen((feature) {
+      recordFeatureChangedForUser(feature);
     });
   }
 
@@ -44,7 +51,7 @@ class ServerEvalClientContext extends InternalContext {
   FeatureStateHolder feature(String key) => repo.feat(key).withContext(this);
 
   @override
-  void recordAnalyticsEvent(AnalyticsFeaturesCollection analyticsEvent) {
+  void recordAnalyticsEvent(AnalyticsFeaturesCollectionContext analyticsEvent) {
     super.recordAnalyticsEvent(analyticsEvent);
 
     repo.recordAnalyticsEvent(analyticsEvent);
@@ -58,5 +65,6 @@ class ServerEvalClientContext extends InternalContext {
 
   void close() {
     featureUpdateStream.cancel();
+    featureListener.cancel();
   }
 }

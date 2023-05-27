@@ -4,7 +4,10 @@ import 'package:featurehub_analytics_api/analytics.dart';
 import 'package:featurehub_google_analytics_plugin/src/analytics_page_view.dart';
 
 import 'g4_analytics_service_io.dart'
-  if (dart.library.html) 'src/g4_analytics_service_web.dart';
+  if (dart.library.html) 'g4_analytics_service_web.dart';
+import 'analytics_page_view_io.dart'
+  if (dart.library.html)  'analytics_page_view_web.dart';
+
 
 /// An umbrella class over platform implementations of Google Analytics 4.
 abstract class G4AnalyticsService extends AnalyticsPlugin {
@@ -21,5 +24,5 @@ abstract class G4AnalyticsService extends AnalyticsPlugin {
 
   AnalyticsEvent pageView({required String title,
     Map<String, dynamic> additionalParams = const {},
-    String? userKey}) => BaseAnalyticsPageView(title: title, additionalParams: additionalParams, userKey: userKey);
+    String? userKey}) => createPageView(title: title, additionalParams: additionalParams, userKey: userKey);
 }

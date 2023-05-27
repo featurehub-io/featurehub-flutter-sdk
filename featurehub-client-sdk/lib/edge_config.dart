@@ -1,5 +1,6 @@
 
 
+import 'package:featurehub_analytics_api/analytics.dart';
 import 'package:featurehub_client_sdk/analytics/analytics_event.dart';
 import 'package:featurehub_client_sdk/features.dart';
 
@@ -159,7 +160,7 @@ class FeatureHubConfig implements FeatureHub {
   }
 
   @override
-  void recordAnalyticsEvent(AnalyticsFeaturesCollection event) {
+  void recordAnalyticsEvent(AnalyticsEvent event) {
     _repo.recordAnalyticsEvent(event);
   }
 }

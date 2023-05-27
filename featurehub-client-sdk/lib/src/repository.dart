@@ -29,6 +29,7 @@ class ClientFeatureRepository extends InternalFeatureRepository {
   BehaviorSubject<Readiness>.seeded(Readiness.NotReady);
   final _analyticsSource = BehaviorSubject<AnalyticsEvent>();
   final _newFeatureStateAvailableListeners = PublishSubject<FeatureRepository>();
+  final _featureUpdatedListener = PublishSubject<FeatureStateBaseHolder>();
   bool _catchAndReleaseMode = false;
   AnalyticsProvider analyticsProvider = AnalyticsProvider();
 
@@ -42,6 +43,8 @@ class ClientFeatureRepository extends InternalFeatureRepository {
 
   Stream<FeatureRepository> get newFeatureStateAvailableStream =>
       _newFeatureStateAvailableListeners.stream;
+
+  Stream<FeatureStateBaseHolder> get featureUpdatedStream => _featureUpdatedListener.stream;
 
   Iterable<String> get availableFeatures => _features.keys;
 
@@ -100,9 +103,11 @@ class ClientFeatureRepository extends InternalFeatureRepository {
   }
 
   void _triggerNewStateAvailable() {
+    print("new state");
     if (_hasReceivedInitialState) {
       if (!_catchAndReleaseMode || _catchReleaseStates.isNotEmpty) {
         _newFeatureStateAvailableListeners.add(this);
+        recordAnalyticsEvent(AnalyticsFeaturesCollection());
       }
     }
   }
@@ -215,7 +220,7 @@ class ClientFeatureRepository extends InternalFeatureRepository {
       if (feature.version != -1) { // delete takes precedence with -1
         if (holder.version > feature.version! ||
             (holder.version == feature.version &&
-                holder.value == feature.value)) {
+                holder.rawValue == feature.value)) {
           return false;
         }
       }
@@ -224,6 +229,11 @@ class ClientFeatureRepository extends InternalFeatureRepository {
     holder.featureState = feature;
     _features[feature.key] = holder;
     _featuresById[feature.id] = holder;
+
+    if (_hasReceivedInitialState) {
+      // notify any listeners that a feature has changed
+      _featureUpdatedListener.add(holder);
+    }
 
     return true;
   }
@@ -252,9 +262,9 @@ class ClientFeatureRepository extends InternalFeatureRepository {
 
       _removeDeletedFeatures(newFeaturesById);
 
-      if (!_hasReceivedInitialState) {
+      if (!_hasReceivedInitialState || _updated) {
         _hasReceivedInitialState = true;
-      } else if (_updated) {
+
         _triggerNewStateAvailable();
       }
 
@@ -288,14 +298,16 @@ class ClientFeatureRepository extends InternalFeatureRepository {
   }
 
   @override
-  void recordAnalyticsEvent(AnalyticsFeaturesCollection event) {
-    if (event.featureValues.isEmpty) {
-      // these ones are context-less
-      final featureStateAtCurrentTime =
-      _features.values.map((e) => FeatureHubAnalyticsValue(e)).toList();
+  void recordAnalyticsEvent(AnalyticsEvent event) {
+    if (event is AnalyticsFeaturesCollection) {
+      if (event.featureValues.isEmpty) {
+        // these ones are context-less
+        final featureStateAtCurrentTime =
+        _features.values.map((e) => FeatureHubAnalyticsValue(e)).toList();
 
-      event.featureValues = featureStateAtCurrentTime;
-      event.ready();
+        event.featureValues = featureStateAtCurrentTime;
+        event.ready();
+      }
     }
 
     _analyticsSource.add(event);

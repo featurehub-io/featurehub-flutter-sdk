@@ -1,5 +1,7 @@
+import 'package:featurehub_analytics_api/analytics.dart';
 import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_client_sdk/analytics/analytics_event.dart';
+import 'package:featurehub_client_sdk/config.dart';
 import 'package:meta/meta.dart';
 
 import 'analytics/analytics.dart';
@@ -122,11 +124,19 @@ class ClientContext {
 
   Readiness get readiness => repo.readiness;
 
-  AnalyticsFeaturesCollection _fillAnalyticsCollection(AnalyticsFeaturesCollection analytics) {
+  AnalyticsEvent _fillAnalyticsCollection(AnalyticsEvent analytics) {
     analytics
-      ..attributes = attributes
-      ..featureValues = repo.features.map((key) => feature(key) as FeatureStateBaseHolder).map((f) => FeatureHubAnalyticsValue(f)).toList()
       ..userKey=analyticsUserKey();
+
+    if (analytics is AnalyticsFeaturesCollection) {
+      analytics
+        ..featureValues = repo.features.map((key) => feature(key) as FeatureStateBaseHolder).map((f) => FeatureHubAnalyticsValue(f)).toList();
+    }
+
+    if (analytics is AnalyticsFeaturesCollectionContext) {
+      analytics
+        ..attributes = attributes;
+    }
 
     return analytics;
   }
@@ -134,10 +144,10 @@ class ClientContext {
   @protected
   recordRelativeValuesForUser() {
     repo.recordAnalyticsEvent(
-        _fillAnalyticsCollection(repo.analyticsProvider.createAnalyticsCollectionEvent()));
+        _fillAnalyticsCollection(repo.analyticsProvider.createAnalyticsContextCollectionEvent()));
   }
 
-  void recordAnalyticsEvent(AnalyticsFeaturesCollection analyticsEvent) {
+  void recordAnalyticsEvent(AnalyticsFeaturesCollectionContext analyticsEvent) {
     _fillAnalyticsCollection(analyticsEvent);
   }
 
