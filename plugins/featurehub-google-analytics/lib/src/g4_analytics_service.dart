@@ -22,7 +22,7 @@ abstract class G4AnalyticsService extends AnalyticsPlugin {
   /// a non-factory constructor with any other name is required for subclasses.
   G4AnalyticsService.create({bool unnamedBecomeEventParameters = false}): super(unnamedBecomeEventParameters);
 
-  AnalyticsEvent pageView({required String title,
+  UsageEvent pageView({required String title,
     Map<String, dynamic> additionalParams = const {},
     String? userKey}) => createPageView(title: title, additionalParams: additionalParams, userKey: userKey);
 }

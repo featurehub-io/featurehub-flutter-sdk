@@ -1,9 +1,9 @@
-import 'package:featurehub_analytics_api/analytics.dart';
 import 'package:featurehub_client_api/api.dart';
-import 'package:featurehub_client_sdk/analytics/analytics_event.dart';
+import 'package:featurehub_client_sdk/usage/usage.dart';
+import 'package:featurehub_client_sdk/usage/usage_event.dart';
+import 'package:featurehub_usage_api/usage.dart';
 import 'package:meta/meta.dart';
 
-import 'analytics/analytics.dart';
 import 'features.dart';
 import 'src/internal_features.dart';
 import 'src/internal_repository.dart';
@@ -36,7 +36,7 @@ class ClientContext {
 
   String? getAttr(String key) => attributes.containsKey(key) ? attributes[key]![0] : null;
 
-  String? analyticsUserKey() {
+  String? usageUserKey() {
     return getAttr('session') ?? getAttr('userkey') ?? null;
   }
 
@@ -123,40 +123,33 @@ class ClientContext {
 
   Readiness get readiness => repo.readiness;
 
-  AnalyticsEvent _fillAnalyticsCollection(AnalyticsEvent analytics) {
-    analytics
-      ..userKey=analyticsUserKey();
+  UsageEvent _fillUsageCollection(UsageEvent usage) {
+    usage
+      ..userKey=usageUserKey();
 
-    if (analytics is AnalyticsFeaturesCollection) {
-      analytics
-        ..featureValues = repo.features.map((key) => feature(key) as FeatureStateBaseHolder).map((f) => FeatureHubAnalyticsValue(f)).toList();
+    if (usage is UsageFeaturesCollection) {
+      usage
+        ..featureValues = repo.features
+            .map((key) => FeatureHubUsageValue(feature(key) as FeatureStateBaseHolder))
+            .toList();
     }
 
-    if (analytics is AnalyticsFeaturesCollectionContext) {
-      analytics
+    if (usage is UsageFeaturesCollectionContext) {
+      usage
         ..attributes = attributes;
     }
 
-    // if we have been handed a different heirarchy and the additional params is actually empty, lets fill it with
-    // if (!(analytics is AnalyticsFeaturesCollection) && analytics.additionalParams.isEmpty) {
-    //   final newParams = AnalyticsFeaturesCollectionContext()
-    //     ..featureValues = repo.features.map((key) => feature(key) as FeatureStateBaseHolder).map((f) => FeatureHubAnalyticsValue(f)).toList()
-    //     ..attributes = attributes;
-    //
-    //   analytics.additionalParams = newParams.toMap();
-    // }
-
-    return analytics;
+    return usage;
   }
 
   @protected
   recordRelativeValuesForUser() {
-    repo.recordAnalyticsEvent(
-        _fillAnalyticsCollection(repo.analyticsProvider.createAnalyticsContextCollectionEvent()));
+    repo.recordUsageEvent(
+        _fillUsageCollection(repo.usageProvider.createUsageContextCollectionEvent()));
   }
 
-  void recordAnalyticsEvent(AnalyticsEvent analyticsEvent) {
-    _fillAnalyticsCollection(analyticsEvent);
+  void recordUsageEvent(UsageEvent usageEvent) {
+    _fillUsageCollection(usageEvent);
   }
 
   /// Call this method to rebuild Context

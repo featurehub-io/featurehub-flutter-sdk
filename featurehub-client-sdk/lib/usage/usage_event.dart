@@ -1,16 +1,17 @@
-import 'package:featurehub_analytics_api/analytics.dart';
 
-import 'analytics.dart';
+import 'package:featurehub_usage_api/usage.dart';
+
+import 'usage.dart';
 
 /// This is the base class for an individual feature being evaluated. Users can descend from
 /// this class and add custom features of their own if they wish.
-class AnalyticsFeature extends AnalyticsEvent implements AnalyticsEventName {
-  final Map<String, List<String>> attributes;
-  final String? userKey;
-  FeatureHubAnalyticsValue feature;
+class UsageFeature extends UsageEvent implements UsageEventName {
+  final Map<String, List<String>>? attributes;
+  FeatureHubUsageValue feature;
 
-  AnalyticsFeature(FeatureHubAnalyticsValue val, this.attributes, this.userKey):
-    this.feature = val;
+  UsageFeature(FeatureHubUsageValue val, this.attributes, String? userKey):
+    this.feature = val,
+    super(userKey: userKey);
 
   @override
   Map<String, dynamic> toMap() {
@@ -18,8 +19,8 @@ class AnalyticsFeature extends AnalyticsEvent implements AnalyticsEventName {
       'feature': feature.key,
       'value': feature.value,
       'id': feature.id,
-      if (attributes.length > 0)
-        ...attributes,
+      if (attributes != null)
+        ...attributes!,
       ...super.toMap()
     };
   }
@@ -29,16 +30,16 @@ class AnalyticsFeature extends AnalyticsEvent implements AnalyticsEventName {
 }
 
 /**
- * This represents a collection of feature states that are passed to the analytics provider. It is
+ * This represents a collection of feature states that are passed to the usage provider. It is
  * triggered when there is an update for one or more features or contexts from the user. Something can
  * request the recording of one of these events and it will be filled by the context then the repository
  *
  */
-class AnalyticsFeaturesCollection extends AnalyticsEvent {
+class UsageFeaturesCollection extends UsageEvent {
   /// these represent the features at the time of the collection event
-  List<FeatureHubAnalyticsValue> featureValues = [];
+  List<FeatureHubUsageValue> featureValues = [];
 
-  AnalyticsFeaturesCollection({Map<String, dynamic> additionalParams = const {}, String? userKey}):
+  UsageFeaturesCollection({Map<String, dynamic> additionalParams = const {}, String? userKey}):
         super(userKey: userKey, additionalParams: additionalParams);
 
   // repo + clientContext have filled with data
@@ -55,11 +56,11 @@ class AnalyticsFeaturesCollection extends AnalyticsEvent {
   }
 }
 
-class AnalyticsFeaturesCollectionContext extends AnalyticsFeaturesCollection {
+class UsageFeaturesCollectionContext extends UsageFeaturesCollection {
   /// these represent the attributes from the context of the user
   Map<String, List<String>> attributes = {};
 
-  AnalyticsFeaturesCollectionContext({Map<String, dynamic> additionalParams = const {}, String? userKey}):
+  UsageFeaturesCollectionContext({Map<String, dynamic> additionalParams = const {}, String? userKey}):
         super(userKey: userKey, additionalParams: additionalParams);
 
   @override
@@ -72,13 +73,13 @@ class AnalyticsFeaturesCollectionContext extends AnalyticsFeaturesCollection {
 }
 
 /// use this as an interface and create your own to override the events
-class AnalyticsProvider {
+class UsageProvider {
   /// This is the event created when an individual feature is used or evaluated within a context
-  AnalyticsFeature createAnalyticsFeatureEvent(FeatureHubAnalyticsValue val, Map<String, List<String>> attributes, String? userKey) => AnalyticsFeature(val, attributes, userKey);
+  UsageFeature createUsageFeatureEvent(FeatureHubUsageValue val, Map<String, List<String>>? attributes, String? userKey) => UsageFeature(val, attributes, userKey);
 
   /// This is the event created when "build" is called on the context (server or client).
-  AnalyticsFeaturesCollection createAnalyticsCollectionEvent({Map<String, dynamic>? additionalParams, String? name }) => AnalyticsFeaturesCollection(additionalParams: additionalParams ?? const {});
+  UsageFeaturesCollection createUsageCollectionEvent({Map<String, dynamic>? additionalParams }) => UsageFeaturesCollection(additionalParams: additionalParams ?? const {});
 
   /// This is the event created when "build" is called on the context (server or client).
-  AnalyticsFeaturesCollectionContext createAnalyticsContextCollectionEvent({Map<String, dynamic>? additionalParams, String? name }) => AnalyticsFeaturesCollectionContext(additionalParams: additionalParams ?? const {});
+  UsageFeaturesCollectionContext createUsageContextCollectionEvent({Map<String, dynamic>? additionalParams}) => UsageFeaturesCollectionContext(additionalParams: additionalParams ?? const {});
 }

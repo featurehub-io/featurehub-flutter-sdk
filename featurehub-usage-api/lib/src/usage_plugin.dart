@@ -3,11 +3,11 @@ import 'dart:async';
 import 'dart:collection';
 import 'package:meta/meta.dart';
 
-import 'analytics_event.dart';
+import 'usage_event.dart';
 
-abstract class AnalyticsPlugin {
-  AnalyticsEvent? _lastShared;
-  AnalyticsEvent? get lastShared => _lastShared;
+abstract class UsagePlugin {
+  UsageEvent? _lastShared;
+  UsageEvent? get lastShared => _lastShared;
 
   final _defaultEventParameters = <String, dynamic>{};
   /// if this is true, then unnamed events will automatically get pushed into the defaultEventParmeters
@@ -24,14 +24,14 @@ abstract class AnalyticsPlugin {
     _defaultEventParameters.addAll(newValue);
   }
 
-  AnalyticsPlugin(this.unnamedBecomeEventParameters);
+  UsagePlugin(this.unnamedBecomeEventParameters);
 
   @protected
-  Future<void> sendProtected(AnalyticsEvent event) async {}
+  Future<void> sendProtected(UsageEvent event) async {}
 
   // so we don't need to have to await it and lint it everywhere
-  void send(AnalyticsEvent event) {
-    if (event is AnalyticsEventName) {
+  void send(UsageEvent event) {
+    if (event is UsageEventName) {
       sendProtected(event);
     }
     else {

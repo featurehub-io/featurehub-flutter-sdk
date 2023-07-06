@@ -1,18 +1,18 @@
 
-abstract class AnalyticsEventName {
+abstract class UsageEventName {
   String get eventName;
 }
 
 
-/// this represents data that should be attached to all analytics events,
+/// this represents data that should be attached to all usage events,
 /// it can be paired with an individual user depending on how it is used. Usually
 /// this is only done with single-user platforms like mobile, web and desktop.
 /// It also forms the base of all events (which simply add an event name)
-class AnalyticsEvent {
+class UsageEvent {
   String? userKey;
   Map<String, dynamic> additionalParams;
 
-  AnalyticsEvent({
+  UsageEvent({
     this.userKey,
     this.additionalParams = const {}
   });

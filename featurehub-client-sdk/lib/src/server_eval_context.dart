@@ -1,10 +1,10 @@
 import 'dart:async';
 
-import 'package:featurehub_analytics_api/analytics.dart';
 import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_client_sdk/featurehub.dart';
 import 'package:featurehub_client_sdk/src/internal_context.dart';
 import 'package:featurehub_client_sdk/src/internal_repository.dart';
+import 'package:featurehub_usage_api/usage.dart';
 
 import 'internal_features.dart';
 import 'log.dart';
@@ -51,15 +51,15 @@ class ServerEvalClientContext extends InternalContext {
   FeatureStateHolder feature(String key) => repo.feat(key).withContext(this);
 
   @override
-  void recordAnalyticsEvent(AnalyticsEvent analyticsEvent) {
-    super.recordAnalyticsEvent(analyticsEvent);
+  void recordUsageEvent(UsageEvent usageEvent) {
+    super.recordUsageEvent(usageEvent);
 
-    repo.recordAnalyticsEvent(analyticsEvent);
+    repo.recordUsageEvent(usageEvent);
   }
 
   @override
   Future<void> used(String key, String id, dynamic val, FeatureValueType valueType) async {
-    await repo.used(key, id, val, valueType, attributes, analyticsUserKey());
+    await repo.used(key, id, val, valueType, attributes, usageUserKey());
     await edgeService.poll();
   }
 

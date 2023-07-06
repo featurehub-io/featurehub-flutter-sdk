@@ -3,7 +3,7 @@
 import 'dart:convert';
 
 import 'package:featurehub_client_sdk/featurehub.dart';
-import 'package:featurehub_client_sdk/src/edge_rest.dart';
+import 'package:featurehub_client_sdk/src/rest_client.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:openapi_dart_common/openapi.dart';
 import 'package:test/test.dart';

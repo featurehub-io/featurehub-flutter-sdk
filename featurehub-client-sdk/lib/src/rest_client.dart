@@ -19,13 +19,16 @@ class EdgeRest implements EdgeService {
   String _shaOfHeader = '0';
   bool _deadConnection = false;
   bool _stopped = false;
-  bool _ignoreCacheTimeout = false;
+  bool _headerChanged = false;
   DateTime _cacheTimeout;
   int _timeoutInSeconds;
+  bool _pollDelegate;
+  bool _busy = false;
 
-  EdgeRest(this.config, this._repository, { int timeout = 360 })
+  EdgeRest(this.config, this._repository, { int timeout = 360, pollDelegate = false })
       : _api = FeatureServiceApi(ApiClient(basePath: config.baseUrl)),
         _timeoutInSeconds = timeout,
+        _pollDelegate = pollDelegate,
         _cacheTimeout = DateTime.now().subtract(Duration(seconds: 1)); // allow for immediate polling
 
   bool get isConnectionDead => _deadConnection;
@@ -94,21 +97,33 @@ class EdgeRest implements EdgeService {
 
   Future<void> poll() async {
     if (_deadConnection || _stopped ) return;
-    if (!_ignoreCacheTimeout && DateTime.now().isBefore(_cacheTimeout)) return;
+    // if we are being controlled externally, we have been called and the timeout is 0,
+    // the header changed or the cache timeout has expired, we need break our internal cache
+    final breakCache = _pollDelegate || _timeoutInSeconds == 0 || _headerChanged || DateTime.now().isBefore(_cacheTimeout);
+    // but can we actually ask? if we are already mid-flight, then no, if we are stopped, no
+    final ask = !_busy && !_stopped && breakCache;
 
-    _ignoreCacheTimeout = false;
+    if (ask) {
+      try {
+        _busy = true;
+        _headerChanged = false;
 
-    final options = (_featureHubHeader == null || _featureHubHeader!.isEmpty)
-        ? null
-        : (Options()
-      ..headers = {'x-featurehub': _featureHubHeader});
+        final options = (_featureHubHeader == null || _featureHubHeader!.isEmpty)
+            ? null
+            : (Options()
+          ..headers = {'x-featurehub': _featureHubHeader});
 
-    log.finest("requesting REST api ${config.baseUrl} : ${config.apiKeys}, sha: ${_shaOfHeader},  headers: ${_featureHubHeader}");
-    // added to break any caching if we change the header on the client side
-    final response = await _api.apiDelegate
-        .getFeatureStates(config.apiKeys, options: options, contextSha: _shaOfHeader);
+        log.finest("requesting REST api ${config.baseUrl} : ${config.apiKeys}, sha: ${_shaOfHeader},  headers: ${_featureHubHeader}");
 
-    await decodeResponse(response);
+
+        final response = await _api.apiDelegate
+            .getFeatureStates(config.apiKeys, options: options, contextSha: _shaOfHeader);
+
+        await decodeResponse(response);
+      } finally {
+        _busy = false;
+      }
+    }
   }
 
   @override
@@ -118,7 +133,7 @@ class EdgeRest implements EdgeService {
       _shaOfHeader =
       header.isEmpty ? '0' : sha256.convert(utf8.encode(_featureHubHeader!))
           .toString();
-      _ignoreCacheTimeout = true;
+      _headerChanged = true;
     }
 
     await poll();
@@ -131,4 +146,7 @@ class EdgeRest implements EdgeService {
   void close() {
     _deadConnection = true; // won't attempt to update
   }
+
+  @override
+  int get interval => _timeoutInSeconds;
 }

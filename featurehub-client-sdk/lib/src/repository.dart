@@ -1,8 +1,8 @@
 import 'dart:async';
 
-import 'package:featurehub_analytics_api/analytics.dart';
 import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_client_sdk/featurehub.dart';
+import 'package:featurehub_usage_api/usage.dart';
 import 'package:meta/meta.dart';
 import 'package:rxdart/rxdart.dart';
 
@@ -27,17 +27,17 @@ class ClientFeatureRepository extends InternalFeatureRepository {
   Readiness _readiness = Readiness.NotReady;
   final _readinessListeners =
   BehaviorSubject<Readiness>.seeded(Readiness.NotReady);
-  final _analyticsSource = BehaviorSubject<AnalyticsEvent>();
+  final _usageSource = BehaviorSubject<UsageEvent>();
   final _newFeatureStateAvailableListeners = PublishSubject<FeatureRepository>();
   final _featureUpdatedListener = PublishSubject<FeatureStateBaseHolder>();
   bool _catchAndReleaseMode = false;
-  AnalyticsProvider analyticsProvider = AnalyticsProvider();
+  UsageProvider usageProvider = UsageProvider();
 
   // indexed by id (not key)
   final Map<String?, FeatureState> _catchReleaseStates = {};
   final List<_InterceptorHolder> _featureValueInterceptors = [];
 
-  Stream<AnalyticsEvent> get analyticsStream => _analyticsSource.stream;
+  Stream<UsageEvent> get usageStream => _usageSource.stream;
 
   Stream<Readiness> get readinessStream => _readinessListeners.stream;
 
@@ -107,7 +107,7 @@ class ClientFeatureRepository extends InternalFeatureRepository {
     if (_hasReceivedInitialState) {
       if (!_catchAndReleaseMode || _catchReleaseStates.isNotEmpty) {
         _newFeatureStateAvailableListeners.add(this);
-        recordAnalyticsEvent(AnalyticsFeaturesCollection());
+        recordUsageEvent(UsageFeaturesCollection());
       }
     }
   }
@@ -293,28 +293,28 @@ class ClientFeatureRepository extends InternalFeatureRepository {
   Set<String> get features => _features.keys.toSet();
 
   @override
-  Future<void> used(String key, String id, dynamic val, FeatureValueType valueType, Map<String, List<String>> attributes, String? analyticsUserKey) async {
-    _analyticsSource.add(analyticsProvider.createAnalyticsFeatureEvent(FeatureHubAnalyticsValue.byValue(id, key, val, valueType), attributes, analyticsUserKey));
+  Future<void> used(String key, String id, dynamic val, FeatureValueType valueType, Map<String, List<String>>? attributes, String? usageUserKey) async {
+    _usageSource.add(usageProvider.createUsageFeatureEvent(FeatureHubUsageValue.byValue(id, key, val, valueType), attributes, usageUserKey));
   }
 
   @override
-  void recordAnalyticsEvent(AnalyticsEvent event) {
-    if (event is AnalyticsFeaturesCollection) {
+  void recordUsageEvent(UsageEvent event) {
+    if (event is UsageFeaturesCollection) {
       if (event.featureValues.isEmpty) {
         // these ones are context-less
         final featureStateAtCurrentTime =
-        _features.values.map((e) => FeatureHubAnalyticsValue(e)).toList();
+        _features.values.map((e) => FeatureHubUsageValue(e)).toList();
 
         event.featureValues = featureStateAtCurrentTime;
         event.ready();
       }
     }
 
-    _analyticsSource.add(event);
+    _usageSource.add(event);
   }
 
   @override
-  void registerAnalyticsProvider(AnalyticsProvider provider) {
-    analyticsProvider = provider;
+  void registerUsageProvider(UsageProvider provider) {
+    usageProvider = provider;
   }
 }

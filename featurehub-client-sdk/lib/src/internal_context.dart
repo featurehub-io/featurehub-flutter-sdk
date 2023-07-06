@@ -3,6 +3,8 @@
 import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_client_sdk/featurehub.dart';
 import 'package:featurehub_client_sdk/src/internal_repository.dart';
+import 'package:featurehub_client_sdk/usage/usage.dart';
+import 'package:featurehub_client_sdk/usage/usage_event.dart';
 import 'package:meta/meta.dart';
 
 import 'internal_features.dart';
@@ -15,7 +17,7 @@ abstract class InternalContext  extends ClientContext {
 
   @protected
   recordFeatureChangedForUser(FeatureStateBaseHolder feature) {
-    repo.recordAnalyticsEvent(AnalyticsFeature(FeatureHubAnalyticsValue(feature.withContext(this) as FeatureStateBaseHolder), attributes, analyticsUserKey()));
+    repo.recordUsageEvent(UsageFeature(FeatureHubUsageValue(feature.withContext(this) as FeatureStateBaseHolder), attributes, usageUserKey()));
   }
 
   /// Call this method to rebuild Context

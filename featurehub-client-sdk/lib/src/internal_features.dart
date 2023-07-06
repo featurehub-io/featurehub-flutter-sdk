@@ -110,14 +110,11 @@ class FeatureStateBaseHolder implements FeatureStateHolder {
 
   /// this simply gets the value of this feature without triggering any analytics, it
   /// is required in the contexts because they gather the values of the features
-  dynamic get analyticsFreeValue => _getValue(type, triggerUsed: false);
+  dynamic get usageFreeValue => _getValue(type, triggerUsed: false);
 
-  dynamic _getValue(FeatureValueType? type, {bool triggerUsed = true}) {
-    if (type == null) {
-      return null;
-    }
-
+  dynamic _getValue(FeatureValueType? passedType, {bool triggerUsed = true}) {
     final top = _topFeatureStateHolder();
+    final type = passedType ?? top._featureState?.type;
     final topKey = top.key;
 
     final interceptor = repo.findInterceptor(topKey, top._featureState?.l ?? false);
@@ -125,7 +122,7 @@ class FeatureStateBaseHolder implements FeatureStateHolder {
       return triggerUsed ? _used(top._key, top._featureState?.id ?? top._key, interceptor.val, top._featureState?.type ?? interceptor.inferType) : interceptor.val;
     }
 
-    if (top._featureState == null) {
+    if (top._featureState == null || type == null) {
       return null;
     }
 
@@ -146,9 +143,10 @@ class FeatureStateBaseHolder implements FeatureStateHolder {
   }
 
   dynamic _used(String featureKey, String featureId, dynamic val, FeatureValueType type) {
-    print("used, ${clientContext != null}");
     if (clientContext != null) {
       clientContext!.used(featureKey, featureId, val, type);
+    } else {
+      repo.used(key, id, val, type, null, null);
     }
 
     return val;

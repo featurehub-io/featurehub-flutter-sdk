@@ -79,10 +79,10 @@ class GoogleAnalytics4ServiceWeb extends G4AnalyticsService {
   }
 
   @override
-  Future<void> sendProtected(AnalyticsEvent event) async {
+  Future<void> sendProtected(UsageEvent event) async {
     await _readyCompleter.future;
 
-    if (event is AnalyticsEventName) {
+    if (event is UsageEventName) {
       // Google Analytics cannot use event names as a dimension,
       // so also add the event name as a parameter.
       final params = {
@@ -95,7 +95,7 @@ class GoogleAnalytics4ServiceWeb extends G4AnalyticsService {
         params.remove(params.keys.first);
       }
 
-      _log('event', [(event as AnalyticsEventName).eventName, params]);
+      _log('event', [(event as UsageEventName).eventName, params]);
     }
   }
 }

@@ -2,7 +2,7 @@
 import 'package:featurehub_analytics_api/analytics.dart';
 
 
-class BaseAnalyticsPageView extends AnalyticsEvent implements AnalyticsEventName {
+class BaseAnalyticsPageView extends UsageEvent implements UsageEventName {
   final Map<String, String> internalParams = {};
   final String title;
 

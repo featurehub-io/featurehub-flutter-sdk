@@ -27,7 +27,7 @@ class GoogleAnalytics4ServiceNonWeb extends G4AnalyticsService {
       {bool unnamedBecomeEventParameters = false}) : super.create(unnamedBecomeEventParameters: unnamedBecomeEventParameters);
 
   @override
-  Future<void> sendProtected(AnalyticsEvent event) {
+  Future<void> sendProtected(UsageEvent event) {
     throw UnimplementedError();
   }
 }

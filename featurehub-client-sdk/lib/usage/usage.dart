@@ -2,7 +2,7 @@ import 'package:featurehub_client_api/api.dart';
 
 import '../src/internal_features.dart';
 
-class FeatureHubAnalyticsValue {
+class FeatureHubUsageValue {
   final String id;
   final String key;
   final String? value;
@@ -21,15 +21,15 @@ class FeatureHubAnalyticsValue {
     }
   }
 
-  FeatureHubAnalyticsValue(FeatureStateBaseHolder holder):
+  FeatureHubUsageValue(FeatureStateBaseHolder holder):
         id = holder.id,
         key = holder.key,
-        value = holder.type == null ? null : FeatureHubAnalyticsValue._convert(holder.analyticsFreeValue, holder.type);
+        value = holder.type == null ? null : FeatureHubUsageValue._convert(holder.usageFreeValue, holder.type);
 
-  FeatureHubAnalyticsValue.byValue(this.id, this.key, dynamic value, FeatureValueType type):
+  FeatureHubUsageValue.byValue(this.id, this.key, dynamic value, FeatureValueType type):
       this.value = _convert(value, type);
 
-  static Map<String, dynamic> toJson(FeatureHubAnalyticsValue val) {
+  static Map<String, dynamic> toJson(FeatureHubUsageValue val) {
     return {
       'id': val.id,
       'feature': val.key,

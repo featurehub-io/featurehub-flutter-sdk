@@ -1,31 +1,32 @@
 
 
-import 'package:featurehub_analytics_api/analytics.dart';
 import 'package:featurehub_client_sdk/features.dart';
+import 'package:featurehub_client_sdk/src/polling_delegate_client.dart';
+import 'package:featurehub_client_sdk/usage/usage_adapter.dart';
+import 'package:featurehub_usage_api/usage.dart';
 
-import 'analytics/analytics_adapter.dart';
 import 'client_context.dart';
 import 'config.dart';
 import 'src/client_eval_context.dart';
-import 'src/edge_rest.dart';
+import 'src/rest_client.dart';
 import 'src/internal_repository.dart';
 import 'src/log.dart';
 import 'src/repository.dart';
 import 'src/server_eval_context.dart';
 import 'src/sse_client.dart';
 
-enum EdgeClient { REST, STREAM }
+enum EdgeClient { REST, STREAM, REST_POLL }
 
 class FeatureHubConfig implements FeatureHub {
   List<String> _apiKeys;
   String _featurehubUrl;
   ServerEvalClientContext? _serverEvalClientContext;
-  EdgeClient client = EdgeClient.REST;
+  EdgeClient _client = EdgeClient.REST;
   InternalFeatureRepository _repo;
   EdgeService? _edge;
   int _timeout = 300;
   List<EdgeService> _edgeConnections = [];
-  AnalyticsAdapter? _analyticsAdapter;
+  UsageAdapter? _usageAdapter;
 
   FeatureHubConfig(this._featurehubUrl, this._apiKeys) : _repo = ClientFeatureRepository() {
     if (_apiKeys.isEmpty) {
@@ -54,7 +55,7 @@ class FeatureHubConfig implements FeatureHub {
 
   @override
   ClientContext newContext() {
-    if (_featurehubUrl.startsWith("https://app.featurehub.io") && client == EdgeClient.STREAM && !_clientEvaluated) {
+    if (_featurehubUrl.startsWith("https://app.featurehub.io") && _client == EdgeClient.STREAM && !_clientEvaluated) {
       throw Exception("FeatureHub SaaS does not supported streaming for server side evaluation, please use REST");
     }
 
@@ -83,8 +84,12 @@ class FeatureHubConfig implements FeatureHub {
   }
 
   EdgeService _createEdgeService() {
-    final edge = (client == EdgeClient.REST) ? EdgeRest(this, _repo, timeout: _timeout) : EdgeStreaming(this, _repo);
+    final edge = (_client == EdgeClient.REST) ?
+        EdgeRest(this, _repo, timeout: _timeout) :
+        (_client == EdgeClient.STREAM ? EdgeStreaming(this, _repo) : PollingDelegateEdge(this, _repo));
+
     _edgeConnections.add(edge);
+
     return edge;
   }
 
@@ -94,26 +99,16 @@ class FeatureHubConfig implements FeatureHub {
       throw Exception("Cannot have more than one API key for streaming");
     }
 
-    if (client != EdgeClient.STREAM) {
+    if (_client != EdgeClient.STREAM) {
       if (_edge != null) {
         _edge!.close();
         _edgeConnections.remove(_edge);
         _edge = null;
       }
 
-      client = EdgeClient.STREAM;
+      _client = EdgeClient.STREAM;
     }
 
-    return this;
-  }
-
-  @override
-  FeatureHub timeout(int seconds) {
-    if (client == EdgeClient.STREAM) {
-      throw Exception('Cannot use streaming and set a timeout');
-    }
-
-    _timeout = seconds;
     return this;
   }
 
@@ -139,8 +134,8 @@ class FeatureHubConfig implements FeatureHub {
   @override
   void close() {
     log.finest("FH: closing");
-    _analyticsAdapter?.close();
-    _analyticsAdapter = null;
+    _usageAdapter?.close();
+    _usageAdapter = null;
     _edgeConnections.forEach((ec) => ec.close());
     _edgeConnections.clear();
     _edge = null;
@@ -149,16 +144,30 @@ class FeatureHubConfig implements FeatureHub {
   }
 
   @override
-  AnalyticsAdapter get analyticsAdapter {
-    if (_analyticsAdapter == null) { // lazy init
-      _analyticsAdapter = AnalyticsAdapter(_repo);
+  UsageAdapter get usageAdapter {
+    if (_usageAdapter == null) { // lazy init
+      _usageAdapter = UsageAdapter(_repo);
     }
 
-    return _analyticsAdapter!;
+    return _usageAdapter!;
   }
 
   @override
-  void recordAnalyticsEvent(AnalyticsEvent event) {
-    _repo.recordAnalyticsEvent(event);
+  void recordUsageEvent(UsageEvent event) {
+    _repo.recordUsageEvent(event);
+  }
+
+  @override
+  FeatureHub rest({int minUpdateInterval = 180}) {
+    _timeout = minUpdateInterval;
+    _client = EdgeClient.REST;
+    return this;
+  }
+
+  @override
+  FeatureHub restPoll({int interval = 180}) {
+    _timeout = interval;
+    _client = EdgeClient.REST_POLL;
+    return this;
   }
 }

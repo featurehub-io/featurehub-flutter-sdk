@@ -24,13 +24,13 @@ void main() {
         'ddd28309-7a5d-4e5a-b060-3f02ddd9e771/NTd8uaqslH068AhAa5lOR7nOqzQISVciYuVsE6IV'
       ]).streaming();
 
-  featurehubApi.analyticsAdapter.registerPlugin(g4);
+  featurehubApi.usageAdapter.registerPlugin(g4);
 
   // featurehubApi.start().then((value) => fhContext = value);
 
   // Uncomment below if you would like to pass context when using split targeting rules
 
-  featurehubApi!.newContext()
+  featurehubApi.newContext()
       .userKey('susanna')
       .device(StrategyAttributeDeviceName.desktop)
       .platform(StrategyAttributePlatformName.macos)

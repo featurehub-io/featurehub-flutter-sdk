@@ -89,4 +89,7 @@ abstract class EdgeStreaming implements EdgeService {
       poll();
     }
   }
+
+  @override
+  int get interval => 0;
 }

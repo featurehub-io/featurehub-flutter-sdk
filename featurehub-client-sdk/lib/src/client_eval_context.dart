@@ -20,16 +20,16 @@ class ClientEvalContext extends InternalContext {
   Future<ClientContext> build() async {
     log.fine('SSE: client eval context poll');
     await edgeService.poll();
-    repo.recordAnalyticsEvent(
-        repo.analyticsProvider.createAnalyticsContextCollectionEvent()
+    repo.recordUsageEvent(
+        repo.usageProvider.createUsageContextCollectionEvent()
           ..attributes = attributes
-          ..userKey=analyticsUserKey());
+          ..userKey=usageUserKey());
     return this;
   }
 
   @override
   Future<void> used(String key, String id, dynamic val, FeatureValueType valueType) async {
-    await repo.used(key, id, val, valueType, attributes, analyticsUserKey());
+    await repo.used(key, id, val, valueType, attributes, usageUserKey());
     await edgeService.poll();
   }
 }

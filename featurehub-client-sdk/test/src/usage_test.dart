@@ -2,6 +2,7 @@ import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_client_sdk/featurehub.dart';
 import 'package:featurehub_client_sdk/src/repository.dart';
 import 'package:featurehub_client_sdk/src/server_eval_context.dart';
+import 'package:featurehub_client_sdk/usage/usage_event.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
 
@@ -33,8 +34,8 @@ main() {
 
     test('just loading the features for the 1st time should trigger async feature collection', () {
       repo.updateFeatures(_initialFeatures());
-      repo.analyticsStream.listen(expectAsync1((e) {
-        expect(e, isA<AnalyticsFeaturesCollection>());
+      repo.usageStream.listen(expectAsync1((e) {
+        expect(e, isA<UsageFeaturesCollection>());
       }));
     });
 
@@ -42,25 +43,25 @@ main() {
         'if we subscribe to the analytics events we get a copy of the list of current features',
         () async {
       repo.updateFeatures(_initialFeatures());
-      repo.analyticsStream.listen(expectAsync1((e) {
-        expect(e, isA<AnalyticsFeaturesCollection>());
+      repo.usageStream.listen(expectAsync1((e) {
+        expect(e, isA<UsageFeaturesCollection>());
         final col = e.toMap();
         // expect(col['keys'], equals(['feature_x']));
         expect(col['feature_x'], equals('off'));
-        if  ((e as AnalyticsFeaturesCollection).additionalParams.isNotEmpty) {
+        if  ((e as UsageFeaturesCollection).additionalParams.isNotEmpty) {
           expect(col['half'], equals('1.0'));
         }
       }, max: 2));
 
-      repo.recordAnalyticsEvent(
-          AnalyticsFeaturesCollection(additionalParams: {'half': '1.0'}));
+      repo.recordUsageEvent(
+          UsageFeaturesCollection(additionalParams: {'half': '1.0'}));
     });
 
     test(
         'single useFeature boolean with analytics evaluation sends value plus attributes',
         () {
-      repo.analyticsStream.listen(expectAsync1((e) {
-        expect(e, isA<AnalyticsFeature>());
+      repo.usageStream.listen(expectAsync1((e) {
+        expect(e, isA<UsageFeature>());
         final col = e.toMap();
         expect(col['feature'], equals('F_KEY'));
         expect(col['id'], equals('1234'));
@@ -94,18 +95,18 @@ main() {
       test(
           'I can deliberately record a new analytics event via the client context',
           () async {
-        final afc = AnalyticsFeaturesCollectionContext(
+        final afc = UsageFeaturesCollectionContext(
             additionalParams: {'host': 'mine'}, userKey: 'no-key');
 
         var counter = 0;
         // then: the analytics stream should only contain a collection event. This would normally
         // trigger individual evals for each feature but we have to stomp on those
-        repo.analyticsStream.listen(expectAsync1((e) {
+        repo.usageStream.listen(expectAsync1((e) {
           if (counter++ == 0) {
-            expect(e, isA<AnalyticsFeaturesCollection>());
+            expect(e, isA<UsageFeaturesCollection>());
           } else {
-            expect(e, isA<AnalyticsFeaturesCollectionContext>());
-            final rec = e as AnalyticsFeaturesCollectionContext;
+            expect(e, isA<UsageFeaturesCollectionContext>());
+            final rec = e as UsageFeaturesCollectionContext;
             expect(rec.featureValues.length, equals(1));
             expect(rec.featureValues[0].value, equals('off'));
             expect(rec.featureValues[0].id, equals('1'));
@@ -122,18 +123,18 @@ main() {
         }, max:2));
 
         // when: we send the send the event off
-        serverContext.recordAnalyticsEvent(afc);
+        serverContext.recordUsageEvent(afc);
       });
 
       test('If I evaluate a feature via the context it will get a use trigger',
           () async {
         var counter = 0;
-        repo.analyticsStream.listen(expectAsync1((e) {
+        repo.usageStream.listen(expectAsync1((e) {
           if (counter++ == 0) {
-            expect(e, isA<AnalyticsFeaturesCollection>());
+            expect(e, isA<UsageFeaturesCollection>());
           } else {
-            expect(e, isA<AnalyticsFeature>());
-            final rec = e as AnalyticsFeature;
+            expect(e, isA<UsageFeature>());
+            final rec = e as UsageFeature;
             expect(
                 rec.attributes,
                 equals({

@@ -1,10 +1,10 @@
 
 
-import 'package:featurehub_analytics_api/analytics.dart';
 import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_client_sdk/featurehub.dart';
 import 'package:featurehub_client_sdk/src/internal_context.dart';
 import 'package:featurehub_client_sdk/src/internal_features.dart';
+import 'package:featurehub_usage_api/usage.dart';
 import 'package:meta/meta.dart';
 
 abstract class AppliedValue {
@@ -16,7 +16,7 @@ abstract class AppliedValue {
 
 @internal
 abstract class InternalFeatureRepository extends FeatureRepository {
-  void recordAnalyticsEvent(AnalyticsEvent event);
+  void recordUsageEvent(UsageEvent event);
 
   /// there were no features returned for a valid set of API Keys, so repository is ready but empty
   repositoryEmpty();
@@ -24,7 +24,6 @@ abstract class InternalFeatureRepository extends FeatureRepository {
   repositoryNotReady();
 
   AppliedValue apply(List<FeatureRolloutStrategy> strategies, String key, String id, InternalContext? clientContext);
-  registerFeatureValueInterceptor(bool allowOverrideLock, FeatureValueInterceptor interceptor);
 
   FeatureStateBaseHolder feat(String key);
   InterceptorValue? findInterceptor(String key, bool locked);
@@ -35,12 +34,12 @@ abstract class InternalFeatureRepository extends FeatureRepository {
 
   void notify(SSEResultState? status);
 
-  // for historic support of Google Analytics
+  // for historic support of Google Usage
   Set<String> get features;
   Stream<Readiness> get readinessStream;
-  Stream<AnalyticsEvent> get analyticsStream;
-  AnalyticsProvider get analyticsProvider;
+  Stream<UsageEvent> get usageStream;
+  UsageProvider get usageProvider;
   Stream<FeatureStateBaseHolder> get featureUpdatedStream;
 
-  Future<void> used(String key, String id, val, FeatureValueType valueType, Map<String, List<String>> attributes, String? analyticsUserKey);
+  Future<void> used(String key, String id, val, FeatureValueType valueType, Map<String, List<String>>? attributes, String? usageUserKey);
 }

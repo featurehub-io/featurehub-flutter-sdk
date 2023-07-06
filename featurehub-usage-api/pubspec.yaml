@@ -1,4 +1,4 @@
-name: featurehub_analytics_api
+name: featurehub_usage_api
 version: 2.0.0
 description: Dart Analytics API for FeatureHub
 repository: https://github.com/featurehub-io/featurehub-flutter-sdk/tree/main/featurehub-analytics-api
