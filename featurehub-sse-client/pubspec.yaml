@@ -1,10 +1,10 @@
 name: featurehub_sse_client
 description: A Dart-IO based client implementation of Server-Sent Events.
-version: 1.3.3
+version: 1.3.4
 repository: https://github.com/featurehub-io/featurehub-flutter-sdk/tree/main/featurehub-sse-client
 homepage: https://www.featurehub.io
 environment:
-  sdk: '>=2.12.0 <3.0.0'
+  sdk: '>=2.12.0 <3.9.9'
 
 dependencies:
   collection: ^1.15.0
