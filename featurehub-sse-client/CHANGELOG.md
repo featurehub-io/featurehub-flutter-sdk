@@ -1,6 +1,7 @@
 # Changelog
-* 1.3.4 - bumped http package from ^0.13.0 to ^1.1.0 and SDK version to < 3.9.9
-* 1.3.3 - upgrades for major functionality in 1.5.9
+* 1.3.3 
+- bumped http package from ^0.13.0 to ^1.1.0 and SDK version to < 3.9.9
+ - upgrades for major functionality in 1.5.9
 * 1.3.2 - print statement leakages
 * 1.3.1 - bug fix around the closing of the connection and support for notification of status of event stream, and reopening 
 * 1.3.0 - repository url change and formatting updates 
