@@ -1,8 +1,18 @@
-# For lint rules and documentation, see http://dart-lang.github.io/linter/lints.
-# Uncomment to specify additional rules.
+include: package:lints/recommended.yaml
+
 linter:
- rules:
-   - avoid_print
+  rules:
+    - avoid_print
 
 analyzer:
-  exclude: [build/**]
+  errors:
+    # featurehub_sse_client and featurehub_client_api are path dependencies
+    # until their new versions are published; `dart pub publish` still
+    # refuses path dependencies, so this cannot slip through to a release
+    invalid_dependency: ignore
+  exclude:
+    - build/**
+    - example/**
+    - example-flutter/**
+    - example_old/**
+    - example_server/**

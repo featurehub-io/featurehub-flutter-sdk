@@ -21,9 +21,11 @@ void main() {
     repo.analyticsCollectors.add(ae);
     await Future.value();
 
-    verify(() => poster.postAnalyticBatch(
-            'v=1&tid=1234&cid=123&t=event&ec=FeatureHub%20Event&ea=foo&el=key+%3A+sval\n'))
-        .called(1);
+    verify(
+      () => poster.postAnalyticBatch(
+        'v=1&tid=1234&cid=123&t=event&ec=FeatureHub%20Event&ea=foo&el=key+%3A+sval\n',
+      ),
+    ).called(1);
   });
 
   test("when we don't provide a cid, no post happens", () async {

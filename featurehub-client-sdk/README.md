@@ -97,7 +97,7 @@ not yet be available and you don't want your application to fail.
 
 ## Flutter sample app example
 
-There is a full [example](https://github.com/featurehub-io/featurehub-flutter-sdk/blob/main/featurehub-client-sdk/example/lib/main.dart) you can follow that demonstrates how a feature with a key "CONTAINER_COLOUR" of type _string_ can be processed in the Flutter app. The container colour will get updated states based on the feature value, which can be "yellow", "green", "purple" and so on. (See the video clip above)
+There is a full [example](https://github.com/featurehub-io/featurehub-flutter-sdk/blob/main/featurehub-client-sdk/example-flutter/lib/main.dart) you can follow that demonstrates how a feature with a key "CONTAINER_COLOUR" of type _string_ can be processed in the Flutter app. The container colour will get updated states based on the feature value, which can be "yellow", "green", "purple" and so on. (See the video clip above)
 
 
 ## Feature state methods
@@ -212,7 +212,7 @@ Because these two update methods are interchangeable, you can include them in th
 could swap between *GET* when your app swaps to the background and *EventSource* when your app swaps to the foreground 
 if immediate updates are important.
 
-[SSE example](https://github.com/featurehub-io/featurehub-flutter-sdk/blob/main/featurehub-client-sdk/example/lib/main-sse.dart)
+[SSE example](https://github.com/featurehub-io/featurehub-flutter-sdk/blob/main/featurehub-client-sdk/example-flutter/lib/main-sse.dart)
 
 ## Failure
 
@@ -258,7 +258,7 @@ final _api = FeatureServiceApiDelegate(ApiClient(basePath: hostURL));
 _api.setFeatureState(apiKey, featureKey, FeatureStateUpdate()..lock = false ..value = 'TEST'); 
 ```   
 
-[Integration test example](https://github.com/featurehub-io/featurehub-flutter-sdk/blob/main/featurehub-client-sdk/example/test/integration_test.dart) 
+[Integration test example](https://github.com/featurehub-io/featurehub-flutter-sdk/blob/main/featurehub-client-sdk/example_old/test/integration_test.dart) 
 
 ## Client-side evaluation
 

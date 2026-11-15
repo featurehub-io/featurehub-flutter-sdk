@@ -10,9 +10,10 @@ void main() {
   // Listen to Feature Repository changes in real time using SSE (Server Sent Events protocol)
   // Provide host url (Edge FeatureHub server) and server eval api key for an application environment
   EventSourceRepositoryListener(
-      'http://localhost:8903',
-      'default/806d0fe8-2842-4d17-9e1f-1c33eedc5f31/tnZHPUIKV9GPM4u0koKPk1yZ3aqZgKNI7b6CT76q',
-      repository!);
+    'http://localhost:8903',
+    'default/806d0fe8-2842-4d17-9e1f-1c33eedc5f31/tnZHPUIKV9GPM4u0koKPk1yZ3aqZgKNI7b6CT76q',
+    repository!,
+  );
 
   // Uncomment below if you would like to pass context when using split targeting rules
 
@@ -61,34 +62,31 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.title),
-      ),
+      appBar: AppBar(title: Text(widget.title)),
       body: StreamBuilder<FeatureStateHolder>(
-          stream: repository!.feature('CONTAINER_COLOUR').featureUpdateStream,
-          builder: (context, snapshot) {
-            return ListView(
-              children: [
-                Container(
-                  color: determineColour(snapshot.data),
-                  child: Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: <Widget>[
-                        Text(
-                          'You have pushed the button this many times:',
-                        ),
-                        Text(
-                          '$_counter',
-                          style: Theme.of(context).textTheme.headline4,
-                        ),
-                      ],
-                    ),
+        stream: repository!.feature('CONTAINER_COLOUR').featureUpdateStream,
+        builder: (context, snapshot) {
+          return ListView(
+            children: [
+              Container(
+                color: determineColour(snapshot.data),
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: <Widget>[
+                      Text('You have pushed the button this many times:'),
+                      Text(
+                        '$_counter',
+                        style: Theme.of(context).textTheme.headline4,
+                      ),
+                    ],
                   ),
-                )
-              ],
-            );
-          }),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
       floatingActionButton: FloatingActionButton(
         onPressed: _incrementCounter,
         tooltip: 'Increment',

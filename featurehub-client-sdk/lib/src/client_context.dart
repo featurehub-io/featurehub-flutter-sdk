@@ -69,7 +69,7 @@ class ClientContext {
   /// @param key Name of the Custom rule
   /// @param values Values of the Custom rule
   /// returns [ClientContext]
-  ClientContext attrs(key, List<String> values) {
+  ClientContext attrs(String key, List<String> values) {
     _attributes[key] = values;
     return this;
   }
@@ -94,16 +94,18 @@ class ClientContext {
     }
 
     var params = _attributes.entries.map((entry) {
-      return entry.key + '=' + Uri.encodeQueryComponent(entry.value.join(','));
+      return '${entry.key}=${Uri.encodeQueryComponent(entry.value.join(','))}';
     }).toList();
     params.sort(); // i so hate the sort function
     return params.join(',');
   }
 
   Future<Function> registerChangeHandler(
-      ClientContextChangedHandler handler) async {
+    ClientContextChangedHandler handler,
+  ) async {
     _handlers.add(
-        handler); // have to do this first in case other code triggers before this callback
+      handler,
+    ); // have to do this first in case other code triggers before this callback
 
     try {
       await handler(generateHeader());
