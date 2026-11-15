@@ -1,4 +1,4 @@
-library featurehub_sse_client.src.cache;
+library;
 
 import "package:collection/collection.dart";
 
@@ -8,7 +8,7 @@ import "event.dart";
 class EventCache {
   final int? cacheCapacity;
   final bool comparableIds;
-  Map<String, List<Event>> _caches = new Map<String, List<Event>>();
+  final Map<String, List<Event>> _caches = <String, List<Event>>{};
 
   EventCache({this.cacheCapacity, this.comparableIds = true});
 

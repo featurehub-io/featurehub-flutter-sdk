@@ -25,7 +25,7 @@ class LocalApiClient {
       if (value is BaseRolloutStrategy) {
         return value.toJson();
       }
-      if (value is BaseRolloutStrategyAttribute) {
+      if (value is BaseStrategy) {
         return value.toJson();
       }
       if (value is FeatureEnvironmentCollection) {
@@ -46,7 +46,7 @@ class LocalApiClient {
       if (value is FeatureValueType) {
         return value.toJson();
       }
-      if (value is RoleType) {
+      if (value is RolloutStrategyAttribute) {
         return value.toJson();
       }
       if (value is RolloutStrategyAttributeConditional) {
@@ -109,8 +109,8 @@ class LocalApiClient {
           return ApplicationVersionInfo.fromJson(value);
         case 'BaseRolloutStrategy':
           return BaseRolloutStrategy.fromJson(value);
-        case 'BaseRolloutStrategyAttribute':
-          return BaseRolloutStrategyAttribute.fromJson(value);
+        case 'BaseStrategy':
+          return BaseStrategy.fromJson(value);
         case 'FeatureEnvironmentCollection':
           return FeatureEnvironmentCollection.fromJson(value);
         case 'FeatureRolloutStrategy':
@@ -123,8 +123,8 @@ class LocalApiClient {
           return FeatureStateUpdate.fromJson(value);
         case 'FeatureValueType':
           return FeatureValueTypeExtension.fromJson(value);
-        case 'RoleType':
-          return RoleTypeExtension.fromJson(value);
+        case 'RolloutStrategyAttribute':
+          return RolloutStrategyAttribute.fromJson(value);
         case 'RolloutStrategyAttributeConditional':
           return RolloutStrategyAttributeConditionalExtension.fromJson(value);
         case 'RolloutStrategyFieldType':
@@ -160,9 +160,6 @@ class LocalApiClient {
     }
 
     if (value is FeatureValueType) {
-      return value.toJson().toString();
-    }
-    if (value is RoleType) {
       return value.toJson().toString();
     }
     if (value is RolloutStrategyAttributeConditional) {

@@ -625,6 +625,11 @@ extension StrategyAttributeCountryNameExtension
           ? <StrategyAttributeCountryName>[]
           : json.map((value) => fromJson(value)).toList().fromNull();
 
+  static Set<StrategyAttributeCountryName> setFromJson(List<dynamic>? json) =>
+      json == null
+          ? new Set()
+          : json.map((value) => fromJson(value)).toSet().fromNull();
+
   static StrategyAttributeCountryName copyWith(
           StrategyAttributeCountryName instance) =>
       instance;

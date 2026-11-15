@@ -29,7 +29,8 @@ void main() {
       [
         '135f4735-f1ab-4061-b69c-3a3debf2e344/CFArRq8UfTHcaK1fkOAtnKnbrFG0xQMcZuFPfUBh'
       ],
-      repository!, timeout: 2);
+      repository!,
+      timeout: 2);
 
   // Request feature updates via Get request
   featurehubApi!.request();

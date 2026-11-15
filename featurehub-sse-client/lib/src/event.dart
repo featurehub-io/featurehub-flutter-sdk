@@ -1,4 +1,4 @@
-library featurehub_sse_client.src.event;
+library;
 
 class Event implements Comparable<Event> {
   /// An identifier that can be used to allow a client to replay

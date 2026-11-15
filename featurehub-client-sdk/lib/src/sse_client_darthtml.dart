@@ -1,5 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
+// dart:html is deprecated in favour of package:web; it is kept here as this
+// client is being replaced by an OpenFeature based one.
+// ignore: deprecated_member_use
 import 'dart:html';
 
 import 'package:featurehub_client_api/api.dart';
@@ -18,13 +21,16 @@ class EventSourceRepositoryListener {
   EventSource? es;
 
   EventSourceRepositoryListener(
-      String url, String apiKey, ClientFeatureRepository repository,
-      {bool doInit = true})
-      : _repository = repository,
-        _url = url + (url.endsWith('/') ? '' : '/') + 'features/' + apiKey {
+    String url,
+    String apiKey,
+    ClientFeatureRepository repository, {
+    bool doInit = true,
+  }) : _repository = repository,
+       _url = '$url${url.endsWith('/') ? '' : '/'}features/$apiKey' {
     if (apiKey.contains('*')) {
       throw Exception(
-          'You are using a client evaluated API Key in Dart and this is not supported.');
+        'You are using a client evaluated API Key in Dart and this is not supported.',
+      );
     }
     if (doInit) {
       init();
@@ -52,14 +58,16 @@ class EventSourceRepositoryListener {
     _repository.notify(SSEResultState.bye, null);
   }
 
-  void _error(event) {
+  void _error(Object? event) {
     _log.severe('Lost connection to feature repository ${event ?? 'unknown'}');
   }
 
   void _msg(MessageEvent msg) {
     _log.fine('Event is ${msg.type} value ${msg.data}');
-    _repository.notify(SSEResultStateExtension.fromJson(msg.type),
-        msg.data == null ? null : jsonDecode(msg.data));
+    _repository.notify(
+      SSEResultStateExtension.fromJson(msg.type),
+      msg.data == null ? null : jsonDecode(msg.data),
+    );
   }
 
   void _configMessage(MessageEvent msg) {
@@ -89,15 +97,19 @@ class EventSourceRepositoryListener {
       es!.close();
     });
     EventStreamProvider<MessageEvent>('ack').forTarget(es).listen(_msg);
-    EventStreamProvider<MessageEvent>('config').forTarget(es).listen(_configMessage);
-    EventStreamProvider<MessageEvent>('delete_feature')
-        .forTarget(es)
-        .listen(_msg);
+    EventStreamProvider<MessageEvent>(
+      'config',
+    ).forTarget(es).listen(_configMessage);
+    EventStreamProvider<MessageEvent>(
+      'delete_feature',
+    ).forTarget(es).listen(_msg);
   }
 
   EventSource connect(String url) {
-    return EventSource(url +
-        (xFeaturehubHeader == null ? '' : '?xfeaturehub=$xFeaturehubHeader'));
+    return EventSource(
+      url +
+          (xFeaturehubHeader == null ? '' : '?xfeaturehub=$xFeaturehubHeader'),
+    );
   }
 
   void close() {

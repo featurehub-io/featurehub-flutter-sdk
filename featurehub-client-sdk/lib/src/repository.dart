@@ -6,6 +6,8 @@ import 'package:featurehub_client_sdk/featurehub.dart';
 import 'package:logging/logging.dart';
 import 'package:rxdart/rxdart.dart';
 
+// public API; kept as-is rather than renamed to lowerCamelCase
+// ignore: constant_identifier_names
 enum Readyness { NotReady, Ready, Failed }
 
 abstract class FeatureStateHolder {
@@ -64,16 +66,21 @@ class _FeatureStateBaseHolder implements FeatureStateHolder {
   Stream<FeatureStateHolder> get featureUpdateStream => _listeners!.stream;
 
   _FeatureStateBaseHolder(
-      _FeatureStateBaseHolder? fs, this.featureValueInterceptors) {
+    _FeatureStateBaseHolder? fs,
+    this.featureValueInterceptors,
+  ) {
     _listeners = fs?._listeners ?? BehaviorSubject<FeatureStateHolder>();
   }
 
   @override
   dynamic get value => _value;
 
+  @override
   bool get isSet => _value != null;
 
-  bool get isEnabled => _featureState?.type == FeatureValueType.BOOLEAN && _value == true;
+  @override
+  bool get isEnabled =>
+      _featureState?.type == FeatureValueType.BOOLEAN && _value == true;
 
   set featureState(FeatureState fs) {
     _featureState = fs;
@@ -91,26 +98,37 @@ class _FeatureStateBaseHolder implements FeatureStateHolder {
   bool get exists => _findIntercept(() => _value) != null;
 
   @override
-  bool? get booleanValue => _findIntercept(
-          () => _featureState?.type == FeatureValueType.BOOLEAN ? _value : null)
-      as bool?;
+  bool? get booleanValue =>
+      _findIntercept(
+            () =>
+                _featureState?.type == FeatureValueType.BOOLEAN ? _value : null,
+          )
+          as bool?;
 
   @override
   String? get stringValue =>
-      _findIntercept(() => (_featureState?.type == FeatureValueType.STRING ||
-              _featureState?.type == FeatureValueType.JSON)
-          ? _value
-          : null) as String?;
+      _findIntercept(
+            () =>
+                (_featureState?.type == FeatureValueType.STRING ||
+                    _featureState?.type == FeatureValueType.JSON)
+                ? _value
+                : null,
+          )
+          as String?;
 
   @override
-  num? get numberValue => _findIntercept(
-          () => _featureState?.type == FeatureValueType.NUMBER ? _value : null)
-      as num?;
+  num? get numberValue =>
+      _findIntercept(
+            () =>
+                _featureState?.type == FeatureValueType.NUMBER ? _value : null,
+          )
+          as num?;
 
   @override
   dynamic get jsonValue {
     String? body = _findIntercept(
-        () => _featureState?.type == FeatureValueType.JSON ? _value : null);
+      () => _featureState?.type == FeatureValueType.JSON ? _value : null,
+    );
 
     return body == null ? null : jsonDecode(body);
   }
@@ -130,9 +148,10 @@ class _FeatureStateBaseHolder implements FeatureStateHolder {
     final found = featureValueInterceptors
         .where((vi) => !locked || vi.allowLockOverride)
         .map((vi) {
-      final vm = vi.interceptor(key);
-      return vm.matched ? vm : null;
-    }).where((vm) => vm != null);
+          final vm = vi.interceptor(key);
+          return vm.matched ? vm : null;
+        })
+        .where((vm) => vm != null);
 
     return found.isNotEmpty ? found.first : determineDefault();
   }
@@ -150,8 +169,9 @@ class ClientFeatureRepository {
   final Map<String?, _FeatureStateBaseHolder> _features = {};
   final _analyticsCollectors = PublishSubject<AnalyticsEvent>();
   Readyness _readynessState = Readyness.NotReady;
-  final _readynessListeners =
-      BehaviorSubject<Readyness>.seeded(Readyness.NotReady);
+  final _readynessListeners = BehaviorSubject<Readyness>.seeded(
+    Readyness.NotReady,
+  );
   final _newFeatureStateAvailableListeners =
       PublishSubject<ClientFeatureRepository>();
   bool _catchAndReleaseMode = false;
@@ -194,12 +214,14 @@ class ClientFeatureRepository {
           if (_hasReceivedInitialState && _catchAndReleaseMode) {
             _catchUpdatedFeatures(features);
           } else {
-            var _updated = false;
-            features.forEach((f) => _updated = _featureUpdate(f) || _updated);
+            var updated = false;
+            for (var f in features) {
+              updated = _featureUpdate(f) || updated;
+            }
             if (!_hasReceivedInitialState) {
               _checkForInvalidFeatures();
               _hasReceivedInitialState = true;
-            } else if (_updated) {
+            } else if (updated) {
               _triggerNewStateAvailable();
             }
             _readynessState = Readyness.Ready;
@@ -219,6 +241,10 @@ class ClientFeatureRepository {
         case SSEResultState.deleteFeature:
           _deleteFeature(FeatureState.fromJson(data));
           break;
+        case SSEResultState.config:
+        case SSEResultState.error:
+          // not repository state: config is handled by the transport layer
+          break;
       }
     }
   }
@@ -235,7 +261,7 @@ class ClientFeatureRepository {
         _catchReleaseStates[f.id] = f;
         updatedValues = true;
       } else {
-        if (fs.version == null || f.version! > fs.version!) {
+        if (f.version > fs.version) {
           _catchReleaseStates[f.id] = f;
           updatedValues = true;
         }
@@ -267,17 +293,22 @@ class ClientFeatureRepository {
 
   /// allows us to log an analytics event with this set of features
   void logAnalyticsEvent(String action, {Map<String, Object>? other}) {
-    final featureStateAtCurrentTime =
-        _features.values.where((f) => f.exists).map((f) => f.copy()).toList();
+    final featureStateAtCurrentTime = _features.values
+        .where((f) => f.exists)
+        .map((f) => f.copy())
+        .toList();
 
-    _analyticsCollectors
-        .add(AnalyticsEvent(action, featureStateAtCurrentTime, other));
+    _analyticsCollectors.add(
+      AnalyticsEvent(action, featureStateAtCurrentTime, other),
+    );
   }
 
   /// returns [FeatureStateHolder] if feature key exists or [null] if the feature value is not set or does not exist
   FeatureStateHolder getFeatureState(String? key) {
     return _features.putIfAbsent(
-        key, () => _FeatureStateBaseHolder(null, _featureValueInterceptors));
+      key,
+      () => _FeatureStateBaseHolder(null, _featureValueInterceptors),
+    );
   }
 
   ///returns [FeatureStateHolder] if feature key exists or [null] if the feature value is not set or does not exist
@@ -341,7 +372,9 @@ class ClientFeatureRepository {
     while (_catchReleaseStates.isNotEmpty) {
       final states = <FeatureState>[..._catchReleaseStates.values];
       _catchReleaseStates.clear();
-      states.forEach((f) => _featureUpdate(f));
+      for (var f in states) {
+        _featureUpdate(f);
+      }
     }
 
     if (disableCatchAndRelease == true) {
@@ -356,7 +389,7 @@ class ClientFeatureRepository {
       holder = _FeatureStateBaseHolder(holder, _featureValueInterceptors);
     } else {
       if (holder.version != null) {
-        if (holder.version! > feature.version! ||
+        if (holder.version! > feature.version ||
             (holder.version == feature.version &&
                 holder.value == feature.value)) {
           return false;
@@ -373,7 +406,9 @@ class ClientFeatureRepository {
   /// register an interceptor, indicating whether it is allowed to override
   /// the locking coming from the server
   void registerFeatureValueInterceptor(
-      bool allowLockOverride, FeatureValueInterceptor fvi) {
+    bool allowLockOverride,
+    FeatureValueInterceptor fvi,
+  ) {
     _featureValueInterceptors.add(_InterceptorHolder(allowLockOverride, fvi));
   }
 
@@ -383,7 +418,9 @@ class ClientFeatureRepository {
 
   /// call this to clear the repository if you are swapping environments
   void shutdownFeatures() {
-    _features.values.forEach((f) => f.shutdown());
+    for (var f in _features.values) {
+      f.shutdown();
+    }
     _features.clear();
   }
 

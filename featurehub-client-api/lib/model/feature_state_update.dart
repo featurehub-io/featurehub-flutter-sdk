@@ -13,6 +13,9 @@ class FeatureStateUpdate {
   /* set only if you wish to lock or unlock, otherwise null */
   bool? lock;
 
+  // value required: false nullable: true default:  inherited: false container false
+  // updateValue required: false nullable: true default:  inherited: false container false
+  // lock required: false nullable: true default:  inherited: false container false
   FeatureStateUpdate({this.value, this.updateValue, this.lock});
 
   @override
@@ -41,12 +44,15 @@ class FeatureStateUpdate {
 
   Map<String, dynamic> toJson() {
     final json = <String, dynamic>{};
+
     if (value != null) {
       json[r'value'] = value;
     }
+
     if (updateValue != null) {
       json[r'updateValue'] = updateValue;
     }
+
     if (lock != null) {
       json[r'lock'] = lock;
     }
@@ -57,6 +63,12 @@ class FeatureStateUpdate {
     return json == null
         ? <FeatureStateUpdate>[]
         : json.map((value) => FeatureStateUpdate.fromJson(value)).toList();
+  }
+
+  static Set<FeatureStateUpdate> setFromJson(List<dynamic>? json) {
+    return json == null
+        ? new Set()
+        : json.map((value) => FeatureStateUpdate.fromJson(value)).toSet();
   }
 
   static Map<String, FeatureStateUpdate> mapFromJson(
@@ -70,7 +82,7 @@ class FeatureStateUpdate {
   }
 
   @override
-  bool operator ==(Object? __other) {
+  bool operator ==(Object __other) {
     if (identical(this, __other)) {
       return true;
     }

@@ -7,10 +7,10 @@ import 'package:logging/logging.dart';
 import 'repository.dart';
 
 final _log = Logger('FeatureHub_GAListener');
-final _GA_KEY = '_gaev_value';
+const _gaKey = '_gaev_value';
 
 void insertGoogleAnalyticsEvValue(Map<String, Object> other, String gaValue) {
-  other[_GA_KEY] = gaValue;
+  other[_gaKey] = gaValue;
 }
 
 class GoogleAnalyticsListener {
@@ -20,11 +20,13 @@ class GoogleAnalyticsListener {
   StreamSubscription<AnalyticsEvent>? _analyticsListener;
   final GoogleAnalyticsApiClient _apiClient;
 
-  GoogleAnalyticsListener(ClientFeatureRepository repository, this.ua,
-      {String? cid, GoogleAnalyticsApiClient? apiClient})
-      : _repository = repository,
-        cid = cid,
-        _apiClient = apiClient ?? GoogleAnalyticsDioApiClient() {
+  GoogleAnalyticsListener(
+    ClientFeatureRepository repository,
+    this.ua, {
+    this.cid,
+    GoogleAnalyticsApiClient? apiClient,
+  }) : _repository = repository,
+       _apiClient = apiClient ?? GoogleAnalyticsDioApiClient() {
     _analyticsListener = _repository.analyticsEvent.listen(_analyticsPublisher);
   }
 
@@ -34,31 +36,25 @@ class GoogleAnalyticsListener {
   }
 
   void _analyticsPublisher(AnalyticsEvent event) {
-    final finalCid =
-        (event.other != null) ? (event.other!['cid']?.toString() ?? cid) : cid;
+    final finalCid = (event.other != null)
+        ? (event.other!['cid']?.toString() ?? cid)
+        : cid;
 
     if (finalCid == null) {
       _log.severe('Unable to log GA event as no CID provided.');
       return;
     }
 
-    final ev = (event.other?.containsKey(_GA_KEY) ?? false)
-        ? '&ev=' +
-            Uri.encodeQueryComponent(event.other![_GA_KEY] as String? ?? '')
+    final ev = (event.other?.containsKey(_gaKey) ?? false)
+        ? '&ev=${Uri.encodeQueryComponent(event.other![_gaKey] as String? ?? '')}'
         : '';
 
     var batchData = '';
 
-    final baseForEachLine = 'v=1&tid=' +
-        ua +
-        '&cid=' +
-        finalCid +
-        '&t=event&ec=FeatureHub%20Event&ea=' +
-        Uri.encodeQueryComponent(event.action) +
-        ev +
-        '&el=';
+    final baseForEachLine =
+        'v=1&tid=$ua&cid=$finalCid&t=event&ec=FeatureHub%20Event&ea=${Uri.encodeQueryComponent(event.action)}$ev&el=';
 
-    event.features.forEach((f) {
+    for (var f in event.features) {
       String? line;
       switch (f.type) {
         case null:
@@ -78,11 +74,10 @@ class GoogleAnalyticsListener {
       }
 
       if (line != null) {
-        batchData += baseForEachLine +
-            Uri.encodeQueryComponent('${f.key} : $line') +
-            '\n';
+        batchData +=
+            '$baseForEachLine${Uri.encodeQueryComponent('${f.key} : $line')}\n';
       }
-    });
+    }
 
     if (batchData.isNotEmpty) {
       _apiClient.postAnalyticBatch(batchData);
@@ -102,11 +97,16 @@ class GoogleAnalyticsDioApiClient implements GoogleAnalyticsApiClient {
   @override
   void postAnalyticBatch(String data) {
     _dio
-        .post('https://www.google-analytics.com/batch',
-            data: data,
-            options: Options(contentType: 'application/x-www-form-urlencoded'))
-        .catchError((e, s) {
-      _log.severe('Failed to update GA', e, s);
-    });
+        .post(
+          'https://www.google-analytics.com/batch',
+          data: data,
+          options: Options(contentType: 'application/x-www-form-urlencoded'),
+        )
+        .then<void>(
+          (_) {},
+          onError: (Object e, StackTrace s) {
+            _log.severe('Failed to update GA', e, s);
+          },
+        );
   }
 }

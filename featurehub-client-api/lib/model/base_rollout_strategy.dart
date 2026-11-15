@@ -6,43 +6,40 @@ part of featurehub_client_api.api;
 
 // BaseRolloutStrategy
 class BaseRolloutStrategy {
-  String? id;
   /* value between 0 and 1000000 - for four decimal places */
   int? percentage;
   /* if you don't wish to apply percentage based on user id, you can use one or more attributes defined here */
-  List<String> percentageAttributes = const [];
+  List<String>? percentageAttributes;
+
+  List<RolloutStrategyAttribute>? attributes;
   /* when we attach the RolloutStrategy for Dacha or SSE this lets us push the value out. Only visible in SDK and SSE Edge. */
   dynamic value;
 
-  List<BaseRolloutStrategyAttribute> attributes = const [];
-
+  // percentage required: false nullable: true default:  inherited: false container false
+  // percentageAttributes required: false nullable: true default: [] inherited: false container true
+  // attributes required: false nullable: true default: [] inherited: false container true
+  // value required: false nullable: true default:  inherited: false container false
   BaseRolloutStrategy(
-      {this.id,
-      this.percentage,
+      {this.percentage,
       List<String>? percentageAttributes,
-      this.value,
-      List<BaseRolloutStrategyAttribute>? attributes})
+      List<RolloutStrategyAttribute>? attributes,
+      this.value})
       : this.percentageAttributes = percentageAttributes ?? [],
         this.attributes = attributes ?? [];
 
   @override
   String toString() {
-    return 'BaseRolloutStrategy[id=$id, percentage=$percentage, percentageAttributes=$percentageAttributes, value=$value, attributes=$attributes, ]';
-  }
-
-  static String? fromJson_id(Map<String, dynamic> json) {
-    return (json[r'id'] == null) ? null : json[r'id'] as String?;
+    return 'BaseRolloutStrategy[percentage=$percentage, percentageAttributes=$percentageAttributes, attributes=$attributes, value=$value, ]';
   }
 
   static int? fromJson_percentage(Map<String, dynamic> json) {
     return (json[r'percentage'] == null) ? null : json[r'percentage'].toInt();
   }
 
-  static List<String> fromJson_percentageAttributes(Map<String, dynamic> json) {
+  static List<String>? fromJson_percentageAttributes(
+      Map<String, dynamic> json) {
     final _jsonData = json[r'percentageAttributes'];
-    if (_jsonData == null) {
-      return const [];
-    }
+// zoot1
     return (_jsonData == null)
         ? []
         : ((dynamic data) {
@@ -50,48 +47,47 @@ class BaseRolloutStrategy {
           }(_jsonData));
   }
 
+  static List<RolloutStrategyAttribute>? fromJson_attributes(
+      Map<String, dynamic> json) {
+    final _jsonData = json[r'attributes'];
+// zoot1
+    return (_jsonData == null)
+        ? []
+        : ((dynamic data) {
+            return RolloutStrategyAttribute.listFromJson(data);
+          }(_jsonData));
+  }
+
   static dynamic fromJson_value(Map<String, dynamic> json) {
     return json[r'value'];
   }
 
-  static List<BaseRolloutStrategyAttribute> fromJson_attributes(
-      Map<String, dynamic> json) {
-    final _jsonData = json[r'attributes'];
-    if (_jsonData == null) {
-      return const [];
-    }
-    return (_jsonData == null)
-        ? []
-        : ((dynamic data) {
-            return BaseRolloutStrategyAttribute.listFromJson(data);
-          }(_jsonData));
-  }
-
   BaseRolloutStrategy.fromJson(Map<String, dynamic> json)
-      : this.id = fromJson_id(json),
-        this.percentage = fromJson_percentage(json),
+      : this.percentage = fromJson_percentage(json),
         this.percentageAttributes = fromJson_percentageAttributes(json),
-        this.value = fromJson_value(json),
-        this.attributes = fromJson_attributes(json);
+        this.attributes = fromJson_attributes(json),
+        this.value = fromJson_value(json);
 
   Map<String, dynamic> toJson() {
     final json = <String, dynamic>{};
-    if (id != null) {
-      json[r'id'] = id;
-    }
+
     if (percentage != null) {
       json[r'percentage'] = percentage;
     }
-    if (percentageAttributes.isNotEmpty) {
+
+    if (percentageAttributes != null) {
       json[r'percentageAttributes'] =
-          ((v) => v.map((v) => v).toList())(percentageAttributes);
+          ((v) => v?.map((String v) => v)?.toList())(percentageAttributes);
     }
+
+    if (attributes != null) {
+      json[r'attributes'] = ((v) => v
+          ?.map((RolloutStrategyAttribute v) => v.toJson())
+          ?.toList())(attributes);
+    }
+
     if (value != null) {
       json[r'value'] = value;
-    }
-    if (attributes.isNotEmpty) {
-      json[r'attributes'] =
-          ((v) => v.map((v) => v.toJson()).toList())(attributes);
     }
     return json;
   }
@@ -100,6 +96,12 @@ class BaseRolloutStrategy {
     return json == null
         ? <BaseRolloutStrategy>[]
         : json.map((value) => BaseRolloutStrategy.fromJson(value)).toList();
+  }
+
+  static Set<BaseRolloutStrategy> setFromJson(List<dynamic>? json) {
+    return json == null
+        ? new Set()
+        : json.map((value) => BaseRolloutStrategy.fromJson(value)).toSet();
   }
 
   static Map<String, BaseRolloutStrategy> mapFromJson(
@@ -113,18 +115,17 @@ class BaseRolloutStrategy {
   }
 
   @override
-  bool operator ==(Object? __other) {
+  bool operator ==(Object __other) {
     if (identical(this, __other)) {
       return true;
     }
 
     if (__other is BaseRolloutStrategy && runtimeType == __other.runtimeType) {
-      return id == __other.id &&
-          percentage == __other.percentage &&
+      return percentage == __other.percentage &&
           const ListEquality()
               .equals(percentageAttributes, __other.percentageAttributes) &&
-          value == __other.value &&
-          const ListEquality().equals(attributes, __other.attributes);
+          const ListEquality().equals(attributes, __other.attributes) &&
+          value == __other.value;
     }
 
     return false;
@@ -134,59 +135,57 @@ class BaseRolloutStrategy {
   int get hashCode {
     var hashCode = runtimeType.hashCode;
 
-    if (id != null) {
-      hashCode = hashCode * 31 + id.hashCode;
-    }
-
     if (percentage != null) {
       hashCode = hashCode * 31 + percentage.hashCode;
     }
 
-    if (percentageAttributes.isNotEmpty) {
+    if (percentageAttributes != null) {
       hashCode =
           hashCode * 31 + const ListEquality().hash(percentageAttributes);
+    }
+
+    if (attributes != null) {
+      hashCode = hashCode * 31 + const ListEquality().hash(attributes);
     }
 
     if (value != null) {
       hashCode = hashCode * 31 + value.hashCode;
     }
 
-    if (attributes.isNotEmpty) {
-      hashCode = hashCode * 31 + const ListEquality().hash(attributes);
-    }
-
     return hashCode;
   }
 
   BaseRolloutStrategy copyWith({
-    String? id,
     int? percentage,
     List<String>? percentageAttributes,
+    List<RolloutStrategyAttribute>? attributes,
     dynamic value,
-    List<BaseRolloutStrategyAttribute>? attributes,
   }) {
-    final _copy_id = id ?? this.id;
-
     final _copy_percentage = percentage ?? this.percentage;
 
     final _copy_percentageAttributes = percentageAttributes ??
-        ((List<String> data) {
-          return data.toList();
-        }(this.percentageAttributes));
+        ((this.percentageAttributes == null)
+            ? [] as List<String>?
+            : ((List<String>? data) {
+                return /* nullable: true, vend:  */
+                    data?.toList();
+              }(this.percentageAttributes)));
+
+    final _copy_attributes = attributes ??
+        ((this.attributes == null)
+            ? [] as List<RolloutStrategyAttribute>?
+            : ((List<RolloutStrategyAttribute>? data) {
+                return /* nullable: true, vend:  */
+                    data?.map((data) => data.copyWith()).toList();
+              }(this.attributes)));
 
     final _copy_value = value ?? this.value;
 
-    final _copy_attributes = attributes ??
-        ((List<BaseRolloutStrategyAttribute> data) {
-          return data.map((data) => data.copyWith()).toList();
-        }(this.attributes));
-
     return BaseRolloutStrategy(
-      id: _copy_id,
       percentage: _copy_percentage,
       percentageAttributes: _copy_percentageAttributes,
-      value: _copy_value,
       attributes: _copy_attributes,
+      value: _copy_value,
     );
   }
 }

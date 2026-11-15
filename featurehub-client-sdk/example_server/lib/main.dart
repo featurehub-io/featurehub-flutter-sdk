@@ -1,5 +1,3 @@
-
-
 import 'dart:convert';
 import 'dart:math';
 import 'dart:io';
@@ -16,8 +14,11 @@ late ClientFeatureRepository repository;
 final users = Map<String, List<Todo>>();
 
 void configureFeatureHub() {
-  final apiKey = Platform.environment['FEATUREHUB_CLIENT_API_KEY'] ?? '53ddb630-62f9-4e81-bf40-13f7aa1acf04/SqyuArvr1iBIicLNLepGokmrGrf1jRJxwfGn4nPp';
-  final hostUrl = Platform.environment['FEATUREHUB_EDGE_URL'] ?? 'http://localhost:8064';
+  final apiKey =
+      Platform.environment['FEATUREHUB_CLIENT_API_KEY'] ??
+      '53ddb630-62f9-4e81-bf40-13f7aa1acf04/SqyuArvr1iBIicLNLepGokmrGrf1jRJxwfGn4nPp';
+  final hostUrl =
+      Platform.environment['FEATUREHUB_EDGE_URL'] ?? 'http://localhost:8064';
 
   repository = ClientFeatureRepository();
 
@@ -26,7 +27,8 @@ void configureFeatureHub() {
       final feature = repository.feature(key);
       // ignore: avoid_print
       print(
-          'feature $key is of type ${feature.type} and has the value ${feature.value}');
+        'feature $key is of type ${feature.type} and has the value ${feature.value}',
+      );
     });
   });
 
@@ -48,7 +50,11 @@ class Todo {
   }
 
   static Todo fromJson(dynamic json) {
-    return Todo(json['id'] ?? Random().nextInt(2000).toString(), json['title'] ?? 'none', json['resolved'] ?? false);
+    return Todo(
+      json['id'] ?? Random().nextInt(2000).toString(),
+      json['title'] ?? 'none',
+      json['resolved'] ?? false,
+    );
   }
 
   String processTitle(String title) {
@@ -72,7 +78,9 @@ class Todo {
     }
 
     var upperFeature = repository.feature('FEATURE_TITLE_TO_UPPERCASE');
-    print("upper feature is enabled ${upperFeature.isEnabled} vs ${upperFeature.value} -> ${title}");
+    print(
+      "upper feature is enabled ${upperFeature.isEnabled} vs ${upperFeature.value} -> ${title}",
+    );
     if (upperFeature.isEnabled) {
       title = title.toUpperCase();
       print("case: ${title}");
@@ -93,7 +101,7 @@ Response listTodos(String user) {
 
   data = data + ']';
 
-  return Response.ok(data, headers: { 'content-type': 'application/json'}, );
+  return Response.ok(data, headers: {'content-type': 'application/json'});
 }
 
 void main() async {
@@ -120,8 +128,7 @@ void main() async {
 
   app.post('/todo/<user>', (Request req, String user) async {
     final body = await req.readAsString();
-    users[user] = (users[user] ?? [])
-      ..add(Todo.fromJson(jsonDecode(body)));
+    users[user] = (users[user] ?? [])..add(Todo.fromJson(jsonDecode(body)));
     return listTodos(user);
   });
 

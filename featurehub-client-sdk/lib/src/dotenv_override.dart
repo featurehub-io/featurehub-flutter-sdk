@@ -7,10 +7,15 @@ import 'repository.dart';
 class DotEnvOverride {
   final Map<String, String> env;
 
-  DotEnvOverride(this.env, ClientFeatureRepository repository,
-      {bool allowLockOverride = true}) {
+  DotEnvOverride(
+    this.env,
+    ClientFeatureRepository repository, {
+    bool allowLockOverride = true,
+  }) {
     repository.registerFeatureValueInterceptor(
-        allowLockOverride, (key) => _match(key));
+      allowLockOverride,
+      (key) => _match(key),
+    );
   }
 
   ValueMatch _match(String? key) {

@@ -13,11 +13,12 @@ void main() {
 
     // set feature state
     await _api.setFeatureState(
-        apiKey,
-        'FEATURE_TITLE_TO_UPPERCASE',
-        FeatureStateUpdate()
-          ..lock = false
-          ..value = true);
+      apiKey,
+      'FEATURE_TITLE_TO_UPPERCASE',
+      FeatureStateUpdate()
+        ..lock = false
+        ..value = true,
+    );
 
     var repository = ClientFeatureRepository();
 

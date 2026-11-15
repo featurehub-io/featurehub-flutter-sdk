@@ -64,6 +64,12 @@ extension RolloutStrategyAttributeConditionalExtension
           ? <RolloutStrategyAttributeConditional>[]
           : json.map((value) => fromJson(value)).toList().fromNull();
 
+  static Set<RolloutStrategyAttributeConditional> setFromJson(
+          List<dynamic>? json) =>
+      json == null
+          ? new Set()
+          : json.map((value) => fromJson(value)).toSet().fromNull();
+
   static RolloutStrategyAttributeConditional copyWith(
           RolloutStrategyAttributeConditional instance) =>
       instance;

@@ -12,9 +12,10 @@ class W3CTraceContextInterceptor extends InterceptorsWrapper {
   final int _spanId;
 
   W3CTraceContextInterceptor()
-      : _startTraceId =
-            Random.secure().nextInt(1 << 27), // gives us space to expand
-        _spanId = Random.secure().nextInt(1 << 14);
+    : _startTraceId = Random.secure().nextInt(
+        1 << 27,
+      ), // gives us space to expand
+      _spanId = Random.secure().nextInt(1 << 14);
 
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
@@ -34,7 +35,7 @@ class W3CTraceContextInterceptor extends InterceptorsWrapper {
 /// use this class if you wish to pass the state of your features with
 /// each request as an opentracing header that is compatible with Jaeger.
 /// this is called Baggage in OpenTracing and DistributedContext in OpenTelemetry
-@deprecated
+@Deprecated("Use W3CTraceContextInterceptor")
 class JaegerDioInterceptor extends W3CTraceContextInterceptor {
   final ClientFeatureRepository repository;
 
@@ -42,14 +43,13 @@ class JaegerDioInterceptor extends W3CTraceContextInterceptor {
 
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
-    repository.availableFeatures.forEach((key) {
+    for (var key in repository.availableFeatures) {
       final fs = repository.feature(key);
       if (fs.type != FeatureValueType.JSON && fs.value != null) {
-        options.headers[
-                'uberctx-fhub.${key!.toLowerCase().replaceAll(':', '_')}'] =
+        options.headers['uberctx-fhub.${key!.toLowerCase().replaceAll(':', '_')}'] =
             Uri.encodeQueryComponent(fs.value);
       }
-    });
+    }
 
     super.onRequest(options, handler);
   }

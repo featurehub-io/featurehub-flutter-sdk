@@ -81,6 +81,8 @@ class FeatureServiceApiDelegate {
 
   FeatureServiceApiDelegate(this.apiClient);
 
+  // apiKey required: true nullable: false ext: {}
+  // contextSha required: false nullable: false ext: {}
   Future<ApiResponse> getFeatureStates(List<String> apiKey,
       {Options? options, String? contextSha}) async {
     // create path and map variables
@@ -133,6 +135,9 @@ class FeatureServiceApiDelegate {
         .toList();
   }
 
+  // sdkUrl required: true nullable: false ext: {}
+  // featureKey required: true nullable: false ext: {}
+  // featureStateUpdate required: true nullable: false ext: {}
   Future<ApiResponse> setFeatureState(
       String sdkUrl, String featureKey, FeatureStateUpdate featureStateUpdate,
       {Options? options}) async {
