@@ -46,6 +46,11 @@ extension StrategyAttributeDeviceNameExtension on StrategyAttributeDeviceName {
           ? <StrategyAttributeDeviceName>[]
           : json.map((value) => fromJson(value)).toList().fromNull();
 
+  static Set<StrategyAttributeDeviceName> setFromJson(List<dynamic>? json) =>
+      json == null
+          ? new Set()
+          : json.map((value) => fromJson(value)).toSet().fromNull();
+
   static StrategyAttributeDeviceName copyWith(
           StrategyAttributeDeviceName instance) =>
       instance;

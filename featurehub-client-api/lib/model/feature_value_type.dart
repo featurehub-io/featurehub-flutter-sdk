@@ -35,6 +35,10 @@ extension FeatureValueTypeExtension on FeatureValueType {
           ? <FeatureValueType>[]
           : json.map((value) => fromJson(value)).toList().fromNull();
 
+  static Set<FeatureValueType> setFromJson(List<dynamic>? json) => json == null
+      ? new Set()
+      : json.map((value) => fromJson(value)).toSet().fromNull();
+
   static FeatureValueType copyWith(FeatureValueType instance) => instance;
 
   static Map<String, FeatureValueType> mapFromJson(Map<String, dynamic>? json) {

@@ -10,6 +10,8 @@ class ApplicationVersionInfo {
 
   String version;
 
+  // name required: true nullable: false default:  inherited: false container false
+  // version required: true nullable: false default:  inherited: false container false
   ApplicationVersionInfo({required this.name, required this.version});
 
   @override
@@ -54,6 +56,12 @@ class ApplicationVersionInfo {
         : json.map((value) => ApplicationVersionInfo.fromJson(value)).toList();
   }
 
+  static Set<ApplicationVersionInfo> setFromJson(List<dynamic>? json) {
+    return json == null
+        ? new Set()
+        : json.map((value) => ApplicationVersionInfo.fromJson(value)).toSet();
+  }
+
   static Map<String, ApplicationVersionInfo> mapFromJson(
       Map<String, dynamic>? json) {
     final map = <String, ApplicationVersionInfo>{};
@@ -65,7 +73,7 @@ class ApplicationVersionInfo {
   }
 
   @override
-  bool operator ==(Object? __other) {
+  bool operator ==(Object __other) {
     if (identical(this, __other)) {
       return true;
     }

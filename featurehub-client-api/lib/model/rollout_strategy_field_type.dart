@@ -49,6 +49,11 @@ extension RolloutStrategyFieldTypeExtension on RolloutStrategyFieldType {
           ? <RolloutStrategyFieldType>[]
           : json.map((value) => fromJson(value)).toList().fromNull();
 
+  static Set<RolloutStrategyFieldType> setFromJson(List<dynamic>? json) =>
+      json == null
+          ? new Set()
+          : json.map((value) => fromJson(value)).toSet().fromNull();
+
   static RolloutStrategyFieldType copyWith(RolloutStrategyFieldType instance) =>
       instance;
 

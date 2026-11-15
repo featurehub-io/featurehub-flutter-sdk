@@ -10,32 +10,47 @@ class FeatureState {
 
   String key;
   /* Is this feature locked. Usually this doesn't matter because the value is the value, but for FeatureInterceptors it can matter. */
-  bool? l;
+  late bool l;
   /* The version of the feature, this allows features to change values and it means we don't trigger events */
-  int? version;
+  int version;
 
-  FeatureValueType? type;
+  FeatureValueType type;
   /* the current value */
   dynamic value;
+  /* strategy id that was applied if this was a server evaluated feature */
+  String? v;
+  /* Any additional properties configured by System Operator */
+  Map<String, String>? fp;
   /* This field is filled in from the client side in the GET api as the GET api is able to request multiple environments. It is never passed from the server, as an array of feature states is wrapped in an environment. */
   String? environmentId;
 
-  List<FeatureRolloutStrategy> strategies = const [];
+  List<FeatureRolloutStrategy>? strategies;
 
+  // id required: true nullable: false default:  inherited: false container false
+  // key required: true nullable: false default:  inherited: false container false
+  // l required: false nullable: false default: false inherited: false container false
+  // version required: true nullable: false default:  inherited: false container false
+  // type required: true nullable: false default:  inherited: false container false
+  // value required: false nullable: true default:  inherited: false container false
+  // v required: false nullable: true default:  inherited: false container false
+  // fp required: false nullable: true default:  inherited: false container true
+  // environmentId required: false nullable: true default:  inherited: false container false
+  // strategies required: false nullable: true default:  inherited: false container true
   FeatureState(
       {required this.id,
       required this.key,
-      this.l,
-      this.version,
-      this.type,
+      this.l = false,
+      required this.version,
+      required this.type,
       this.value,
+      this.v,
+      this.fp,
       this.environmentId,
-      List<FeatureRolloutStrategy>? strategies})
-      : this.strategies = strategies ?? [];
+      this.strategies});
 
   @override
   String toString() {
-    return 'FeatureState[id=$id, key=$key, l=$l, version=$version, type=$type, value=$value, environmentId=$environmentId, strategies=$strategies, ]';
+    return 'FeatureState[id=$id, key=$key, l=$l, version=$version, type=$type, value=$value, v=$v, fp=$fp, environmentId=$environmentId, strategies=$strategies, ]';
   }
 
   static String fromJson_id(Map<String, dynamic> json) {
@@ -58,22 +73,56 @@ class FeatureState {
     return (json[r'key'] as String); // sausage
   }
 
-  static bool? fromJson_l(Map<String, dynamic> json) {
-    return (json[r'l'] == null) ? null : json[r'l'] as bool?;
+  static bool fromJson_l(Map<String, dynamic> json) {
+    final _jsonData = json[r'l'];
+    if (_jsonData == null) {
+      return false;
+    }
+
+    return (json[r'l'] as bool); // sausage
   }
 
-  static int? fromJson_version(Map<String, dynamic> json) {
-    return (json[r'version'] == null) ? null : json[r'version'].toInt();
+  static int fromJson_version(Map<String, dynamic> json) {
+    final _jsonData = json[r'version'];
+    if (_jsonData == null) {
+      throw DeserialisationError(json, r'version', r'',
+          'version field is null and is required to have a value');
+    }
+
+    return (json[r'version'].toInt()); // sausage
   }
 
-  static FeatureValueType? fromJson_type(Map<String, dynamic> json) {
-    return (json[r'type'] == null)
-        ? null
-        : FeatureValueTypeExtension.fromJson(json[r'type']);
+  static FeatureValueType fromJson_type(Map<String, dynamic> json) {
+    final _jsonData = json[r'type'];
+    if (_jsonData == null) {
+      throw DeserialisationError(json, r'type', r'',
+          'type field is null and is required to have a value');
+    }
+
+    final _enumVal = FeatureValueTypeExtension.fromJson(_jsonData);
+    if (_enumVal == null)
+      throw DeserialisationError(json, r'type', r'',
+          'type field is null and is required to have a value');
+
+    return _enumVal;
   }
 
   static dynamic fromJson_value(Map<String, dynamic> json) {
     return json[r'value'];
+  }
+
+  static String? fromJson_v(Map<String, dynamic> json) {
+    return (json[r'v'] == null) ? null : json[r'v'] as String?;
+  }
+
+  static Map<String, String>? fromJson_fp(Map<String, dynamic> json) {
+    final _jsonData = json[r'fp'];
+// zoot1
+    return (_jsonData == null)
+        ? null
+        : ((dynamic data) {
+            return (data as Map).cast<String, String>().fromNull();
+          }(_jsonData));
   }
 
   static String? fromJson_environmentId(Map<String, dynamic> json) {
@@ -82,14 +131,12 @@ class FeatureState {
         : json[r'environmentId'] as String?;
   }
 
-  static List<FeatureRolloutStrategy> fromJson_strategies(
+  static List<FeatureRolloutStrategy>? fromJson_strategies(
       Map<String, dynamic> json) {
     final _jsonData = json[r'strategies'];
-    if (_jsonData == null) {
-      return const [];
-    }
+// zoot1
     return (_jsonData == null)
-        ? []
+        ? null
         : ((dynamic data) {
             return FeatureRolloutStrategy.listFromJson(data);
           }(_jsonData));
@@ -102,6 +149,8 @@ class FeatureState {
         this.version = fromJson_version(json),
         this.type = fromJson_type(json),
         this.value = fromJson_value(json),
+        this.v = fromJson_v(json),
+        this.fp = fromJson_fp(json),
         this.environmentId = fromJson_environmentId(json),
         this.strategies = fromJson_strategies(json);
 
@@ -109,24 +158,31 @@ class FeatureState {
     final json = <String, dynamic>{};
     json[r'id'] = id;
     json[r'key'] = key;
-    if (l != null) {
-      json[r'l'] = l;
-    }
-    if (version != null) {
-      json[r'version'] = version;
-    }
-    if (type != null) {
-      json[r'type'] = type?.toJson();
-    }
+    json[r'l'] = l;
+    json[r'version'] = version;
+    json[r'type'] = type.toJson();
+
     if (value != null) {
       json[r'value'] = value;
     }
+
+    if (v != null) {
+      json[r'v'] = v;
+    }
+
+    if (fp != null) {
+      json[r'fp'] = ((v) =>
+          Map.fromIterables(fp!.keys, fp!.values.map((String v) => v)))(fp);
+    }
+
     if (environmentId != null) {
       json[r'environmentId'] = environmentId;
     }
-    if (strategies.isNotEmpty) {
-      json[r'strategies'] =
-          ((v) => v.map((v) => v.toJson()).toList())(strategies);
+
+    if (strategies != null) {
+      json[r'strategies'] = ((v) => v
+          ?.map((FeatureRolloutStrategy v) => v.toJson())
+          ?.toList())(strategies);
     }
     return json;
   }
@@ -135,6 +191,12 @@ class FeatureState {
     return json == null
         ? <FeatureState>[]
         : json.map((value) => FeatureState.fromJson(value)).toList();
+  }
+
+  static Set<FeatureState> setFromJson(List<dynamic>? json) {
+    return json == null
+        ? new Set()
+        : json.map((value) => FeatureState.fromJson(value)).toSet();
   }
 
   static Map<String, FeatureState> mapFromJson(Map<String, dynamic>? json) {
@@ -147,7 +209,7 @@ class FeatureState {
   }
 
   @override
-  bool operator ==(Object? __other) {
+  bool operator ==(Object __other) {
     if (identical(this, __other)) {
       return true;
     }
@@ -160,6 +222,8 @@ class FeatureState {
           type == __other.type && // __other
 
           value == __other.value &&
+          v == __other.v &&
+          fp == __other.fp &&
           environmentId == __other.environmentId &&
           const ListEquality().equals(strategies, __other.strategies);
     }
@@ -175,27 +239,29 @@ class FeatureState {
 
     hashCode = hashCode * 31 + key.hashCode;
 
-    if (l != null) {
-      hashCode = hashCode * 31 + l.hashCode;
-    }
+    hashCode = hashCode * 31 + l.hashCode;
 
-    if (version != null) {
-      hashCode = hashCode * 31 + version.hashCode;
-    }
+    hashCode = hashCode * 31 + version.hashCode;
 
-    if (type != null) {
-      hashCode = hashCode * 31 + type.hashCode;
-    }
+    hashCode = hashCode * 31 + type.hashCode;
 
     if (value != null) {
       hashCode = hashCode * 31 + value.hashCode;
+    }
+
+    if (v != null) {
+      hashCode = hashCode * 31 + v.hashCode;
+    }
+
+    if (fp != null) {
+      hashCode = hashCode * 31 + MapEquality().hash(fp);
     }
 
     if (environmentId != null) {
       hashCode = hashCode * 31 + environmentId.hashCode;
     }
 
-    if (strategies.isNotEmpty) {
+    if (strategies != null) {
       hashCode = hashCode * 31 + const ListEquality().hash(strategies);
     }
 
@@ -209,6 +275,8 @@ class FeatureState {
     int? version,
     FeatureValueType? type,
     dynamic value,
+    String? v,
+    Map<String, String>? fp,
     String? environmentId,
     List<FeatureRolloutStrategy>? strategies,
   }) {
@@ -224,12 +292,25 @@ class FeatureState {
 
     final _copy_value = value ?? this.value;
 
+    final _copy_v = v ?? this.v;
+
+    final _copy_fp = fp ??
+        ((this.fp == null)
+            ? null
+            : ((Map<String, String>? data) {
+                return data?.map((String key, String data) =>
+                    MapEntry<String, String>(key, data));
+              }(this.fp)));
+
     final _copy_environmentId = environmentId ?? this.environmentId;
 
     final _copy_strategies = strategies ??
-        ((List<FeatureRolloutStrategy> data) {
-          return data.map((data) => data.copyWith()).toList();
-        }(this.strategies));
+        ((this.strategies == null)
+            ? null
+            : ((List<FeatureRolloutStrategy>? data) {
+                return /* nullable: true, vend:  */
+                    data?.map((data) => data.copyWith()).toList();
+              }(this.strategies)));
 
     return FeatureState(
       id: _copy_id,
@@ -238,6 +319,8 @@ class FeatureState {
       version: _copy_version,
       type: _copy_type,
       value: _copy_value,
+      v: _copy_v,
+      fp: _copy_fp,
       environmentId: _copy_environmentId,
       strategies: _copy_strategies,
     );

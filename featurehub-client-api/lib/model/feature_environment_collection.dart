@@ -8,10 +8,11 @@ part of featurehub_client_api.api;
 class FeatureEnvironmentCollection {
   String id;
 
-  List<FeatureState> features = const [];
+  List<FeatureState> features;
 
-  FeatureEnvironmentCollection({required this.id, List<FeatureState>? features})
-      : this.features = features ?? [];
+  // id required: true nullable: false default:  inherited: false container false
+  // features required: true nullable: false default:  inherited: false container true
+  FeatureEnvironmentCollection({required this.id, required this.features});
 
   @override
   String toString() {
@@ -31,7 +32,8 @@ class FeatureEnvironmentCollection {
   static List<FeatureState> fromJson_features(Map<String, dynamic> json) {
     final _jsonData = json[r'features'];
     if (_jsonData == null) {
-      return const [];
+      throw DeserialisationError(json, r'features', r'',
+          'features field is null and is required to have a value');
     }
     return (_jsonData == null)
         ? []
@@ -47,9 +49,8 @@ class FeatureEnvironmentCollection {
   Map<String, dynamic> toJson() {
     final json = <String, dynamic>{};
     json[r'id'] = id;
-    if (features.isNotEmpty) {
-      json[r'features'] = ((v) => v.map((v) => v.toJson()).toList())(features);
-    }
+    json[r'features'] =
+        ((v) => v.map((FeatureState v) => v.toJson()).toList())(features);
     return json;
   }
 
@@ -59,6 +60,14 @@ class FeatureEnvironmentCollection {
         : json
             .map((value) => FeatureEnvironmentCollection.fromJson(value))
             .toList();
+  }
+
+  static Set<FeatureEnvironmentCollection> setFromJson(List<dynamic>? json) {
+    return json == null
+        ? new Set()
+        : json
+            .map((value) => FeatureEnvironmentCollection.fromJson(value))
+            .toSet();
   }
 
   static Map<String, FeatureEnvironmentCollection> mapFromJson(
@@ -72,7 +81,7 @@ class FeatureEnvironmentCollection {
   }
 
   @override
-  bool operator ==(Object? __other) {
+  bool operator ==(Object __other) {
     if (identical(this, __other)) {
       return true;
     }
@@ -92,9 +101,7 @@ class FeatureEnvironmentCollection {
 
     hashCode = hashCode * 31 + id.hashCode;
 
-    if (features.isNotEmpty) {
-      hashCode = hashCode * 31 + const ListEquality().hash(features);
-    }
+    hashCode = hashCode * 31 + const ListEquality().hash(features);
 
     return hashCode;
   }
@@ -107,7 +114,8 @@ class FeatureEnvironmentCollection {
 
     final _copy_features = features ??
         ((List<FeatureState> data) {
-          return data.map((data) => data.copyWith()).toList();
+          return /* nullable: false, vend:  */
+              data.map((data) => data.copyWith()).toList();
         }(this.features));
 
     return FeatureEnvironmentCollection(

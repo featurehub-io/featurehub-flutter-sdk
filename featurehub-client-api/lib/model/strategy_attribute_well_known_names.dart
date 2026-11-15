@@ -48,6 +48,12 @@ extension StrategyAttributeWellKnownNamesExtension
           ? <StrategyAttributeWellKnownNames>[]
           : json.map((value) => fromJson(value)).toList().fromNull();
 
+  static Set<StrategyAttributeWellKnownNames> setFromJson(
+          List<dynamic>? json) =>
+      json == null
+          ? new Set()
+          : json.map((value) => fromJson(value)).toSet().fromNull();
+
   static StrategyAttributeWellKnownNames copyWith(
           StrategyAttributeWellKnownNames instance) =>
       instance;

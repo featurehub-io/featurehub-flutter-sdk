@@ -39,6 +39,11 @@ extension StrategyAttributePlatformNameExtension
           ? <StrategyAttributePlatformName>[]
           : json.map((value) => fromJson(value)).toList().fromNull();
 
+  static Set<StrategyAttributePlatformName> setFromJson(List<dynamic>? json) =>
+      json == null
+          ? new Set()
+          : json.map((value) => fromJson(value)).toSet().fromNull();
+
   static StrategyAttributePlatformName copyWith(
           StrategyAttributePlatformName instance) =>
       instance;

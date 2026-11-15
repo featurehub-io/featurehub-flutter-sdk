@@ -51,6 +51,10 @@ extension SSEResultStateExtension on SSEResultState {
       ? <SSEResultState>[]
       : json.map((value) => fromJson(value)).toList().fromNull();
 
+  static Set<SSEResultState> setFromJson(List<dynamic>? json) => json == null
+      ? new Set()
+      : json.map((value) => fromJson(value)).toSet().fromNull();
+
   static SSEResultState copyWith(SSEResultState instance) => instance;
 
   static Map<String, SSEResultState> mapFromJson(Map<String, dynamic>? json) {
