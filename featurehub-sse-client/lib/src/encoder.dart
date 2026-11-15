@@ -1,4 +1,4 @@
-library featurehub_sse_client.src.encoder;
+library;
 
 import "dart:convert";
 import "dart:io";
@@ -9,9 +9,9 @@ import "proxy_sink.dart";
 class EventSourceEncoder extends Converter<Event, List<int>> {
   final bool compressed;
 
-  const EventSourceEncoder({bool this.compressed = false});
+  const EventSourceEncoder({this.compressed = false});
 
-  static Map<String, Function> _fields = {
+  static final Map<String, Function> _fields = {
     "id: ": (e) => e.id,
     "event: ": (e) => e.event,
     "data: ": (e) => e.data,
@@ -36,7 +36,7 @@ class EventSourceEncoder extends Converter<Event, List<int>> {
       }
       // multi-line values need the field prefix on every line
       value = value.replaceAll("\n", "\n$prefix");
-      payload += prefix + value + "\n";
+      payload += "$prefix$value\n";
     }
     payload += "\n";
     return payload;
@@ -46,13 +46,16 @@ class EventSourceEncoder extends Converter<Event, List<int>> {
   Sink<Event> startChunkedConversion(Sink<List<int>> sink) {
     Sink inputSink = sink;
     if (compressed) {
-      inputSink =
-          gzip.encoder.startChunkedConversion(inputSink as Sink<List<int>>);
+      inputSink = gzip.encoder.startChunkedConversion(
+        inputSink as Sink<List<int>>,
+      );
     }
-    inputSink =
-        utf8.encoder.startChunkedConversion(inputSink as Sink<List<int>>);
-    return new ProxySink(
-        onAdd: (Event event) => inputSink.add(convertToString(event)),
-        onClose: () => inputSink.close());
+    inputSink = utf8.encoder.startChunkedConversion(
+      inputSink as Sink<List<int>>,
+    );
+    return ProxySink(
+      onAdd: (Event event) => inputSink.add(convertToString(event)),
+      onClose: () => inputSink.close(),
+    );
   }
 }

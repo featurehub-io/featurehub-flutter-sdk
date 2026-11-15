@@ -1,4 +1,4 @@
-library featurehub_sse_client.src.decoder;
+library;
 
 import "dart:async";
 import "dart:convert";
@@ -7,67 +7,131 @@ import "event.dart";
 
 typedef RetryIndicator = void Function(Duration retry);
 
+final RegExp _digitsOnly = RegExp(r"^[0-9]+$");
+
+/// Decodes a `text/event-stream` byte stream into [Event]s, following the
+/// WHATWG HTML "Interpreting an event stream" rules.
+///
+/// The decoder tracks the stream's *last event ID* across events and across
+/// successive [bind] calls (i.e. reconnections), so a single instance should
+/// be reused for the life of an event source.
 class EventSourceDecoder implements StreamTransformer<List<int>, Event> {
   RetryIndicator? retryIndicator;
 
-  EventSourceDecoder({this.retryIndicator});
+  /// The last event ID string, as defined by the SSE specification. It is
+  /// only updated when an event block is completed (dispatched), and it
+  /// persists until the server sends another `id` field. An empty string
+  /// means there is no last event ID.
+  String lastEventId;
 
+  EventSourceDecoder({this.retryIndicator, String? lastEventId})
+    : lastEventId = lastEventId ?? "";
+
+  @override
   Stream<Event> bind(Stream<List<int>> stream) {
-    late StreamController<Event> controller;
-    controller = new StreamController(onListen: () {
-      // the event we are currently building
-      Event currentEvent = new Event();
-      // the regexes we will use later
-      RegExp lineRegex = new RegExp(r"^([^:]*)(?::)?(?: )?(.*)?$");
-      RegExp removeEndingNewlineRegex = new RegExp(r"^((?:.|\n)*)\n$");
-      // This stream will receive chunks of data that is not necessarily a
-      // single event. So we build events on the fly and broadcast the event as
-      // soon as we encounter a double newline, then we start a new one.
-      stream
-          .transform(new Utf8Decoder())
-          .transform(new LineSplitter())
-          .listen((String line) {
-        if (line.isEmpty) {
-          // event is done
-          // strip ending newline from data
-          if (currentEvent.data != null) {
-            var match =
-                removeEndingNewlineRegex.firstMatch(currentEvent.data!)!;
-            currentEvent.data = match.group(1);
+    // per-connection parse state
+    var data = StringBuffer();
+    var hasData = false;
+    String? eventType;
+    var idBuffer = lastEventId;
+    var firstLine = true;
+
+    void dispatch(EventSink<Event> sink) {
+      // the id buffer is committed whether or not an event is dispatched
+      lastEventId = idBuffer;
+
+      if (hasData) {
+        var value = data.toString();
+        // remove the single trailing LF added by the last data line
+        value = value.substring(0, value.length - 1);
+        sink.add(
+          Event(
+            id: lastEventId,
+            event: (eventType == null || eventType!.isEmpty)
+                ? "message"
+                : eventType,
+            data: value,
+          ),
+        );
+      }
+
+      data = StringBuffer();
+      hasData = false;
+      eventType = null;
+    }
+
+    void processField(String field, String value) {
+      switch (field) {
+        case "event":
+          eventType = value;
+          break;
+        case "data":
+          data
+            ..write(value)
+            ..write("\n");
+          hasData = true;
+          break;
+        case "id":
+          if (!value.contains("\u0000")) {
+            idBuffer = value;
           }
-          controller.add(currentEvent);
-          currentEvent = new Event();
-          return;
-        }
-        // match the line prefix and the value using the regex
-        Match match = lineRegex.firstMatch(line)!;
-        String field = match.group(1)!;
-        String value = match.group(2) ?? "";
-        if (field.isEmpty) {
-          // lines starting with a colon are to be ignored
-          return;
-        }
-        switch (field) {
-          case "event":
-            currentEvent.event = value;
-            break;
-          case "data":
-            currentEvent.data = (currentEvent.data ?? "") + value + "\n";
-            break;
-          case "id":
-            currentEvent.id = value;
-            break;
-          case "retry":
-            if (retryIndicator != null) {
-              retryIndicator!(new Duration(milliseconds: int.parse(value)));
-            }
-            break;
-        }
-      });
-    });
-    return controller.stream;
+          break;
+        case "retry":
+          if (_digitsOnly.hasMatch(value)) {
+            retryIndicator?.call(Duration(milliseconds: int.parse(value)));
+          }
+          break;
+        default:
+        // unknown fields are ignored
+      }
+    }
+
+    return stream
+        .transform(const Utf8Decoder(allowMalformed: true))
+        .transform(const LineSplitter())
+        .transform(
+          StreamTransformer<String, Event>.fromHandlers(
+            handleData: (String line, EventSink<Event> sink) {
+              if (firstLine) {
+                firstLine = false;
+                // a single leading UTF-8 BOM is ignored
+                if (line.startsWith("﻿")) {
+                  line = line.substring(1);
+                }
+              }
+
+              if (line.isEmpty) {
+                dispatch(sink);
+                return;
+              }
+
+              if (line.startsWith(":")) {
+                // comment line
+                return;
+              }
+
+              final colon = line.indexOf(":");
+              if (colon < 0) {
+                processField(line, "");
+                return;
+              }
+
+              final field = line.substring(0, colon);
+              var value = line.substring(colon + 1);
+              if (value.startsWith(" ")) {
+                value = value.substring(1);
+              }
+              processField(field, value);
+            },
+            handleDone: (EventSink<Event> sink) {
+              // an incomplete event at end of stream is discarded
+              sink.close();
+            },
+          ),
+        );
   }
 
+  @override
   StreamTransformer<RS, RT> cast<RS, RT>() =>
       StreamTransformer.castFrom<List<int>, Event, RS, RT>(this);
 }

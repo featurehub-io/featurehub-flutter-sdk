@@ -17,7 +17,7 @@ to use the browser specific SSE client (`dart:html / EventSource`) as it is nati
 
 For more advanced usage, see the `example/` directory. 
 Creating a new EventSource client is as easy as a single call.
-The http package is used under the hood, so wherever this package works, this lbirary will also work.
+The http package is used under the hood, so wherever this package works, this library will also work.
 Browser usage is slightly different.
 
 ```dart
@@ -29,7 +29,7 @@ EventSource eventSource = await EventSource.connect("http://example.com/events",
 
 If you wish to have it connect only when the first listener attaches (and not otherwise), then pass the
 optional parameter `openOnlyOnFirstListener` (as true). If you wish to close it after the last listener detaches, then
-pass the optional parmeter `closeOnLastListener`.
+pass the optional parameter `closeOnLastListener`.
 
 ```dart
 EventSource eventSource = await EventSource.connect("http://example.com/events", 
@@ -38,6 +38,34 @@ EventSource eventSource = await EventSource.connect("http://example.com/events",
 
 You can also listen for events from the event source now, but you will need to provide your own stream controller. If
 you wish to listen to the events as the stream opens and closes, please pass in a `StreamController<>`
+
+## Reconnection
+
+The client reconnects automatically when the server closes the stream, when the connection fails, or when the
+server responds with a retryable status. By default it retries 5xx responses (using a longer delay) and stops on
+any other non-200 status, such as 4xx. This is configured with a `ReconnectPolicy`:
+
+```dart
+EventSource eventSource = await EventSource.connect("http://example.com/events",
+  reconnectPolicy: ReconnectPolicy(
+    delay: Duration(seconds: 3),             // after a dropped connection or network error
+    serverErrorDelay: Duration(seconds: 30), // after a 5xx response
+    maxAttempts: 10,                         // consecutive attempts; null (the default) retries forever
+  ));
+
+eventSource.onReconnect.listen((r) =>
+  print("reconnect attempt ${r.attempt} in ${r.delay} (status ${r.statusCode})"));
+```
+
+Each scheduled reconnection is also delivered to every listener of the event source as an `EventSourceReconnect`
+event (its `event` is `"reconnect"`). A `retry:` field sent by the server replaces `delay`, as the SSE specification
+requires, unless `honourServerRetry` is false. `backoffMultiplier` and `maxDelay` add exponential backoff, and
+`shouldRetryStatus` changes which statuses are retried. Use `ReconnectPolicy.none` to disable reconnection.
+
+When the policy gives up, the final `EventSourceSubscriptionException` is added to the stream as an error and
+`readyState` becomes `closed`. Call `close()` to stop the event source yourself, and `reopen()` to start it again.
+
+The initial `connect()` (and `reopen()`) throws if its connection attempt fails; reconnection applies once connected.
 
 ## Licensing
 

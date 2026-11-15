@@ -1,4 +1,4 @@
-library featurehub_sse_client.src.proxy_sink;
+library;
 
 /// Just a simple [Sink] implementation that proxies the [add] and [close]
 /// methods.
