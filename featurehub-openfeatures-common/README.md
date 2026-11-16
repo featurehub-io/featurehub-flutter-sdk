@@ -46,6 +46,18 @@ source. This is the Dart equivalent of the TypeScript SDK's
 - [`featurehub_openfeatures_store_redis`](../featurehub-openfeatures-store-redis):
   Redis, shared between server processes and with other FeatureHub SDKs.
 
+## Value interceptors
+
+A `ValueInterceptor` supplies feature values in place of FeatureHub's, for
+example local overrides during development. Its `matched(key, featureState)`
+is given the feature as FeatureHub delivered it, so it can return a value of
+the feature's type (a bool, num or String, JSON as a string). Register one
+with `repository.addValueInterceptor(...)`, or give it to a provider's
+`interceptors`; the first registered interceptor that matches supplies the
+value, overriding locked features unless `allowLockOverride: false`.
+[`featurehub_openfeatures_yaml_interceptor`](../featurehub-openfeatures-yaml-interceptor)
+reads overrides from a local YAML file.
+
 ## Client-evaluated API keys
 
 With a client-evaluated key, FeatureHub sends each feature's rollout

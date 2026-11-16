@@ -21,6 +21,8 @@ export 'package:featurehub_openfeatures_common/featurehub_openfeatures_common.da
         FeatureHubUpdateMode,
         FeatureStore,
         FeatureStoreTarget,
+        ValueInterceptor,
+        ValueMatch,
         InvalidContextException;
 export 'package:featurehub_sse_client/featurehub_sse_client.dart'
     show ReconnectPolicy;

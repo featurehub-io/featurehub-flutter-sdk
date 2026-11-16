@@ -16,7 +16,7 @@ class EvaluatedFeature {
   /// the server applied (`FeatureState.v`) for a server-evaluated key.
   final String? strategyId;
 
-  /// True if a value interceptor supplied [value] (as a string).
+  /// True if a value interceptor supplied [value].
   final bool intercepted;
 
   const EvaluatedFeature({

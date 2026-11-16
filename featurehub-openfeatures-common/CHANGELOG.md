@@ -39,6 +39,11 @@ OpenFeature providers for Dart.
   `ClientFeatureRepository.rawFeatureUpdates` publishes every features, feature and delete notification with its
   source (`notify` takes a `source`, defaulting to FeatureHub), including while catching. `FeatureStore` and
   `FeatureStoreTarget` define stores, which the providers attach before connecting
+* Value interceptors that see the feature (the TypeScript SDK's `FeatureValueInterceptor`): `ValueInterceptor`,
+  registered with `ClientFeatureRepository.addValueInterceptor` (and removed with `removeValueInterceptor`), is given
+  the key and the feature's state and may supply typed values; `ValueMatch.value` is now an `Object?`. Interceptors
+  are closed when the repository shuts down. The feature holders' `booleanValue`, `numberValue` and `jsonValue` now
+  convert intercepted strings rather than failing
 * OpenFeature support shared by the providers: `FeatureHubConnection` (streaming, polling or passive refresh, with
   readiness and server-evaluated context changes), `mapEvaluationContext`, `resolveFromEvaluation` and
   `ProviderStateTracker`

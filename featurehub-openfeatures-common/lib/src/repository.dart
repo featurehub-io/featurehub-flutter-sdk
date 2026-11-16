@@ -30,18 +30,45 @@ abstract class FeatureStateHolder {
   FeatureStateHolder copy();
 }
 
+/// An interceptor's answer for a feature: whether it supplies the value, and
+/// the value it supplies.
 class ValueMatch {
   final bool matched;
-  final String? value;
 
-  ValueMatch(this.matched, this.value);
+  /// The value: a bool, num or String (JSON features as a JSON string), or
+  /// null for no value. Strings are converted to the type the flag is
+  /// resolved as, so `'true'` resolves as a boolean and `'7'` as a number.
+  final Object? value;
+
+  const ValueMatch(this.matched, this.value);
+
+  /// The interceptor does not supply this feature's value.
+  static const ValueMatch none = ValueMatch(false, null);
+}
+
+/// Supplies feature values in place of those from FeatureHub, for example
+/// local overrides during development. Register one with
+/// [ClientFeatureRepository.addValueInterceptor], or give it to a provider's
+/// `interceptors`.
+///
+/// The first registered interceptor that matches a feature supplies its
+/// value.
+abstract class ValueInterceptor {
+  /// Whether this interceptor supplies the value of the feature [key].
+  /// [featureState] is the feature as FeatureHub delivered it (null if it
+  /// has not delivered it), so the value can match the feature's type.
+  ValueMatch matched(String key, FeatureState? featureState);
+
+  /// Releases any resources the interceptor holds.
+  void close() {}
 }
 
 class _InterceptorHolder {
   final bool allowLockOverride;
-  final FeatureValueInterceptor interceptor;
+  final ValueMatch Function(String key, FeatureState? featureState) match;
+  final ValueInterceptor? interceptor;
 
-  _InterceptorHolder(this.allowLockOverride, this.interceptor);
+  _InterceptorHolder(this.allowLockOverride, this.match, [this.interceptor]);
 }
 
 typedef FeatureValueInterceptor = ValueMatch Function(String? key);
@@ -106,42 +133,46 @@ class _FeatureStateBaseHolder implements FeatureStateHolder {
   @override
   bool get exists => _findIntercept(() => _current) != null;
 
-  @override
-  bool? get booleanValue =>
-      _findIntercept(
-            () => _featureState?.type == FeatureValueType.BOOLEAN
-                ? _current
-                : null,
-          )
-          as bool?;
+  // interceptors may supply strings (e.g. from a dotenv file), which are
+  // converted to the type asked for
 
   @override
-  String? get stringValue =>
-      _findIntercept(
-            () =>
-                (_featureState?.type == FeatureValueType.STRING ||
-                    _featureState?.type == FeatureValueType.JSON)
-                ? _current
-                : null,
-          )
-          as String?;
+  bool? get booleanValue => switch (_findIntercept(
+    () => _featureState?.type == FeatureValueType.BOOLEAN ? _current : null,
+  )) {
+    final bool b => b,
+    final String s => s.toLowerCase() == 'true',
+    _ => null,
+  };
 
   @override
-  num? get numberValue =>
-      _findIntercept(
-            () => _featureState?.type == FeatureValueType.NUMBER
-                ? _current
-                : null,
-          )
-          as num?;
+  String? get stringValue => switch (_findIntercept(
+    () =>
+        (_featureState?.type == FeatureValueType.STRING ||
+            _featureState?.type == FeatureValueType.JSON)
+        ? _current
+        : null,
+  )) {
+    null => null,
+    final Object v => '$v',
+  };
+
+  @override
+  num? get numberValue => switch (_findIntercept(
+    () => _featureState?.type == FeatureValueType.NUMBER ? _current : null,
+  )) {
+    final num n => n,
+    final String s => num.tryParse(s.trim()),
+    _ => null,
+  };
 
   @override
   dynamic get jsonValue {
-    String? body = _findIntercept(
+    final body = _findIntercept(
       () => _featureState?.type == FeatureValueType.JSON ? _current : null,
     );
 
-    return body == null ? null : jsonDecode(body);
+    return body is String ? jsonDecode(body) : body;
   }
 
   @override
@@ -155,15 +186,15 @@ class _FeatureStateBaseHolder implements FeatureStateHolder {
   dynamic _findIntercept(Function determineDefault) {
     final locked = _featureState != null && true == _featureState!.l;
 
-    final found = featureValueInterceptors
-        .where((vi) => !locked || vi.allowLockOverride)
-        .map((vi) {
-          final vm = vi.interceptor(key);
-          return vm.matched ? vm : null;
-        })
-        .where((vm) => vm != null);
-
-    return found.isNotEmpty ? found.first : determineDefault();
+    final k = key;
+    if (k != null) {
+      for (final vi in featureValueInterceptors) {
+        if (locked && !vi.allowLockOverride) continue;
+        final vm = vi.match(k, _featureState);
+        if (vm.matched) return vm.value;
+      }
+    }
+    return determineDefault();
   }
 
   void shutdown() {
@@ -376,7 +407,7 @@ class ClientFeatureRepository {
     final locked = fs?.l == true;
     for (final vi in _featureValueInterceptors) {
       if (locked && !vi.allowLockOverride) continue;
-      final vm = vi.interceptor(key);
+      final vm = vi.match(key, fs);
       if (vm.matched) {
         return EvaluatedFeature(
           key: key,
@@ -536,7 +567,29 @@ class ClientFeatureRepository {
     bool allowLockOverride,
     FeatureValueInterceptor fvi,
   ) {
-    _featureValueInterceptors.add(_InterceptorHolder(allowLockOverride, fvi));
+    _featureValueInterceptors.add(
+      _InterceptorHolder(allowLockOverride, (key, _) => fvi(key)),
+    );
+  }
+
+  /// Adds [interceptor], which then supplies the values of the features it
+  /// matches. Unless [allowLockOverride] is false it also overrides locked
+  /// features (as the other FeatureHub SDKs' interceptors do). It is closed
+  /// when the repository shuts down.
+  void addValueInterceptor(
+    ValueInterceptor interceptor, {
+    bool allowLockOverride = true,
+  }) {
+    _featureValueInterceptors.add(
+      _InterceptorHolder(allowLockOverride, interceptor.matched, interceptor),
+    );
+  }
+
+  /// Removes [interceptor] (without closing it).
+  void removeValueInterceptor(ValueInterceptor interceptor) {
+    _featureValueInterceptors.removeWhere(
+      (h) => identical(h.interceptor, interceptor),
+    );
   }
 
   void _deleteFeature(FeatureState feature) {
@@ -557,6 +610,10 @@ class ClientFeatureRepository {
     _newFeatureStateAvailableListeners.close();
     _featuresChangedListeners.close();
     _rawUpdates.close();
+    for (final h in _featureValueInterceptors) {
+      h.interceptor?.close();
+    }
+    _featureValueInterceptors.clear();
     shutdownFeatures();
   }
 }

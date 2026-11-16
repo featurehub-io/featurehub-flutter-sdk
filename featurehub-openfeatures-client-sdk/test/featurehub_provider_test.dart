@@ -18,9 +18,11 @@ void main() {
     bool fail = false,
     bool catchAndReleaseMode = false,
     List<fh.FeatureStore> stores = const [],
+    List<fh.ValueInterceptor> interceptors = const [],
   }) => FeatureHubProvider(
     catchAndReleaseMode: catchAndReleaseMode,
     stores: stores,
+    interceptors: interceptors,
     host: 'http://localhost',
     apiKey: apiKey,
     waitForReady: const Duration(seconds: 2),
@@ -192,6 +194,20 @@ void main() {
     expect(store.events, ['attach env-1', 'close']);
   });
 
+  test('interceptors override values, and are closed', () async {
+    final interceptor = _FlagOff();
+    final p = provider('default/env-1/key*secret', interceptors: [interceptor]);
+    await api.setProviderAndWait(p);
+    await Future<void>.delayed(Duration.zero);
+
+    // FeatureHub has flag on; the interceptor turns it off
+    expect(api.getClient().getBooleanValue('flag', true), false);
+    expect(p.repository!.evaluate('flag').intercepted, true);
+
+    await api.shutdown();
+    expect(interceptor.closed, true);
+  });
+
   group('server-evaluated key', () {
     test('fetches the bundle for each new context', () async {
       await api.setEvaluationContextAndWait(
@@ -299,4 +315,16 @@ class _RecordingStore implements fh.FeatureStore {
     await _sub?.cancel();
     _sub = null;
   }
+}
+
+/// Turns `flag` off, and records being closed.
+class _FlagOff extends fh.ValueInterceptor {
+  var closed = false;
+
+  @override
+  fh.ValueMatch matched(String key, FeatureState? featureState) =>
+      key == 'flag' ? const fh.ValueMatch(true, false) : fh.ValueMatch.none;
+
+  @override
+  void close() => closed = true;
 }

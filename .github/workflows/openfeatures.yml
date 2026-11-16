@@ -39,6 +39,7 @@ jobs:
           - featurehub-openfeatures-client-sdk
           - featurehub-openfeatures-store-localstorage
           - featurehub-openfeatures-store-redis
+          - featurehub-openfeatures-yaml-interceptor
 
     # for the Redis store's integration tests
     services:
@@ -81,7 +82,7 @@ jobs:
         env:
           FEATUREHUB_TEST_REDIS: localhost:6379
 
-      # the server SDK and Redis store are dart:io only
+      # the server SDK, Redis store and YAML interceptor are dart:io only
       - name: Run tests (Chrome)
         if: >-
           matrix.package == 'featurehub-openfeatures-common' ||

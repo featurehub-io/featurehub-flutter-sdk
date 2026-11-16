@@ -135,10 +135,12 @@ void main() {
     Duration delay = Duration.zero,
     bool catchAndReleaseMode = false,
     List<FeatureStore> stores = const [],
+    List<ValueInterceptor> interceptors = const [],
   }) => FeatureHubProvider(
     environment: const {},
     catchAndReleaseMode: catchAndReleaseMode,
     stores: stores,
+    interceptors: interceptors,
     host: 'http://localhost',
     apiKey: apiKey,
     waitForReady: const Duration(seconds: 2),
@@ -516,6 +518,23 @@ void main() {
     expect(store.events, ['attach env-1', 'close']);
   });
 
+  test('interceptors override values, and are closed', () async {
+    final interceptor = _FlagOff();
+    final p = provider('default/env-1/key*secret', interceptors: [interceptor]);
+    await api.setProviderAndWait(p);
+    await Future<void>.delayed(Duration.zero);
+
+    // FeatureHub has flag on; the interceptor turns it off
+    expect(
+      await api.getClient('test').getBooleanFlag('flag', defaultValue: true),
+      false,
+    );
+    expect(p.repository!.evaluate('flag').intercepted, true);
+
+    await OpenFeatureAPI.resetInstance();
+    expect(interceptor.closed, true);
+  });
+
   group('server-evaluated key', () {
     test('refetches only when the context changes', () async {
       await api.setProviderAndWait(provider('env/key'));
@@ -699,4 +718,16 @@ class _RecordingStore implements FeatureStore {
     await _sub?.cancel();
     _sub = null;
   }
+}
+
+/// Turns `flag` off, and records being closed.
+class _FlagOff extends ValueInterceptor {
+  var closed = false;
+
+  @override
+  ValueMatch matched(String key, FeatureState? featureState) =>
+      key == 'flag' ? const ValueMatch(true, false) : ValueMatch.none;
+
+  @override
+  void close() => closed = true;
 }

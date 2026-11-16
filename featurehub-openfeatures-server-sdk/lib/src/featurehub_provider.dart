@@ -68,6 +68,12 @@ class FeatureHubProvider
   /// available straight away.
   final List<FeatureStore> stores;
 
+  /// Interceptors that supply feature values in place of FeatureHub's (see
+  /// [ValueInterceptor]), for example local overrides during development. The first
+  /// that matches a feature supplies its value; they also override locked
+  /// features. They are closed when the provider shuts down.
+  final List<ValueInterceptor> interceptors;
+
   final FeatureHubConnection Function(FeatureHubProvider provider)?
   _connectionFactory;
 
@@ -124,6 +130,7 @@ class FeatureHubProvider
     Duration? requestTimeout,
     bool catchAndReleaseMode = false,
     List<FeatureStore> stores = const [],
+    List<ValueInterceptor> interceptors = const [],
     Map<String, String>? environment,
     FeatureHubConnection Function(FeatureHubProvider provider)?
     connectionFactory,
@@ -195,6 +202,7 @@ class FeatureHubProvider
       requestTimeout: requestTimeout,
       catchAndReleaseMode: catchAndReleaseMode,
       stores: stores,
+      interceptors: interceptors,
       connectionFactory: connectionFactory,
     );
   }
@@ -210,6 +218,7 @@ class FeatureHubProvider
     required this.requestTimeout,
     required this._catchAndReleaseMode,
     required this.stores,
+    required this.interceptors,
     required this._connectionFactory,
   }) : clientEvaluated = FeatureHubConfig.isClientEvaluatedKeys([apiKey]);
 
@@ -280,6 +289,9 @@ class FeatureHubProvider
         );
     _connection = connection;
     connection.repository.catchAndReleaseMode = _catchAndReleaseMode;
+    for (final interceptor in interceptors) {
+      connection.repository.addValueInterceptor(interceptor);
+    }
     // stores first, so the features they hold are available straight away
     for (final store in stores) {
       try {
@@ -369,6 +381,9 @@ class FeatureHubProvider
     await connection?.close();
     for (final store in stores) {
       await store.close();
+    }
+    for (final interceptor in interceptors) {
+      interceptor.close();
     }
   }
 

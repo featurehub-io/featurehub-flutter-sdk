@@ -71,6 +71,12 @@ final class FeatureHubProvider
   /// available straight away.
   final List<fh.FeatureStore> stores;
 
+  /// Interceptors that supply feature values in place of FeatureHub's (see
+  /// [fh.ValueInterceptor]), for example local overrides during development. The first
+  /// that matches a feature supplies its value; they also override locked
+  /// features. They are closed when the provider shuts down.
+  final List<fh.ValueInterceptor> interceptors;
+
   final fh.FeatureHubConnection Function(FeatureHubProvider provider)?
   _connectionFactory;
 
@@ -93,6 +99,7 @@ final class FeatureHubProvider
     this.requestTimeout,
     this._catchAndReleaseMode = false,
     this.stores = const [],
+    this.interceptors = const [],
     this._connectionFactory,
   }) : clientEvaluated = fh.FeatureHubConfig.isClientEvaluatedKeys([apiKey]) {
     if (host.isEmpty || apiKey.isEmpty) {
@@ -163,6 +170,9 @@ final class FeatureHubProvider
         );
     _connection = connection;
     connection.repository.catchAndReleaseMode = _catchAndReleaseMode;
+    for (final interceptor in interceptors) {
+      connection.repository.addValueInterceptor(interceptor);
+    }
     // stores first, so the features they hold are available straight away
     for (final store in stores) {
       try {
@@ -280,6 +290,9 @@ final class FeatureHubProvider
     await connection?.close();
     for (final store in stores) {
       await store.close();
+    }
+    for (final interceptor in interceptors) {
+      interceptor.close();
     }
   }
 
