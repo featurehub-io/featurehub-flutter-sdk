@@ -9,6 +9,8 @@ import "package:logging/logging.dart";
 
 import "src/decoder.dart";
 import "src/event.dart";
+import "src/http/client_factory.dart"
+    if (dart.library.io) "src/http/client_factory_io.dart";
 import "src/reconnect.dart";
 
 export "src/event.dart";
@@ -82,6 +84,12 @@ class EventSource extends Stream<Event> {
   /// How this event source reconnects.
   final ReconnectPolicy reconnectPolicy;
 
+  /// The longest each connection attempt waits for the server to respond
+  /// (its status and headers; the event stream then stays open). An attempt
+  /// that times out is a network error, retried according to
+  /// [reconnectPolicy]. Null waits indefinitely.
+  final Duration? requestTimeout;
+
   EventSourceReadyState get readyState => _readyState;
 
   Stream<Event> get onOpen => where((e) => e.event == "open");
@@ -141,6 +149,12 @@ class EventSource extends Stream<Event> {
   /// thrown and no reconnection is attempted. Once connected, the event source
   /// reconnects according to [reconnectPolicy] (default: [ReconnectPolicy]`()`).
   ///
+  /// [connectTimeout] limits how long establishing a connection may take. It
+  /// applies to the client created when [client] is not supplied, and only
+  /// on `dart:io` (other platforms control it themselves). [requestTimeout]
+  /// limits how long each connection attempt waits for the server to respond.
+  /// Both default to waiting indefinitely.
+  ///
   /// If you want to be able to listen to the state changes you need to provide your
   /// own readyStateController as broadcast controllers do not store state.
   static Future<EventSource> connect(
@@ -154,10 +168,12 @@ class EventSource extends Stream<Event> {
     StreamController<EventSourceReadyState>? readyStateController,
     bool? closeOnLastListener,
     ReconnectPolicy? reconnectPolicy,
+    Duration? connectTimeout,
+    Duration? requestTimeout,
   }) async {
     // parameter initialization
     final uri = url is Uri ? url : Uri.parse(url as String);
-    client = client ?? http.Client();
+    client = client ?? createHttpClient(connectTimeout: connectTimeout);
     lastEventId = lastEventId ?? "";
     body = body ?? "";
     method = method ?? "GET";
@@ -172,6 +188,7 @@ class EventSource extends Stream<Event> {
       closeOnLastListener,
       readyStateController,
       reconnectPolicy ?? const ReconnectPolicy(),
+      requestTimeout,
     );
     if (!es._openOnlyOnFirstListener) {
       await es._openOrThrow();
@@ -190,6 +207,7 @@ class EventSource extends Stream<Event> {
     bool? closeOnLastStreamClosing,
     StreamController<EventSourceReadyState>? _readyStateController,
     this.reconnectPolicy,
+    this.requestTimeout,
   ) : _openOnlyOnFirstListener = openOnlyOnFirstStream ?? false,
       _closeOnLastListener = closeOnLastStreamClosing ?? false,
       readyStateController =
@@ -315,7 +333,7 @@ class EventSource extends Stream<Event> {
 
     final http.StreamedResponse response;
     try {
-      response = await client.send(request);
+      response = await _send(request);
     } catch (e, s) {
       if (generation != _generation) return; // superseded, nothing to report
       throw EventSourceSubscriptionException.fromException(
@@ -371,6 +389,20 @@ class EventSource extends Stream<Event> {
             }
           },
         );
+  }
+
+  Future<http.StreamedResponse> _send(http.Request request) {
+    final sent = client.send(request);
+    final timeout = requestTimeout;
+    if (timeout == null) return sent;
+    return sent.timeout(
+      timeout,
+      onTimeout: () {
+        // don't leak the connection if the response arrives after all
+        sent.then((r) => r.stream.listen(null).cancel(), onError: (_) {});
+        throw TimeoutException("No response within $timeout", timeout);
+      },
+    );
   }
 
   /// Called when a connection is lost ([error] is null if the server closed the

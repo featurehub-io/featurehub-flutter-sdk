@@ -11,7 +11,7 @@ const _ms = Duration(milliseconds: 1);
 /// A scripted server: each connection attempt takes the next response from
 /// [responses]; once exhausted, the last one is repeated.
 class _Server {
-  final List<http.StreamedResponse Function()> responses;
+  final List<FutureOr<http.StreamedResponse> Function()> responses;
   final List<http.BaseRequest> requests = [];
   final List<DateTime> times = [];
 
@@ -39,6 +39,10 @@ http.StreamedResponse Function() _ok(String body, {bool keepOpen = false}) =>
 
 http.StreamedResponse Function() _status(int code) =>
     () => http.StreamedResponse(Stream.value(utf8.encode("nope")), code);
+
+/// A server that never responds.
+Future<http.StreamedResponse> Function() _hang() =>
+    () => Completer<http.StreamedResponse>().future;
 
 http.StreamedResponse Function() _networkError() =>
     () => throw http.ClientException("connection refused");
@@ -379,6 +383,85 @@ void main() {
       expect(server.requests, hasLength(2));
       expect(es.readyState, EventSourceReadyState.open);
       await es.close();
+    });
+  });
+
+  group("request timeout", () {
+    test("an unanswered connection attempt is retried", () async {
+      final server = _Server([
+        _ok("data: a\n\n"),
+        _hang(),
+        _ok("data: b\n\n", keepOpen: true),
+      ]);
+      final es = await EventSource.connect(
+        "http://localhost/events",
+        client: server.client,
+        requestTimeout: const Duration(milliseconds: 50),
+        reconnectPolicy: const ReconnectPolicy(
+          delay: Duration(milliseconds: 5),
+        ),
+      );
+      final listener = _Listener(es);
+
+      await _until(() => listener.messages.length == 2);
+
+      final timedOut = listener.reconnects[1];
+      expect(timedOut.statusCode, isNull);
+      expect(
+        (timedOut.error as EventSourceSubscriptionException).exception,
+        isA<TimeoutException>(),
+      );
+      expect(listener.errors, isEmpty);
+      await es.close();
+    });
+
+    test("the initial connection throws when unanswered", () async {
+      final server = _Server([_hang()]);
+      await expectLater(
+        EventSource.connect(
+          "http://localhost/events",
+          client: server.client,
+          requestTimeout: const Duration(milliseconds: 50),
+        ),
+        throwsA(
+          isA<EventSourceSubscriptionException>()
+              .having((e) => e.statusCode, "statusCode", 0)
+              .having((e) => e.exception, "exception", isA<TimeoutException>()),
+        ),
+      );
+    });
+
+    test("a response within the timeout is used", () async {
+      final server = _Server([_ok("data: a\n\n", keepOpen: true)]);
+      final es = await EventSource.connect(
+        "http://localhost/events",
+        client: server.client,
+        requestTimeout: const Duration(seconds: 5),
+      );
+      final listener = _Listener(es);
+      await _until(() => listener.messages.length == 1);
+      expect(es.readyState, EventSourceReadyState.open);
+      await es.close();
+    });
+  });
+
+  group("connect timeout", () {
+    test("the default client is created with it", () async {
+      // a closed local port refuses quickly; this checks the option is wired
+      // through to a working default client
+      await expectLater(
+        EventSource.connect(
+          "http://127.0.0.1:1/events",
+          connectTimeout: const Duration(seconds: 2),
+        ),
+        throwsA(
+          isA<EventSourceSubscriptionException>().having(
+            (e) => e.statusCode,
+            "statusCode",
+            0,
+          ),
+        ),
+      );
     });
   });
 

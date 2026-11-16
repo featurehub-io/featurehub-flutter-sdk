@@ -1,0 +1,143 @@
+// Regenerates typescript_golden.json from the TypeScript SDK
+// (featurehub-javascript-sdk/packages/core):
+//
+//   1. replace FEATUREHUB_JS_CORE below with the path to packages/core
+//   2. NODE_PATH=<packages/core>/node_modules esbuild generate.ts --bundle \
+//        --platform=node --format=esm --outfile=generate.mjs
+//   3. TZ=UTC node generate.mjs typescript_golden.json
+//
+// Generates golden strategy-evaluation results from the TypeScript SDK, so the
+// Dart port can be checked against the real implementation.
+import { writeFileSync } from "node:fs";
+import murmurhash from "murmurhash";
+import {
+  ApplyFeature,
+  MatcherRegistry,
+  Murmur3PercentageCalculator,
+} from "FEATUREHUB_JS_CORE/src/strategy_matcher";
+import {
+  RolloutStrategyAttributeConditional as C,
+  RolloutStrategyFieldType as T,
+} from "FEATUREHUB_JS_CORE/src/models";
+
+const out: any = { murmur: [], percentage: [], matchers: [], apply: [] };
+
+// ---- murmur3 and percentages
+const strings = [
+  "", "a", "ab", "abc", "abcd", "abcde", "abcdefg", "abcdefgh", "abcdefghi",
+  "irina", "irinaone", "fred$NZ", "日本語", "émoji 😀", "user-12345feature-abcdef",
+];
+for (const s of strings) out.murmur.push({ key: s, hash: murmurhash.v3(s, 0) });
+const calc = new Murmur3PercentageCalculator();
+for (let i = 0; i < 200; i++) {
+  const key = `user${i}`;
+  out.percentage.push({ key, id: "fv1", value: calc.determineClientPercentage(key, "fv1") });
+}
+
+// ---- matchers
+const conds = Object.values(C);
+const reg = new MatcherRegistry();
+function matchers(type: string, valueSets: any[][], supplied: any[]) {
+  for (const conditional of conds) {
+    for (const values of valueSets) {
+      for (const s of supplied) {
+        const attr: any = { conditional, type, values, fieldName: "f" };
+        let result: any;
+        try {
+          result = reg.findMatcher(attr).match(s, attr);
+          if (result === undefined) result = "undefined";
+        } catch (_) {
+          result = "throw";
+        }
+        out.matchers.push({ type, conditional, values, supplied: s, result });
+      }
+    }
+  }
+}
+
+matchers(T.String, [["a", "b"], ["abc"], ["^a.*", "z$"], ["1", "2"], [], ["b", "c"]],
+  ["a", "b", "c", "abc", "1", "2", "", "A", "za", "bca"]);
+matchers(T.Number, [[1, 2], ["1", "2.5"], [10], [1.5], ["abc"], [0], [-5, 100]],
+  [1, 2, "1", "2.5", "10", 10, "abc", "1.0", 1.5, "12abc", " 3", 0, -1, "-5", "100.0"]);
+matchers(T.SemanticVersion, [["1.2.3"], ["2.0"], ["1.10.0", "1.2.0"], ["x.y"], ["1.2"]],
+  ["1.2.3", "1.2.4", "2.0.0", "1.10.0", "1.9", "x.y", "1.2.3-beta", "", "1.2"]);
+matchers(T.Date, [["2019-01-01", "2019-02-01"], ["2020-06-15"]],
+  ["2019-02-01", "2019-01-15", "2020-06-15", "2020-06-15T10:00:00Z",
+   "2020-06-15T23:30:00+10:00", "bogus", "2018-12-31", "2019-01-01T00:00:00.000Z"]);
+matchers(T.Datetime, [["2019-01-01T01:01:01Z"], ["2021-05-05T10:00:00Z", "2022-01-01T00:00:00Z"]],
+  ["2019-01-01T01:01:01Z", "2019-01-01T01:01:01.123Z", "2021-05-05T10:00:00+02:00",
+   "2023-01-01T00:00:00Z", "bogus", "2021-05-05T08:00:00Z"]);
+matchers(T.Boolean, [["true"], [true], [false], ["false"], []],
+  ["true", "false", true, false, "x"]);
+matchers(T.IpAddress,
+  [["192.168.86.75"], ["10.0.0.0/24", "192.168.0.0/16"], ["10.0.0.0/8"],
+   ["172.16.0.0/255.240.0.0"], ["192.168.86.75", "10.7.4.8"]],
+  ["192.168.86.75", "10.0.0.5", "10.1.0.5", "172.20.1.1", "192.168.0.0/24",
+   "8.8.8.8", "010.0.0.1", "0x0a.0.0.1", "10.7.4.8", "172.32.0.1"]);
+
+// ---- apply
+const af = new ApplyFeature();
+function ctx(attrs: Record<string, any>) {
+  return {
+    getAttr: (k: string, d?: any) => (k in attrs ? attrs[k] : d),
+    defaultPercentageKey: () =>
+      "session" in attrs ? attrs["session"]?.toString() : attrs["userkey"],
+  } as any;
+}
+function apply(name: string, strategies: any[], featureValueId: string, contexts: any[]) {
+  for (const c of contexts) {
+    const r = af.apply(strategies, "key", featureValueId, ctx(c));
+    out.apply.push({
+      name, strategies, featureValueId, context: c,
+      matched: r.matched, value: r.value ?? null, strategyId: r.strategyId ?? null,
+    });
+  }
+}
+
+const users = Array.from({ length: 100 }, (_, i) => ({ userkey: `user${i}` }));
+const sessions = Array.from({ length: 30 }, (_, i) => ({ userkey: `u${i}`, session: `s${i}` }));
+
+apply("percentage only", [
+  { id: "p1", percentage: 200000, value: "twenty", attributes: [] },
+  { id: "p2", percentage: 300000, value: "thirty", attributes: [] },
+], "fv-percent", [...users, ...sessions, {}, { country: ["nz"] }]);
+
+apply("percentage with attributes", [
+  { id: "pa1", percentage: 500000, value: "half-nz", attributes: [
+    { conditional: C.Equals, type: T.String, fieldName: "country", values: ["nz"] }] },
+  { id: "pa2", percentage: 250000, value: "quarter", attributes: [] },
+], "fv-pa", users.map((u, i) => ({ ...u, country: [i % 3 === 0 ? "nz" : "au"] })));
+
+apply("percentage attributes", [
+  { id: "pk1", percentage: 400000, percentageAttributes: ["country", "device"], value: 1, attributes: [] },
+  { id: "pk2", percentage: 400000, value: 2, attributes: [] },
+], "fv-pk", [
+  ...users.map((u, i) => ({ ...u, country: [`c${i % 7}`], device: i % 2 ? "mobile" : "desktop" })),
+  { userkey: "x", country: "" }, { userkey: "y" }, { country: ["a", "b"] }, { country: 0 },
+]);
+
+apply("attributes only", [
+  { id: "a1", value: true, attributes: [
+    { conditional: C.Equals, type: T.String, fieldName: "country", values: ["nz", "au"] },
+    { conditional: C.GreaterEquals, type: T.SemanticVersion, fieldName: "version", values: ["2.0.0"] }] },
+  { id: "a2", value: false, attributes: [
+    { conditional: C.Includes, type: T.String, fieldName: "platform", values: ["ios"] }] },
+  { id: "a3", value: null, attributes: [
+    { conditional: C.Equals, type: T.String, fieldName: "missing", values: [] }] },
+], "fv-attr", [
+  { country: ["nz"], version: ["2.1.0"] }, { country: ["nz"], version: ["1.9.0"] },
+  { country: ["us"], version: ["3.0.0"], platform: ["ios"] }, { platform: "android" },
+  { country: ["fr", "au"], version: "2.0.0" }, {}, { missing: [] }, { userkey: "only" },
+]);
+
+apply("number and ip", [
+  { id: "n1", value: "big", attributes: [
+    { conditional: C.Greater, type: T.Number, fieldName: "age", values: [40] }] },
+  { id: "ip1", value: "office", attributes: [
+    { conditional: C.Includes, type: T.IpAddress, fieldName: "ip", values: ["10.0.0.0/8"] }] },
+], "fv-n", [
+  { age: 41 }, { age: "39" }, { age: ["10", "50"] }, { ip: "10.2.3.4" }, { ip: "11.0.0.1", age: 1 },
+]);
+
+writeFileSync(process.argv[2], JSON.stringify(out));
+console.log(`murmur ${out.murmur.length}, percentage ${out.percentage.length}, matchers ${out.matchers.length}, apply ${out.apply.length}`);

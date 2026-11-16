@@ -1,0 +1,70 @@
+name: OpenFeature SDKs
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'featurehub-openfeatures-*/**'
+      - 'featurehub-sse-client/**'
+      - 'featurehub-client-api/**'
+      - '.github/workflows/openfeatures.yml'
+  pull_request:
+    paths:
+      - 'featurehub-openfeatures-*/**'
+      - 'featurehub-sse-client/**'
+      - 'featurehub-client-api/**'
+      - '.github/workflows/openfeatures.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.package }} (Dart ${{ matrix.sdk }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # a release version (e.g. 3.12) installs the latest patch of that release
+        sdk: [ '3.12', '3.14' ]
+        package:
+          - featurehub-openfeatures-common
+          - featurehub-openfeatures-server-sdk
+          - featurehub-openfeatures-client-sdk
+
+    defaults:
+      run:
+        working-directory: ${{ matrix.package }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: dart-lang/setup-dart@2286a0c042b44434fe26d292bbce8d34f7ec662b # v1.8.2
+        with:
+          sdk: ${{ matrix.sdk }}
+
+      - name: Install dependencies
+        run: dart pub get
+
+      # formatter output can change between SDK releases, so only check it on
+      # the minimum supported SDK
+      - name: Verify formatting
+        if: matrix.sdk == '3.12'
+        run: dart format --output=none --set-exit-if-changed lib test
+
+      - name: Analyze
+        run: dart analyze --fatal-infos
+
+      - name: Run tests (VM)
+        run: dart test
+
+      # the server SDK is dart:io only
+      - name: Run tests (Chrome)
+        if: matrix.package != 'featurehub-openfeatures-server-sdk'
+        run: dart test -p chrome

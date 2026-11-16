@@ -1,4 +1,9 @@
 # Changelog
+* 1.5.0
+- requires Dart SDK 3.12.2 or later, to match the FeatureHub OpenFeature packages
+- `EventSource.connect` takes an optional `connectTimeout` (for the client it creates when none is supplied;
+  `dart:io` only) and `requestTimeout` (how long each connection attempt waits for the server to respond). An attempt
+  that times out is a network error (status `0`), retried under the reconnect policy; the initial `connect` throws
 * 1.4.0
 - requires Dart SDK 3.10 or later; upgraded dependencies (http ^1.5.0, collection, http_parser, logging)
 - removed use of http's private `encodingForCharset`, which newer http versions no longer provide

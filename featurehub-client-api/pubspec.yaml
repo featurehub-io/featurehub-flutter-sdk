@@ -4,12 +4,12 @@ description: This is the OpenAPI client for the FeatureHub SDK. It is not likely
 repository: https://github.com/featurehub-io/featurehub/tree/master/sdks/dart/client-dart-api
 homepage: https://www.featurehub.io
 environment:
-  sdk: '>=2.15.0 <3.99.0'
+  sdk: ^3.12.2
 dependencies:
   dio: '^5.0.1'
   openapi_dart_common: ^5.1.2
   collection: '^1.16.0'
 dev_dependencies:
   test: ^1.23.1
-  flutter_lints: ^2.0.1
+  lints: ^6.0.0
 # bought to you by the folks from FeatureHub https://featurehub.io

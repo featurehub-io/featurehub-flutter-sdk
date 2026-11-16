@@ -1,2 +1,5 @@
 .idea
 /featurehub-flutter-sdk.iml
+.dart_tool/
+.openapi-generator/
+.openapi-generator-ignore
