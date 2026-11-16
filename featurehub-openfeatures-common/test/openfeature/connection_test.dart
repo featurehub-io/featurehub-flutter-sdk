@@ -387,4 +387,30 @@ void main() {
     expect(edge.requests, hasLength(1), reason: 'still fresh');
     await connection.close();
   });
+
+  test('passive: a failed request is not retried until the interval', () async {
+    edge.status = 503;
+    final connection = FeatureHubConnection(
+      host: edge.host,
+      apiKey: 'a/b/c',
+      mode: FeatureHubUpdateMode.passive,
+      pollInterval: const Duration(milliseconds: 300),
+    );
+    await connection.start();
+    expect(edge.requests, hasLength(1));
+
+    // during the outage, evaluations do not each make a request
+    for (var i = 0; i < 5; i++) {
+      await connection.refreshIfStale();
+    }
+    expect(edge.requests, hasLength(1));
+
+    // after the interval it tries again, and recovers
+    edge.status = 200;
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+    await connection.refreshIfStale();
+    expect(edge.requests, hasLength(2));
+    expect(connection.repository.readyness, Readyness.Ready);
+    await connection.close();
+  });
 }

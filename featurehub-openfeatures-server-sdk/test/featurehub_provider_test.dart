@@ -581,8 +581,9 @@ void main() {
     });
   });
 
-  test('a rejected key fails initialization', () async {
-    final p = provider('env/key*secret', fail: true);
+  test('a rejected key fails initialization, closing the stores', () async {
+    final store = _RecordingStore([]);
+    final p = provider('env/key*secret', fail: true, stores: [store]);
     final events = <ProviderLifecycleEvent>[];
     p.providerEvents.listen(events.add);
 
@@ -597,6 +598,31 @@ void main() {
       ),
     );
     expect(events.single.type, ProviderLifecycleEventType.PROVIDER_ERROR);
+    expect(store.events, ['attach env', 'close']);
+  });
+
+  test('an invalid initial context starts nothing', () async {
+    final store = _RecordingStore([]);
+    final p = provider('env/key', stores: [store]);
+    await expectLater(
+      p.initializeProvider(
+        const EvaluationContext(
+          attributes: {
+            'nested': {'a': 1},
+          },
+        ),
+      ),
+      throwsA(
+        isA<ProviderException>().having(
+          (e) => e.code,
+          'code',
+          ErrorCode.INVALID_CONTEXT,
+        ),
+      ),
+    );
+    expect(store.events, isEmpty);
+    expect(p.repository, isNull);
+    expect(transport, isNull);
   });
 
   test('resolutions before initialization are not ready', () async {
@@ -705,6 +731,7 @@ class _RecordingStore implements FeatureStore {
     _sub = target.repository.rawFeatureUpdates.listen((u) {
       if (u.source != 'test-store') updates.add(u);
     });
+    if (stored.isEmpty) return;
     target.repository.notify(
       SSEResultState.features,
       stored,

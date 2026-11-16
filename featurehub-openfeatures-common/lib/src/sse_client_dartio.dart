@@ -34,6 +34,12 @@ class EventSourceRepositoryListener {
   String? _xFeaturehubHeader;
   EventSource? _es;
 
+  /// Incremented whenever the connection is dropped, so a connection still
+  /// being opened by an earlier [_init] is discarded rather than kept: two
+  /// quick context changes must not leave the first context's stream
+  /// running.
+  int _generation = 0;
+
   EventSourceRepositoryListener(
     String url,
     String apiKey,
@@ -72,6 +78,9 @@ class EventSourceRepositoryListener {
         // new connection
         if (_subscription != null || _es != null) {
           await _disconnect();
+        } else {
+          // a connection may still be opening: discard it
+          _generation++;
         }
         // ignore: unawaited_futures
         _init();
@@ -97,10 +106,17 @@ class EventSourceRepositoryListener {
   }
 
   Future<void> _init() async {
+    final generation = _generation;
     _closed = false;
     _log.fine('Connecting to $_url');
 
     final eventStream = await connect(_url);
+    if (generation != _generation) {
+      // dropped (by a newer context, a retry or close) while connecting:
+      // the stream has not been listened to, so it has not opened
+      if (eventStream is EventSource) await eventStream.close();
+      return;
+    }
 
     _subscription = eventStream.listen(
       (event) {
@@ -160,7 +176,8 @@ class EventSourceRepositoryListener {
 
     // connect when we start listening, so that a failure to connect is
     // retried according to the reconnect policy rather than thrown
-    _es = await EventSource.connect(
+    final generation = _generation;
+    final es = await EventSource.connect(
       url,
       openOnlyOnFirstListener: true,
       closeOnLastListener: true,
@@ -169,11 +186,13 @@ class EventSourceRepositoryListener {
       connectTimeout: _connectTimeout,
       requestTimeout: _requestTimeout,
     );
-
-    return _es!;
+    // only keep it if it has not been dropped while connecting
+    if (generation == _generation) _es = es;
+    return es;
   }
 
   Future<void> _disconnect() async {
+    _generation++;
     final subscription = _subscription;
     final es = _es;
     _subscription = null;

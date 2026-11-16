@@ -47,6 +47,20 @@ OpenFeature providers for Dart.
 * OpenFeature support shared by the providers: `FeatureHubConnection` (streaming, polling or passive refresh, with
   readiness and server-evaluated context changes), `mapEvaluationContext`, `resolveFromEvaluation` and
   `ProviderStateTracker`
+* Catch and release mode starts only after FeatureHub's own first features: features loaded from a store no longer
+  count, so FeatureHub's first features replace them rather than being held back
+* A full set of features removes features missing from it (e.g. loaded from a store, or deleted while disconnected);
+  in catch and release mode they are removed on `release()`
+* Catch and release mode: deleting a feature also discards any update for it being held back, so `release()` no
+  longer brings it back
+* An update with the same version and value now replaces a feature that has a different id or type (e.g. one loaded
+  from a local file)
+* The `dart:io` SSE listener: quick successive context changes (server-evaluated keys) no longer leave an earlier
+  context's connection open
+* Passive mode: after a failed request, no further request is made until the poll interval has passed, rather than
+  one per evaluation during an outage
+* Documented that a server-evaluated key serves a single user: where the context switches, a client-evaluated key
+  must be used
 
 featurehub_client_sdk history
 =============================

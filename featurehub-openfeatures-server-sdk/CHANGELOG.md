@@ -13,3 +13,5 @@
   provider is created.
 - A `stores` option for feature stores, attached before connecting.
 - An `interceptors` option for value interceptors, e.g. local YAML overrides.
+- A failed initialization starts nothing for an invalid context, and closes the
+  stores when FeatureHub does not become ready.

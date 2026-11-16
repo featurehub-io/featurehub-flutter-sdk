@@ -258,8 +258,9 @@ void main() {
     });
   });
 
-  test('a rejected key fails initialization', () async {
-    final p = provider('env/key*secret', fail: true);
+  test('a rejected key fails initialization, closing the stores', () async {
+    final store = _RecordingStore([]);
+    final p = provider('env/key*secret', fail: true, stores: [store]);
     await expectLater(
       api.setProviderAndWait(p),
       throwsA(
@@ -270,6 +271,21 @@ void main() {
         ),
       ),
     );
+    expect(store.events, ['attach env', 'close']);
+  });
+
+  test('an invalid initial context starts nothing', () async {
+    final store = _RecordingStore([]);
+    final p = provider('env/key', stores: [store]);
+    await p.initialize(
+      EvaluationContext(
+        attributes: {
+          'nested': {'a': 1},
+        },
+      ),
+    );
+    expect(store.events, isEmpty);
+    expect(p.repository, isNull);
   });
 
   test('resolutions before initialization are not ready', () {
@@ -302,6 +318,7 @@ class _RecordingStore implements fh.FeatureStore {
     _sub = target.repository.rawFeatureUpdates.listen((u) {
       if (u.source != 'test-store') updates.add(u);
     });
+    if (stored.isEmpty) return;
     target.repository.notify(
       SSEResultState.features,
       stored,

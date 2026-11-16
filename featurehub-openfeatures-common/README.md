@@ -77,6 +77,12 @@ The context is then never sent to FeatureHub, and a context change needs no
 new request. Client-evaluated keys expose every strategy, so use them only in
 trusted environments such as servers.
 
+With a server-evaluated key, FeatureHub evaluates the features for one
+context, so a connection serves **a single user** and cannot be shared
+between users. Server-evaluated keys are intended for apps, browsers and
+batch processes. Where context switching is required, such as a server
+handling requests for different users, you must use a client-evaluated key.
+
 Read detailed documentation on FeatureHub [here](https://docs.featurehub.io)
 
 Visit Demo FeatureHub Admin Console [here](https://demo.featurehub.io)

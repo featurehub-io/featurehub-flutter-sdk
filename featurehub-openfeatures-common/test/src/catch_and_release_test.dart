@@ -195,6 +195,23 @@ void main() {
       await sub.cancel();
     });
 
+    test('features from a store do not start catching', () async {
+      // e.g. yesterday's features from browser storage
+      fresh.notify(SSEResultState.features, [
+        _flag(1, false),
+      ], source: 'a-store');
+      expect(fresh.readyness, Readyness.Ready);
+      expect(fresh.getFlag('flag'), false);
+
+      // FeatureHub's first features replace them, not held back
+      fresh.notify(SSEResultState.features, [_flag(2, true)]);
+      expect(fresh.getFlag('flag'), true);
+
+      // and from then on, updates are caught
+      fresh.notify(SSEResultState.feature, _flag(3, false).toJson());
+      expect(fresh.getFlag('flag'), true);
+    });
+
     test('a bye before the initial features is broadcast', () async {
       fresh.notify(SSEResultState.feature, _flag(1, true).toJson());
       final states = <Readyness>[];
@@ -280,6 +297,31 @@ void main() {
       expect(changes, [
         ['flag'],
       ]);
+    });
+  });
+
+  group('deleting', () {
+    test('a caught update does not bring a deleted feature back', () async {
+      repo.notify(SSEResultState.feature, _flag(2, true).toJson());
+      repo.notify(SSEResultState.deleteFeature, _flag(2, true).toJson());
+      expect(repo.featureStates, isEmpty);
+      await repo.release();
+      expect(repo.featureStates, isEmpty);
+    });
+
+    test('features missing from a caught full set go on release', () async {
+      repo.notify(SSEResultState.features, [_flag(1, false, key: 'other')]);
+      // held back: flag is still there
+      expect(repo.getFlag('flag'), false);
+      expect(repo.featureStates.map((f) => f.key), ['flag']);
+
+      // a single feature caught after the set is kept
+      repo.notify(SSEResultState.feature, _flag(1, true, key: 'late').toJson());
+      await repo.release();
+      expect(
+        repo.featureStates.map((f) => f.key),
+        unorderedEquals(['other', 'late']),
+      );
     });
   });
 }

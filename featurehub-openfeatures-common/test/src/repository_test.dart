@@ -383,4 +383,42 @@ void main() {
       'city=istanbul,country=turkey,device=desktop,musical styles=deep%2Cpsychedelic,platform=ios,session=Hot+Situations,source=youtube,userkey=DJElif,version=8.9.2',
     );
   });
+
+  group('a full set of features', () {
+    FeatureState flag(String key, {int version = 1, String? id}) =>
+        FeatureState(
+          id: id ?? 'id-$key',
+          key: key,
+          version: version,
+          type: FeatureValueType.BOOLEAN,
+          value: true,
+        );
+
+    test('removes features missing from it', () {
+      final repo = ClientFeatureRepository();
+      // e.g. from a store: 'gone' was deleted while offline
+      repo.notify(SSEResultState.features, [
+        flag('kept'),
+        flag('gone'),
+      ], source: 'a-store');
+      final asked = repo.feature('asked-for-only');
+      repo.notify(SSEResultState.features, [flag('kept')]);
+      expect(repo.featureStates.map((f) => f.key), ['kept']);
+      expect(repo.evaluate('gone').exists, false);
+      // keys only asked for are kept
+      expect(repo.feature('asked-for-only'), same(asked));
+      repo.shutdown();
+    });
+
+    test('replaces a feature with a different id or type at the same '
+        'version', () {
+      final repo = ClientFeatureRepository();
+      repo.notify(SSEResultState.features, [
+        flag('f', version: 0, id: 'made-up'),
+      ], source: 'a-store');
+      repo.notify(SSEResultState.features, [flag('f', version: 0)]);
+      expect(repo.evaluate('f').featureState?.id, 'id-f');
+      repo.shutdown();
+    });
+  });
 }

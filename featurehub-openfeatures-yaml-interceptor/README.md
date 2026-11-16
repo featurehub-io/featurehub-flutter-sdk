@@ -77,7 +77,8 @@ Together they work like this:
 4. **When FeatureHub's features arrive** (if the provider can reach
    FeatureHub), they replace the store's features. The interceptor keeps
    overriding the flags in the file, and the other flags take their values
-   from FeatureHub.
+   from FeatureHub. Flags that are only in the file, and not in FeatureHub,
+   are removed, so they then resolve as *flag not found*.
 
 There are two things to know about how they fit together:
 
@@ -130,7 +131,8 @@ The store gives each feature the type its value implies:
 | map or list | JSON |
 | `~` / `null` | String, with no value |
 
-Each feature has version 1 and is unlocked. Its id is the first 8 hex digits
+Each feature has version 0, so FeatureHub's own feature always replaces it,
+and is unlocked. Its id is the first 8 hex digits
 of the SHA-256 hash of its key, as in the TypeScript SDK, so ids stay the
 same across runs.
 

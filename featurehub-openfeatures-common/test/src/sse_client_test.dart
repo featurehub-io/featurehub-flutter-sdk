@@ -218,6 +218,32 @@ void main() {
     expect(streams.last.hasListener, true);
     expect(listener.headers.last, contains('fred'));
   });
+
+  test('quick context changes keep only the latest connection', () async {
+    final streams = <PublishSubject<Event>>[];
+    final rep = _MockRepository();
+    final listener = _RecordingSseClient(
+      '',
+      '',
+      rep,
+      streams,
+      connectDelay: const Duration(milliseconds: 20),
+    );
+    await listener.init();
+
+    // the next context changes before the previous connection has opened
+    rep.clientContext.userKey('anne').build();
+    await Future.delayed(const Duration(milliseconds: 5));
+    rep.clientContext.userKey('bob').build();
+    await Future.delayed(const Duration(milliseconds: 100));
+
+    final listened = [
+      for (var i = 0; i < streams.length; i++)
+        if (streams[i].hasListener) listener.headers[i],
+    ];
+    expect(listened, hasLength(1));
+    expect(listened.single, contains('bob'));
+  });
 }
 
 /// Hands out a new stream for every connection and records the context
@@ -228,8 +254,15 @@ class _RecordingSseClient extends EventSourceRepositoryListener {
 
   final ClientFeatureRepository repository;
 
-  _RecordingSseClient(String url, String apiKey, this.repository, this.streams)
-    : super(url, apiKey, repository, doInit: false);
+  final Duration connectDelay;
+
+  _RecordingSseClient(
+    String url,
+    String apiKey,
+    this.repository,
+    this.streams, {
+    this.connectDelay = Duration.zero,
+  }) : super(url, apiKey, repository, doInit: false);
 
   // not @override: the analyzer resolves the conditional export to the stub
   // listener, but at runtime this overrides the dart:io connect()
@@ -237,6 +270,7 @@ class _RecordingSseClient extends EventSourceRepositoryListener {
     headers.add(repository.clientContext.generateHeader());
     final stream = PublishSubject<Event>();
     streams.add(stream);
+    if (connectDelay > Duration.zero) await Future.delayed(connectDelay);
     return stream;
   }
 }

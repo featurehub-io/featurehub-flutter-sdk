@@ -57,10 +57,16 @@ Arguments take precedence over the environment. The constructor throws an
   evaluated locally against its own evaluation context, so concurrent
   requests for different users are independent.
 - **Server-evaluated keys** make FeatureHub Edge evaluate the bundle for a
-  single context. When a resolution's context differs from the current one,
-  the bundle is fetched again for it, and resolutions are serialised so that
-  none sees another context's bundle. Use a client-evaluated key for
-  multi-user workloads.
+  single context, so **a provider using one serves a single user**. It
+  cannot be shared between users. It is intended for apps, browsers and
+  batch processes that act for one user, or with one context, at a time.
+  **Where the context switches, such as a server handling requests for
+  different users, you must use a client-evaluated key.**
+
+  If the context does change, the bundle is fetched again for the new
+  context, and resolutions wait for it. If that fetch fails or times out
+  (after `waitForReady`), resolutions are answered from the previous
+  context's bundle.
 
 ## Evaluation context
 

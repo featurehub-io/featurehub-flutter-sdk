@@ -157,6 +157,21 @@ final class FeatureHubProvider
 
   @override
   Future<void> initialize(EvaluationContext context, {String? domain}) async {
+    // check the context first, so nothing is started for an invalid one
+    fh.MappedContext? initialContext;
+    if (!clientEvaluated) {
+      try {
+        initialContext = fh.mapEvaluationContext(_contextMap(context));
+      } on fh.InvalidContextException catch (e) {
+        _emit(
+          ProviderEventType.error,
+          message: e.message,
+          errorCode: ErrorCode.invalidContext,
+        );
+        return;
+      }
+    }
+
     final connection =
         _connectionFactory?.call(this) ??
         fh.FeatureHubConnection(
@@ -188,20 +203,6 @@ final class FeatureHubProvider
       }
     }
 
-    fh.MappedContext? initialContext;
-    if (!clientEvaluated) {
-      try {
-        initialContext = fh.mapEvaluationContext(_contextMap(context));
-      } on fh.InvalidContextException catch (e) {
-        _emit(
-          ProviderEventType.error,
-          message: e.message,
-          errorCode: ErrorCode.invalidContext,
-        );
-        return;
-      }
-    }
-
     await connection.start(context: initialContext);
     final readiness = await connection.waitForReady(waitForReady);
 
@@ -216,6 +217,7 @@ final class FeatureHubProvider
       );
       await connection.close();
       _connection = null;
+      await _closeStores();
       return;
     }
 
@@ -280,6 +282,16 @@ final class FeatureHubProvider
     }
   }
 
+  Future<void> _closeStores() async {
+    for (final store in stores) {
+      try {
+        await store.close();
+      } catch (e, s) {
+        _log.warning('A FeatureHub store failed to close', e, s);
+      }
+    }
+  }
+
   @override
   Future<void> shutdown() async {
     _ready = false;
@@ -288,9 +300,7 @@ final class FeatureHubProvider
     final connection = _connection;
     _connection = null;
     await connection?.close();
-    for (final store in stores) {
-      await store.close();
-    }
+    await _closeStores();
     for (final interceptor in interceptors) {
       interceptor.close();
     }

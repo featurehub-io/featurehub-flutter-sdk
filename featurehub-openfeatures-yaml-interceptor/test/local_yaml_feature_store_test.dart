@@ -48,10 +48,10 @@ void main() {
   });
 
   group('each feature', () {
-    test('has the key, version 1, unlocked, in the environment', () {
+    test('has the key, version 0, unlocked, in the environment', () {
       final f = feature('flagValues:\n  my-feature: true\n', 'my-feature');
       expect(f.key, 'my-feature');
-      expect(f.version, 1);
+      expect(f.version, 0);
       expect(f.l, false);
       expect(f.environmentId, 'env-1');
     });

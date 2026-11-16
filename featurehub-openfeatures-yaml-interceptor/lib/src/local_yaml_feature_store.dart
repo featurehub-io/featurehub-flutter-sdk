@@ -16,7 +16,8 @@ const localYamlStoreSource = 'local-yaml-store';
 ///
 /// Each value becomes a feature of the type it implies: `true`/`false` (also
 /// as strings, in any case) boolean, numbers number, other strings string,
-/// maps and lists JSON, and `~` (null) a string feature without a value. A
+/// maps and lists JSON, and `~` (null) a string feature without a value.
+/// Each feature has version 0, so FeatureHub's features replace them. A
 /// feature's id is the first 8 hex digits of the SHA-256 of its key, so it is
 /// the same on every run.
 ///
@@ -55,7 +56,8 @@ class LocalYamlFeatureStore implements FeatureStore {
       id: shortSha256(key),
       key: key,
       l: false,
-      version: 1,
+      // the lowest version, so any feature from FeatureHub replaces it
+      version: 0,
       type: type,
       value: prepareFeatureValue(type, value),
       environmentId: envId,

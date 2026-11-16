@@ -192,6 +192,11 @@ class EventSourceRepositoryListener {
   void _scheduleReconnect(Duration base) {
     final maxAttempts = _reconnectPolicy.maxAttempts;
     if (maxAttempts != null && _attempts >= maxAttempts) {
+      // TODO(evaluate): running out of attempts after network errors is
+      // reported as a failure, which the providers treat as a rejected API
+      // key (PROVIDER_FATAL) and never recover from, whereas the dart:io
+      // listener reports `bye` in the same case. The browser does not say
+      // why an EventSource failed, so a 4xx cannot be told apart here.
       _log.severe('Unable to connect to feature repository, giving up');
       _repository.notify(SSEResultState.failure, null);
       return;

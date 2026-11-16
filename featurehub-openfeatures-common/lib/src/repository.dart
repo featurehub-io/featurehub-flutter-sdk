@@ -218,11 +218,17 @@ class ClientFeatureRepository {
   final _rawUpdates = StreamController<RawFeatureUpdate>.broadcast();
   bool _catchAndReleaseMode = false;
 
-  /// True once the first set of features, or a failure, has arrived. Catch
-  /// and release mode only takes effect after that, so it can be switched on
-  /// before connecting without holding back the initial features or hiding
-  /// the initial readiness.
+  /// True once the first set of features from FeatureHub, or a failure, has
+  /// arrived. Catch and release mode only takes effect after that, so it can
+  /// be switched on before connecting without holding back the initial
+  /// features or hiding the initial readiness. Features loaded from a store
+  /// do not count: FeatureHub's first features replace them as normal.
   bool _initialStateResolved = false;
+
+  /// The keys of a full set of features held back in catch and release mode
+  /// (with any single features held back after it): on [release], features
+  /// not among them are removed.
+  Set<String>? _caughtFullSetKeys;
 
   bool get _catchActive => _catchAndReleaseMode && _initialStateResolved;
   // indexed by id (not key)
@@ -304,6 +310,7 @@ class ClientFeatureRepository {
           _raw(FeaturesReceived(List.unmodifiable(features), source));
           if (_hasReceivedInitialState && _catchActive) {
             _catchUpdatedFeatures(features);
+            _caughtFullSetKeys = {for (final f in features) f.key};
             // the features are held back, but the connection is back, so
             // (after a bye) the repository is ready again
             if (_readynessState != Readyness.Ready) {
@@ -315,14 +322,17 @@ class ClientFeatureRepository {
             for (var f in features) {
               updated = _featureUpdate(f) || updated;
             }
+            // a full set: features missing from it no longer exist
+            updated =
+                _removeMissing({for (final f in features) f.key}) || updated;
             if (updated) _featuresChanged();
             if (!_hasReceivedInitialState) {
               _checkForInvalidFeatures();
               _hasReceivedInitialState = true;
-              _initialStateResolved = true;
             } else if (updated) {
               _triggerNewStateAvailable();
             }
+            if (source == featureHubEdgeSource) _initialStateResolved = true;
             _readynessState = Readyness.Ready;
             _broadcastReadynessState();
           }
@@ -332,6 +342,7 @@ class ClientFeatureRepository {
           _raw(FeatureReceived(feature, source));
           if (_catchActive) {
             _catchUpdatedFeatures([feature]);
+            _caughtFullSetKeys?.add(feature.key);
           } else {
             if (_featureUpdate(feature)) {
               _featuresChanged();
@@ -341,6 +352,11 @@ class ClientFeatureRepository {
           break;
         case SSEResultState.deleteFeature:
           final feature = _featureState(data);
+          // an update held back for it must not bring it back on release
+          _catchReleaseStates.removeWhere(
+            (id, f) => id == feature.id || f.key == feature.key,
+          );
+          _caughtFullSetKeys?.remove(feature.key);
           _deleteFeature(feature);
           _raw(FeatureDeleted(feature, source));
           break;
@@ -523,12 +539,17 @@ class ClientFeatureRepository {
 
   Future<void> release({bool disableCatchAndRelease = false}) async {
     var updated = false;
+    final fullSetKeys = _caughtFullSetKeys;
+    _caughtFullSetKeys = null;
     while (_catchReleaseStates.isNotEmpty) {
       final states = <FeatureState>[..._catchReleaseStates.values];
       _catchReleaseStates.clear();
       for (var f in states) {
         updated = _featureUpdate(f) || updated;
       }
+    }
+    if (fullSetKeys != null) {
+      updated = _removeMissing(fullSetKeys) || updated;
     }
     if (updated) _featuresChanged();
 
@@ -545,11 +566,16 @@ class ClientFeatureRepository {
     } else {
       if (holder.version != null) {
         // a server-evaluated feature can change value, or matched strategy,
-        // without changing version when the context changes
+        // without changing version when the context changes; and a feature
+        // from a store (e.g. a local file) may differ from FeatureHub's in id
+        // or type at the same version
+        final current = holder._featureState;
         if (holder.version! > feature.version ||
             (holder.version == feature.version &&
                 holder._value == feature.value &&
-                holder._featureState?.v == feature.v)) {
+                current?.v == feature.v &&
+                current?.id == feature.id &&
+                current?.type == feature.type)) {
           return false;
         }
       }
@@ -590,6 +616,19 @@ class ClientFeatureRepository {
     _featureValueInterceptors.removeWhere(
       (h) => identical(h.interceptor, interceptor),
     );
+  }
+
+  /// Removes the features whose keys are not in [keys] (keys only asked
+  /// for, which have no feature yet, are kept). Returns true if any were.
+  bool _removeMissing(Set<String> keys) {
+    final missing = [
+      for (final MapEntry(:key, :value) in _features.entries)
+        if (value._featureState != null && !keys.contains(key)) key,
+    ];
+    for (final key in missing) {
+      _features.remove(key);
+    }
+    return missing.isNotEmpty;
   }
 
   void _deleteFeature(FeatureState feature) {

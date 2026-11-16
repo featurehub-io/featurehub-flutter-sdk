@@ -196,6 +196,11 @@ class _PollingTransport implements FeatureHubTransport {
   Timer? _timer;
   Future<void>? _inFlight;
 
+  /// In passive mode, after a failed request: no further (unforced) request
+  /// is made before this, so an outage does not cost a request per
+  /// evaluation.
+  DateTime? _retryAfter;
+
   _PollingTransport(
     String host,
     String apiKey,
@@ -217,12 +222,18 @@ class _PollingTransport implements FeatureHubTransport {
     // one request at a time; a forced request waits for the current one
     final previous = _inFlight ?? Future<void>.value();
     final next = previous.then((_) async {
+      final retryAfter = _retryAfter;
+      if (!force && retryAfter != null && DateTime.now().isBefore(retryAfter)) {
+        return;
+      }
       // a rejected key (4xx) marks the repository failed and the config
       // dead, which stops polling; other errors are retried next time
       try {
         await _config.request(force: force);
+        _retryAfter = null;
       } catch (e) {
         _log.fine('FeatureHub request failed: $e');
+        if (!_active) _retryAfter = DateTime.now().add(_interval);
       }
     });
     _inFlight = next;

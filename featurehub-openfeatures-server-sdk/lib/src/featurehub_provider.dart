@@ -24,10 +24,12 @@ final _log = Logger('featurehub_openfeature_server');
 ///   evaluated locally against its own evaluation context, so concurrent
 ///   requests for different users are independent.
 /// - **Server-evaluated API keys**: FeatureHub Edge evaluates the bundle for a
-///   single context. When a resolution's context differs from the current one
-///   the bundle is re-fetched for it, and resolutions are serialised so they
-///   never see another context's bundle. Prefer a client-evaluated key for
-///   multi-user workloads.
+///   single context, so the provider serves a **single user** and cannot be
+///   shared between users: it is intended for apps, browsers and batch
+///   processes. Where the context switches (e.g. a server handling requests
+///   for different users), a client-evaluated key must be used. If the
+///   context does change, the bundle is re-fetched for it; if that fails or
+///   times out, resolutions use the previous context's bundle.
 ///
 /// The OpenFeature `targetingKey` is FeatureHub's `userkey`; see
 /// [mapEvaluationContext] for how other attributes are mapped.
@@ -275,6 +277,21 @@ class FeatureHubProvider
     EvaluationContext context, {
     String? domain,
   }) async {
+    // check the context first, so nothing is started for an invalid one
+    MappedContext? initialContext;
+    if (!clientEvaluated) {
+      try {
+        initialContext = mapEvaluationContext(context.toProviderContext());
+      } on InvalidContextException catch (e) {
+        _emit(
+          ProviderLifecycleEventType.PROVIDER_ERROR,
+          e.message,
+          errorCode: ErrorCode.INVALID_CONTEXT,
+        );
+        throw ProviderException(e.message, code: ErrorCode.INVALID_CONTEXT);
+      }
+    }
+
     final connection =
         _connectionFactory?.call(this) ??
         FeatureHubConnection(
@@ -307,20 +324,6 @@ class FeatureHubProvider
       }
     }
 
-    MappedContext? initialContext;
-    if (!clientEvaluated) {
-      try {
-        initialContext = mapEvaluationContext(context.toProviderContext());
-      } on InvalidContextException catch (e) {
-        _emit(
-          ProviderLifecycleEventType.PROVIDER_ERROR,
-          e.message,
-          errorCode: ErrorCode.INVALID_CONTEXT,
-        );
-        throw ProviderException(e.message, code: ErrorCode.INVALID_CONTEXT);
-      }
-    }
-
     await connection.start(context: initialContext);
     final readiness = await connection.waitForReady(waitForReady);
 
@@ -336,6 +339,7 @@ class FeatureHubProvider
       );
       await connection.close();
       _connection = null;
+      await _closeStores();
       throw ProviderException(
         message,
         code: fatal ? ErrorCode.PROVIDER_FATAL : ErrorCode.GENERAL,
@@ -371,6 +375,16 @@ class FeatureHubProvider
     );
   }
 
+  Future<void> _closeStores() async {
+    for (final store in stores) {
+      try {
+        await store.close();
+      } catch (e, s) {
+        _log.warning('A FeatureHub store failed to close', e, s);
+      }
+    }
+  }
+
   @override
   Future<void> shutdownProvider() async {
     _ready = false;
@@ -379,9 +393,7 @@ class FeatureHubProvider
     final connection = _connection;
     _connection = null;
     await connection?.close();
-    for (final store in stores) {
-      await store.close();
-    }
+    await _closeStores();
     for (final interceptor in interceptors) {
       interceptor.close();
     }

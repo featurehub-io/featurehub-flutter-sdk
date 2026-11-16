@@ -39,6 +39,13 @@ See [`example/main.dart`](example/main.dart).
   `reconciling`, fetches the bundle for the new context, then reports
   `contextChanged`. In browsers the context is sent as the `xfeaturehub`
   query parameter, since `EventSource` cannot send headers.
+
+  A connection with a server-evaluated key serves **a single user** and
+  cannot be shared between users. It suits apps, browsers and batch
+  processes, where the context changes rarely, such as when a user signs
+  in. If the fetch for a new context fails or times out, the provider keeps
+  the previous context's features. Where the context switches often, or
+  between users, you must use a client-evaluated key.
 - **Client-evaluated keys** (containing `*`) deliver every feature's rollout
   strategies, which are evaluated locally, so a context change needs no
   network request.
