@@ -10,6 +10,12 @@ import 'yaml_flag_values.dart';
 /// development and testing. Features not in the file keep their values from
 /// FeatureHub.
 ///
+/// It is normally used together with a [LocalYamlFeatureStore] reading the
+/// same file: the store creates the file's features when the provider starts,
+/// and this interceptor supplies their values, rereading the file when it
+/// changes if [watching]. On its own it only overrides features FeatureHub
+/// delivers; it cannot create features.
+///
 /// ```yaml
 /// flagValues:
 ///   my-boolean-flag: true

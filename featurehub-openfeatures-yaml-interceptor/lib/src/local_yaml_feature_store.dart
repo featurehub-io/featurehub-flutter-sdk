@@ -20,11 +20,15 @@ const localYamlStoreSource = 'local-yaml-store';
 /// feature's id is the first 8 hex digits of the SHA-256 of its key, so it is
 /// the same on every run.
 ///
-/// The file is read once, when the store is attached or [load] is called.
-/// Given to a provider's `stores`, its features are available straight away,
-/// until FeatureHub's arrive and replace them; to override some features
-/// while keeping the rest from FeatureHub, use [LocalYamlValueInterceptor].
-/// Without a provider, [load] fills a [ClientFeatureRepository] directly.
+/// It is normally used together with a [LocalYamlValueInterceptor] reading
+/// the same file: the store creates the features, so they exist with a type
+/// and a value straight away, and the interceptor supplies their values,
+/// picking up edits to the file and continuing to override them once
+/// FeatureHub's features arrive and replace the store's.
+///
+/// The file is read once, when the store is attached (as one of a provider's
+/// `stores`) or [load] is called. Without a provider, [load] fills a
+/// [ClientFeatureRepository] directly.
 ///
 /// It is the Dart equivalent of the TypeScript SDK's `LocalYamlFeatureStore`.
 class LocalYamlFeatureStore implements FeatureStore {

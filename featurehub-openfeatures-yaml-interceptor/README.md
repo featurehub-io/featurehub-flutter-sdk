@@ -36,67 +36,91 @@ The file is, in order of precedence:
 
 A missing or malformed file gives no values.
 
-## `LocalYamlValueInterceptor`: override some features
+## Usage
 
-Overrides the features listed in the file. Every other feature still comes
-from FeatureHub.
+The package has two classes, which read the same file and are normally used
+together:
+
+- **`LocalYamlFeatureStore`** creates the features. When it is attached, it
+  loads every entry in the file into the repository as a feature, with a type
+  and a value. The provider is ready straight away, and every flag in the
+  file exists and resolves.
+- **`LocalYamlValueInterceptor`** supplies the values. When a flag is
+  resolved, it gives the flag's value from the file, converted to the
+  feature's type. With `watchForChanges: true` it rereads the file when it
+  changes, so your edits take effect without a restart. It also overrides
+  features that come from FeatureHub, including locked ones.
 
 ```dart
 await OpenFeatureAPI().setProviderAndWait(
   FeatureHubProvider(
-    interceptors: [LocalYamlValueInterceptor()],
+    stores: [LocalYamlFeatureStore()],
+    interceptors: [LocalYamlValueInterceptor(watchForChanges: true)],
   ),
 );
+
+final client = OpenFeatureAPI().getClient('app');
+await client.getBooleanFlag('my-boolean-flag', defaultValue: false); // true
 ```
 
-Each value is converted to the type of the feature it overrides:
+Both classes find the file in the same way, so with no `filename` they read
+the same file. If you give a `filename`, give it to both.
 
-| Feature type | YAML value gives |
-|--------------|------------------|
-| Boolean | `true` (also as a string, in any case) is true; anything else, including `~`, is false |
-| Number | numbers, and numeric strings (`"99"`); anything else no value |
-| String | strings, numbers and booleans as text; maps and lists no value |
-| JSON | strings as they are; anything else as JSON |
+Together they work like this:
 
-For every type except boolean, `~` (null) means no value, so the flag
-resolves to the default value in your code. The interceptor also overrides
-locked features.
+1. **On start**, the store loads the file's features, so every flag in the
+   file exists and has a type.
+2. **When a flag is resolved**, the interceptor supplies its value from the
+   file, converted to the feature's type.
+3. **When you edit a value**, the interceptor rereads the file, and the new
+   value is used from the next resolution.
+4. **When FeatureHub's features arrive** (if the provider can reach
+   FeatureHub), they replace the store's features. The interceptor keeps
+   overriding the flags in the file, and the other flags take their values
+   from FeatureHub.
 
-With `watchForChanges: true`, the file is checked every `pollInterval`
-(500 ms by default) and reread when it changes, so you can edit the values
-without restarting:
+There are two things to know about how they fit together:
 
-```dart
-LocalYamlValueInterceptor(
-  filename: 'config/local-flags.yaml',
-  watchForChanges: true,
-)
-```
+- **A key added to the file while running** gets a value from the
+  interceptor, but no feature exists for it until the store loads the file
+  again. Until then it resolves as *flag not found*. Restart, or call
+  `store.load(repository)` again.
+- **Types come from the features.** The interceptor converts each value to
+  the type of the feature it overrides. That type comes from the file when
+  the store loaded it, or from FeatureHub. If you edit a value so that it
+  implies a different type, the feature keeps its type until it is loaded
+  again.
 
-The provider closes its interceptors, which stops the watching, when it
-shuts down. You can also call `close()` yourself, or `reload()` to reread the
+The provider closes its interceptors when it shuts down, which stops the
+watching. You can also call `close()` yourself, or `reload()` to reread the
 file at any time.
 
-The interceptor only overrides features that FeatureHub has delivered.
-OpenFeature resolves a flag FeatureHub doesn't have as *flag not found*, even
-if it is in the file. To add such features, use `LocalYamlFeatureStore`.
+### Without a provider
 
-Without a provider, register the interceptor directly with
-`repository.addValueInterceptor(...)`.
-
-## `LocalYamlFeatureStore`: features without FeatureHub
-
-Reads the file once and loads every entry into the repository as a feature.
-This is useful for unit tests and for working offline.
+For unit tests, use the same two classes with a repository directly:
 
 ```dart
 final repository = ClientFeatureRepository();
 LocalYamlFeatureStore().load(repository);
+repository.addValueInterceptor(LocalYamlValueInterceptor());
 
 repository.feature('my-boolean-flag').booleanValue; // true
 ```
 
-Each value becomes a feature of the type the value implies:
+### Only one of them
+
+Each class also works on its own:
+
+- **The store alone** gives a fixed set of features, read once. This is
+  enough for a test that doesn't change the file.
+- **The interceptor alone** overrides features that FeatureHub delivers,
+  leaving all the others as they are. It can't create features: a flag that
+  FeatureHub doesn't have resolves as *flag not found*, even if it is in the
+  file.
+
+## Types
+
+The store gives each feature the type its value implies:
 
 | YAML value | Feature type |
 |------------|--------------|
@@ -110,15 +134,14 @@ Each feature has version 1 and is unlocked. Its id is the first 8 hex digits
 of the SHA-256 hash of its key, as in the TypeScript SDK, so ids stay the
 same across runs.
 
-It is also a `FeatureStore`. If you add it to a provider's `stores`, the
-provider is ready with the file's features straight away. When FeatureHub's
-features arrive, they replace the file's features.
+The interceptor converts each value to the type of the feature it overrides:
 
-## Which to use
+| Feature type | YAML value gives |
+|--------------|------------------|
+| Boolean | `true` (also as a string, in any case) is true; anything else, including `~`, is false |
+| Number | numbers, and numeric strings (`"99"`); anything else no value |
+| String | strings, numbers and booleans as text; maps and lists no value |
+| JSON | strings as they are; anything else as JSON |
 
-| | `LocalYamlValueInterceptor` | `LocalYamlFeatureStore` |
-|---|---|---|
-| Overrides only the listed features | Yes: the others come from FeatureHub | No: it supplies all the features |
-| Needs FeatureHub | Yes, for the other features | No |
-| Rereads the file when it changes | Yes, with `watchForChanges: true` | No |
-| Adds features FeatureHub doesn't have | No | Yes |
+For every type except boolean, `~` (null) means no value, so the flag
+resolves to the default value in your code.
