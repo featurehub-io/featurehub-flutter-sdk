@@ -37,6 +37,20 @@ jobs:
           - featurehub-openfeatures-common
           - featurehub-openfeatures-server-sdk
           - featurehub-openfeatures-client-sdk
+          - featurehub-openfeatures-store-localstorage
+          - featurehub-openfeatures-store-redis
+
+    # for the Redis store's integration tests
+    services:
+      redis:
+        image: redis:7.2-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 15
 
     defaults:
       run:
@@ -61,10 +75,15 @@ jobs:
       - name: Analyze
         run: dart analyze --fatal-infos
 
+      # the local storage store's tests run in Chrome (see its dart_test.yaml)
       - name: Run tests (VM)
         run: dart test
+        env:
+          FEATUREHUB_TEST_REDIS: localhost:6379
 
-      # the server SDK is dart:io only
+      # the server SDK and Redis store are dart:io only
       - name: Run tests (Chrome)
-        if: matrix.package != 'featurehub-openfeatures-server-sdk'
+        if: >-
+          matrix.package == 'featurehub-openfeatures-common' ||
+          matrix.package == 'featurehub-openfeatures-client-sdk'
         run: dart test -p chrome

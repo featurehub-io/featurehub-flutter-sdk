@@ -11,3 +11,4 @@
   interval.
 - A `catchAndReleaseMode` option (and `release()`), which can be set when the
   provider is created.
+- A `stores` option for feature stores, attached before connecting.

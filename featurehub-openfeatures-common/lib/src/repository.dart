@@ -184,6 +184,7 @@ class ClientFeatureRepository {
   final _newFeatureStateAvailableListeners =
       PublishSubject<ClientFeatureRepository>();
   final _featuresChangedListeners = PublishSubject<ClientFeatureRepository>();
+  final _rawUpdates = StreamController<RawFeatureUpdate>.broadcast();
   bool _catchAndReleaseMode = false;
 
   /// True once the first set of features, or a failure, has arrived. Catch
@@ -220,12 +221,32 @@ class ClientFeatureRepository {
 
   void _featuresChanged() => _featuresChangedListeners.add(this);
 
+  /// Every feature change as it arrives, before catch and release handling,
+  /// with its source: for stores that keep a copy of the features (see
+  /// [FeatureStore]). Events are delivered asynchronously.
+  Stream<RawFeatureUpdate> get rawFeatureUpdates => _rawUpdates.stream;
+
+  void _raw(RawFeatureUpdate update) {
+    if (!_rawUpdates.isClosed) _rawUpdates.add(update);
+  }
+
+  static FeatureState _featureState(dynamic data) =>
+      data is FeatureState ? data : FeatureState.fromJson(data);
+
   Iterable<String?> get availableFeatures => _features.keys;
 
   /// used by a provider of features to tell the repository about updates to those features.
   /// If you were storing features on your device you could use this to fill the repository before it was connected for example.
-  void notify(SSEResultState? state, dynamic data) {
-    _log.fine('Data is $state -> $data');
+  ///
+  /// [source] is where the data came from: FeatureHub by default, or e.g. a
+  /// [FeatureStore] loading the features it holds. It is passed on with
+  /// [rawFeatureUpdates].
+  void notify(
+    SSEResultState? state,
+    dynamic data, {
+    String source = featureHubEdgeSource,
+  }) {
+    _log.fine('Data from $source is $state -> $data');
     if (state != null) {
       switch (state) {
         case SSEResultState.ack:
@@ -249,6 +270,7 @@ class ClientFeatureRepository {
           final features = (data is List<FeatureState>)
               ? data
               : FeatureState.listFromJson(data);
+          _raw(FeaturesReceived(List.unmodifiable(features), source));
           if (_hasReceivedInitialState && _catchActive) {
             _catchUpdatedFeatures(features);
             // the features are held back, but the connection is back, so
@@ -275,7 +297,8 @@ class ClientFeatureRepository {
           }
           break;
         case SSEResultState.feature:
-          final feature = FeatureState.fromJson(data);
+          final feature = _featureState(data);
+          _raw(FeatureReceived(feature, source));
           if (_catchActive) {
             _catchUpdatedFeatures([feature]);
           } else {
@@ -286,7 +309,9 @@ class ClientFeatureRepository {
           }
           break;
         case SSEResultState.deleteFeature:
-          _deleteFeature(FeatureState.fromJson(data));
+          final feature = _featureState(data);
+          _deleteFeature(feature);
+          _raw(FeatureDeleted(feature, source));
           break;
         case SSEResultState.config:
         case SSEResultState.error:
@@ -531,6 +556,7 @@ class ClientFeatureRepository {
     _readynessListeners.close();
     _newFeatureStateAvailableListeners.close();
     _featuresChangedListeners.close();
+    _rawUpdates.close();
     shutdownFeatures();
   }
 }

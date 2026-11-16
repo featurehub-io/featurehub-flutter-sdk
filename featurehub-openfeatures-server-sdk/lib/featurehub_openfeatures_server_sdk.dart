@@ -17,7 +17,11 @@
 library;
 
 export 'package:featurehub_openfeatures_common/featurehub_openfeatures_common.dart'
-    show FeatureHubUpdateMode, InvalidContextException;
+    show
+        FeatureHubUpdateMode,
+        FeatureStore,
+        FeatureStoreTarget,
+        InvalidContextException;
 export 'package:featurehub_sse_client/featurehub_sse_client.dart'
     show ReconnectPolicy;
 

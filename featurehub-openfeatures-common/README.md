@@ -23,10 +23,28 @@ what they share:
 - the polling and SSE transports (`FeatureHubConnection`); SSE uses
   [`featurehub_sse_client`](https://pub.dev/packages/featurehub_sse_client)
   on `dart:io` and the native `EventSource` in browsers;
-- OpenFeature context mapping and resolution rules shared by both providers.
+- OpenFeature context mapping and resolution rules shared by both providers;
+- raw feature updates and the `FeatureStore` interface, for stores that keep
+  a copy of the features (see below).
 
 The FeatureHub API it was built from (the previous `featurehub_client_sdk`)
 is still available and is documented below.
+
+## Feature stores
+
+`ClientFeatureRepository.rawFeatureUpdates` publishes every feature change
+as it arrives, before catch and release handling, with its source: a
+`FeaturesReceived`, `FeatureReceived` or `FeatureDeleted`. A `FeatureStore`
+uses it to keep a copy of the features. The providers attach their `stores`
+before connecting to FeatureHub; a store loads what it holds into the
+repository with `notify(..., source: ...)` and ignores updates from its own
+source. This is the Dart equivalent of the TypeScript SDK's
+`RawUpdateFeatureListener`. Two stores are available:
+
+- [`featurehub_openfeatures_store_localstorage`](../featurehub-openfeatures-store-localstorage):
+  browser storage, for the client provider in web applications;
+- [`featurehub_openfeatures_store_redis`](../featurehub-openfeatures-store-redis):
+  Redis, shared between server processes and with other FeatureHub SDKs.
 
 ## Client-evaluated API keys
 

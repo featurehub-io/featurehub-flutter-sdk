@@ -13,3 +13,5 @@ export 'src/openfeature/context_mapper.dart';
 export 'src/openfeature/featurehub_connection.dart';
 export 'src/openfeature/resolution.dart';
 export 'src/openfeature/provider_state_tracker.dart';
+export 'src/store/feature_store.dart';
+export 'src/store/raw_feature_update.dart';

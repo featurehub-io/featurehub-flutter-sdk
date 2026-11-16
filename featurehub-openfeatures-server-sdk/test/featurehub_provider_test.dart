@@ -40,8 +40,9 @@ class _FakeTransport implements FeatureHubTransport {
     }
   }
 
+  // like a streaming connection, starting does not wait for the features
   @override
-  Future<void> start() => _deliver();
+  Future<void> start() async => unawaited(_deliver());
 
   @override
   Future<void> contextChanged() => _deliver();
@@ -133,9 +134,11 @@ void main() {
     bool fail = false,
     Duration delay = Duration.zero,
     bool catchAndReleaseMode = false,
+    List<FeatureStore> stores = const [],
   }) => FeatureHubProvider(
     environment: const {},
     catchAndReleaseMode: catchAndReleaseMode,
+    stores: stores,
     host: 'http://localhost',
     apiKey: apiKey,
     waitForReady: const Duration(seconds: 2),
@@ -476,6 +479,43 @@ void main() {
     expect(events.last.flagsChanged, ['flag']);
   });
 
+  test('stores are attached before connecting, and closed', () async {
+    final store = _RecordingStore([
+      FeatureState(
+        id: 'f-flag',
+        key: 'flag',
+        version: 1,
+        type: FeatureValueType.BOOLEAN,
+        value: false,
+      ),
+    ]);
+    final p = provider(
+      'default/env-1/key*secret',
+      delay: const Duration(milliseconds: 200),
+      stores: [store],
+    );
+
+    // ready from the store's features, before FeatureHub has answered
+    await api.setProviderAndWait(p);
+    expect(transport!.headers, hasLength(1));
+    expect(
+      await api.getClient('test').getBooleanFlag('flag', defaultValue: true),
+      false,
+    );
+
+    // FeatureHub's features then arrive, and the store sees them
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    expect(
+      await api.getClient('test').getBooleanFlag('flag', defaultValue: false),
+      true,
+    );
+    expect(store.updates.single, isA<FeaturesReceived>());
+    expect(store.updates.single.source, featureHubEdgeSource);
+
+    await OpenFeatureAPI.resetInstance();
+    expect(store.events, ['attach env-1', 'close']);
+  });
+
   group('server-evaluated key', () {
     test('refetches only when the context changes', () async {
       await api.setProviderAndWait(provider('env/key'));
@@ -626,4 +666,37 @@ void main() {
       });
     }
   });
+}
+
+/// A store that holds [stored] and records what it sees.
+class _RecordingStore implements FeatureStore {
+  final List<FeatureState> stored;
+  final events = <String>[];
+  final updates = <RawFeatureUpdate>[];
+  StreamSubscription<RawFeatureUpdate>? _sub;
+
+  _RecordingStore(this.stored);
+
+  @override
+  bool get connected => _sub != null;
+
+  @override
+  Future<void> attach(FeatureStoreTarget target) async {
+    events.add('attach ${target.environmentId}');
+    _sub = target.repository.rawFeatureUpdates.listen((u) {
+      if (u.source != 'test-store') updates.add(u);
+    });
+    target.repository.notify(
+      SSEResultState.features,
+      stored,
+      source: 'test-store',
+    );
+  }
+
+  @override
+  Future<void> close() async {
+    events.add('close');
+    await _sub?.cancel();
+    _sub = null;
+  }
 }

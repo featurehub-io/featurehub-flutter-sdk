@@ -190,6 +190,7 @@ class _StreamingTransport implements FeatureHubTransport {
 
 class _PollingTransport implements FeatureHubTransport {
   final FeatureHubConfig _config;
+  final ClientFeatureRepository _repository;
   final Duration _interval;
   final bool _active;
   Timer? _timer;
@@ -198,7 +199,7 @@ class _PollingTransport implements FeatureHubTransport {
   _PollingTransport(
     String host,
     String apiKey,
-    ClientFeatureRepository repository,
+    this._repository,
     this._interval, {
     required this._active,
     Duration? connectTimeout,
@@ -206,7 +207,7 @@ class _PollingTransport implements FeatureHubTransport {
   }) : _config = FeatureHubConfig(
          host,
          [apiKey],
-         repository,
+         _repository,
          timeout: _interval.inSeconds,
          connectTimeout: connectTimeout,
          requestTimeout: requestTimeout,
@@ -232,7 +233,12 @@ class _PollingTransport implements FeatureHubTransport {
 
   @override
   Future<void> start() async {
-    await _request();
+    if (_repository.readyness == Readyness.Ready) {
+      // already ready (e.g. from a store's features): fetch in the background
+      unawaited(_request());
+    } else {
+      await _request();
+    }
     if (_active && !_config.isConnectionDead) {
       _timer = Timer.periodic(_interval, (_) {
         if (_config.isConnectionDead) {

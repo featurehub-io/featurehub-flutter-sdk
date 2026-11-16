@@ -5,6 +5,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_openfeatures_common/featurehub_openfeatures_common.dart';
 import 'package:featurehub_sse_client/featurehub_sse_client.dart'
     show ReconnectPolicy;
@@ -256,6 +257,29 @@ void main() {
       edge.requests.single.headers.value(HttpHeaders.acceptEncodingHeader),
       contains('gzip'),
     );
+    await connection.close();
+  });
+
+  test('polling does not wait when a store has made it ready', () async {
+    edge.hang = 1;
+    final repository = ClientFeatureRepository()
+      ..notify(SSEResultState.features, [
+        FeatureState(
+          id: 'fv1',
+          key: 'colour',
+          version: 1,
+          type: FeatureValueType.STRING,
+          value: 'stored',
+        ),
+      ], source: 'a-store');
+    final connection = FeatureHubConnection(
+      host: edge.host,
+      apiKey: 'a/b/c',
+      repository: repository,
+      mode: FeatureHubUpdateMode.polling,
+    );
+    await connection.start().timeout(const Duration(seconds: 2));
+    expect(repository.evaluate('colour').value, 'stored');
     await connection.close();
   });
 

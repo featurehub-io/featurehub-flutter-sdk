@@ -60,6 +60,7 @@ Events are `ready`, `configurationChanged` (with the changed flag keys),
 | `waitForReady` | 10s | how long initialization and a context change wait for features |
 | `reconnectPolicy` | 3s, 30s after a 5xx, stop on a 4xx | streaming reconnection (in browsers the native `EventSource` reconnects; if it gives up, the provider retries after `serverErrorDelay`) |
 | `connectTimeout` | none | how long establishing an HTTP connection may take (in browsers, polling only: the browser controls `EventSource` connections) |
+| `stores` | none | stores that keep a copy of the features, attached before connecting (see `FeatureStore`): e.g. `featurehub_openfeatures_store_localstorage`, to start web applications with the features they last had |
 | `catchAndReleaseMode` | false | hold feature updates back until `release()` is called; takes effect once the initial features have arrived, so it can be set at creation. Released changes are announced as configuration changed events |
 | `requestTimeout` | none | how long a polling request may take, or how long a streaming connection attempt waits for the stream to open (an attempt that times out is retried under `reconnectPolicy`) |
 

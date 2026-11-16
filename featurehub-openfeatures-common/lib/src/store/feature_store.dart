@@ -1,0 +1,66 @@
+import '../../featurehub_config.dart';
+import '../repository.dart';
+
+/// What a [FeatureStore] is attached to: a repository, and the FeatureHub
+/// environment it holds features for.
+class FeatureStoreTarget {
+  final ClientFeatureRepository repository;
+
+  /// The FeatureHub Edge URL.
+  final String host;
+
+  /// The environment's SDK API key.
+  final String apiKey;
+
+  const FeatureStoreTarget({
+    required this.repository,
+    required this.host,
+    required this.apiKey,
+  });
+
+  /// True if [apiKey] is client-evaluated (contains `*`).
+  bool get clientEvaluated => FeatureHubConfig.isClientEvaluatedKeys([apiKey]);
+
+  /// The environment id from [apiKey] (see [environmentIdFromApiKey]).
+  String get environmentId => environmentIdFromApiKey(apiKey);
+
+  /// The streaming feature URL, `<host>/features/<apiKey>`: unique to the
+  /// environment and key, so suitable as a storage key.
+  String get featureUrl =>
+      '${host.endsWith('/') ? host.substring(0, host.length - 1) : host}'
+      '/features/$apiKey';
+}
+
+/// The environment id from an API key, as every FeatureHub SDK derives it:
+/// the middle part of `portfolio/environment/key`, or the first part of
+/// `environment/key`. Other forms give a fixed placeholder id.
+String environmentIdFromApiKey(String apiKey) {
+  final parts = apiKey.split('/');
+  if (parts.length >= 3) return parts[1];
+  if (parts.length == 2) return parts[0];
+  // the TypeScript SDK's placeholder for an unrecognised key
+  return '3ea0f571-c153-48bf-9543-df76c6f9ca50';
+}
+
+/// Keeps a copy of a repository's features outside it: for example in
+/// browser storage, so an application starts with the features it last had,
+/// or in Redis, so several processes share them (and keep receiving updates
+/// if their own connection to FeatureHub fails).
+///
+/// The FeatureHub providers attach their stores (see their `stores` option)
+/// before connecting to FeatureHub, so features a store holds are available
+/// straight away. A store loads its features into the repository with
+/// [ClientFeatureRepository.notify], giving its own source, and follows the
+/// repository's [ClientFeatureRepository.rawFeatureUpdates], ignoring the
+/// updates from its own source.
+abstract interface class FeatureStore {
+  /// Loads any features this store holds into [target]'s repository, then
+  /// keeps the store up to date with the repository's updates.
+  Future<void> attach(FeatureStoreTarget target);
+
+  /// True if the store is attached and operational.
+  bool get connected;
+
+  /// Stops following updates and releases any resources.
+  Future<void> close();
+}

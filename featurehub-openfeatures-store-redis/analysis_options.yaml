@@ -1,0 +1,11 @@
+include: package:lints/recommended.yaml
+
+linter:
+  rules:
+    - avoid_print
+
+analyzer:
+  errors:
+    # the FeatureHub packages are path dependencies until they are published;
+    # `dart pub publish` still refuses path dependencies
+    invalid_dependency: ignore

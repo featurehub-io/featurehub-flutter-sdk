@@ -35,6 +35,10 @@ OpenFeature providers for Dart.
 * Optional HTTP `connectTimeout` and `requestTimeout` for `FeatureHubConfig` (dio), the SSE listeners and
   `FeatureHubConnection`. In browsers `EventSource` connections are controlled by the browser, so only the request
   timeout (how long the stream may take to open) applies to streaming
+* Raw feature updates for stores (the TypeScript SDK's `RawUpdateFeatureListener`, as a Dart stream):
+  `ClientFeatureRepository.rawFeatureUpdates` publishes every features, feature and delete notification with its
+  source (`notify` takes a `source`, defaulting to FeatureHub), including while catching. `FeatureStore` and
+  `FeatureStoreTarget` define stores, which the providers attach before connecting
 * OpenFeature support shared by the providers: `FeatureHubConnection` (streaming, polling or passive refresh, with
   readiness and server-evaluated context changes), `mapEvaluationContext`, `resolveFromEvaluation` and
   `ProviderStateTracker`

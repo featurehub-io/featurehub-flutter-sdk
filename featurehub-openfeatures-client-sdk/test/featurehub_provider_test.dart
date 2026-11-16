@@ -17,8 +17,10 @@ void main() {
     String apiKey, {
     bool fail = false,
     bool catchAndReleaseMode = false,
+    List<fh.FeatureStore> stores = const [],
   }) => FeatureHubProvider(
     catchAndReleaseMode: catchAndReleaseMode,
+    stores: stores,
     host: 'http://localhost',
     apiKey: apiKey,
     waitForReady: const Duration(seconds: 2),
@@ -167,6 +169,29 @@ void main() {
     expect(events.last.flagsChanged, ['flag']);
   });
 
+  test('stores are attached before connecting, and closed', () async {
+    final store = _RecordingStore([
+      FeatureState(
+        id: 'f-flag',
+        key: 'flag',
+        version: 1,
+        type: FeatureValueType.BOOLEAN,
+        value: false,
+      ),
+    ]);
+    final p = provider('default/env-1/key*secret', stores: [store]);
+    await api.setProviderAndWait(p);
+    await Future<void>.delayed(Duration.zero);
+
+    // FeatureHub's features replace the stored ones, and the store sees them
+    expect(api.getClient().getBooleanValue('flag', false), true);
+    expect(store.updates.single, isA<fh.FeaturesReceived>());
+    expect(store.updates.single.source, fh.featureHubEdgeSource);
+
+    await api.shutdown();
+    expect(store.events, ['attach env-1', 'close']);
+  });
+
   group('server-evaluated key', () {
     test('fetches the bundle for each new context', () async {
       await api.setEvaluationContextAndWait(
@@ -241,4 +266,37 @@ void main() {
     expect(result.value, false);
     expect(result.errorCode, ErrorCode.providerNotReady);
   });
+}
+
+/// A store that holds [stored] and records what it sees.
+class _RecordingStore implements fh.FeatureStore {
+  final List<FeatureState> stored;
+  final events = <String>[];
+  final updates = <fh.RawFeatureUpdate>[];
+  StreamSubscription<fh.RawFeatureUpdate>? _sub;
+
+  _RecordingStore(this.stored);
+
+  @override
+  bool get connected => _sub != null;
+
+  @override
+  Future<void> attach(fh.FeatureStoreTarget target) async {
+    events.add('attach ${target.environmentId}');
+    _sub = target.repository.rawFeatureUpdates.listen((u) {
+      if (u.source != 'test-store') updates.add(u);
+    });
+    target.repository.notify(
+      SSEResultState.features,
+      stored,
+      source: 'test-store',
+    );
+  }
+
+  @override
+  Future<void> close() async {
+    events.add('close');
+    await _sub?.cancel();
+    _sub = null;
+  }
 }

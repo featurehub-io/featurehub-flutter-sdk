@@ -63,6 +63,11 @@ class FeatureHubProvider
   /// True if [apiKey] is client-evaluated.
   final bool clientEvaluated;
 
+  /// Stores that keep a copy of the features (see [FeatureStore]),
+  /// attached before connecting to FeatureHub, so the features they hold are
+  /// available straight away.
+  final List<FeatureStore> stores;
+
   final FeatureHubConnection Function(FeatureHubProvider provider)?
   _connectionFactory;
 
@@ -118,6 +123,7 @@ class FeatureHubProvider
     Duration? connectTimeout,
     Duration? requestTimeout,
     bool catchAndReleaseMode = false,
+    List<FeatureStore> stores = const [],
     Map<String, String>? environment,
     FeatureHubConnection Function(FeatureHubProvider provider)?
     connectionFactory,
@@ -188,6 +194,7 @@ class FeatureHubProvider
       connectTimeout: connectTimeout,
       requestTimeout: requestTimeout,
       catchAndReleaseMode: catchAndReleaseMode,
+      stores: stores,
       connectionFactory: connectionFactory,
     );
   }
@@ -202,6 +209,7 @@ class FeatureHubProvider
     required this.connectTimeout,
     required this.requestTimeout,
     required this._catchAndReleaseMode,
+    required this.stores,
     required this._connectionFactory,
   }) : clientEvaluated = FeatureHubConfig.isClientEvaluatedKeys([apiKey]);
 
@@ -272,6 +280,20 @@ class FeatureHubProvider
         );
     _connection = connection;
     connection.repository.catchAndReleaseMode = _catchAndReleaseMode;
+    // stores first, so the features they hold are available straight away
+    for (final store in stores) {
+      try {
+        await store.attach(
+          FeatureStoreTarget(
+            repository: connection.repository,
+            host: host,
+            apiKey: apiKey,
+          ),
+        );
+      } catch (e, s) {
+        _log.warning('A FeatureHub store failed to attach', e, s);
+      }
+    }
 
     MappedContext? initialContext;
     if (!clientEvaluated) {
@@ -345,6 +367,9 @@ class FeatureHubProvider
     final connection = _connection;
     _connection = null;
     await connection?.close();
+    for (final store in stores) {
+      await store.close();
+    }
   }
 
   @override

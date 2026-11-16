@@ -66,6 +66,11 @@ final class FeatureHubProvider
   /// True if [apiKey] is client-evaluated.
   final bool clientEvaluated;
 
+  /// Stores that keep a copy of the features (see [fh.FeatureStore]),
+  /// attached before connecting to FeatureHub, so the features they hold are
+  /// available straight away.
+  final List<fh.FeatureStore> stores;
+
   final fh.FeatureHubConnection Function(FeatureHubProvider provider)?
   _connectionFactory;
 
@@ -87,6 +92,7 @@ final class FeatureHubProvider
     this.connectTimeout,
     this.requestTimeout,
     this._catchAndReleaseMode = false,
+    this.stores = const [],
     this._connectionFactory,
   }) : clientEvaluated = fh.FeatureHubConfig.isClientEvaluatedKeys([apiKey]) {
     if (host.isEmpty || apiKey.isEmpty) {
@@ -157,6 +163,20 @@ final class FeatureHubProvider
         );
     _connection = connection;
     connection.repository.catchAndReleaseMode = _catchAndReleaseMode;
+    // stores first, so the features they hold are available straight away
+    for (final store in stores) {
+      try {
+        await store.attach(
+          fh.FeatureStoreTarget(
+            repository: connection.repository,
+            host: host,
+            apiKey: apiKey,
+          ),
+        );
+      } catch (e, s) {
+        _log.warning('A FeatureHub store failed to attach', e, s);
+      }
+    }
 
     fh.MappedContext? initialContext;
     if (!clientEvaluated) {
@@ -258,6 +278,9 @@ final class FeatureHubProvider
     final connection = _connection;
     _connection = null;
     await connection?.close();
+    for (final store in stores) {
+      await store.close();
+    }
   }
 
   @override
