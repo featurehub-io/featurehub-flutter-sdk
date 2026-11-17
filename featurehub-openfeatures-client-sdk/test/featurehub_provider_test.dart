@@ -175,7 +175,7 @@ void main() {
       );
       final empty = client.getStringDetails('empty', 'd');
       expect(empty.value, 'd');
-      expect(empty.reason, 'DEFAULT');
+      expect(empty.reason, 'DISABLED');
     });
 
     test('announces changed flags', () async {

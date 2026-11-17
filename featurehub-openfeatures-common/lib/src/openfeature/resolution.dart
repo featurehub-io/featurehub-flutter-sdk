@@ -21,8 +21,14 @@ enum FeatureKind {
 /// OpenFeature resolution reasons used by the FeatureHub providers.
 abstract final class ResolutionReason {
   static const targetingMatch = 'TARGETING_MATCH';
+
+  /// A percentage rollout strategy matched (evaluated locally).
+  static const split = 'SPLIT';
   static const static_ = 'STATIC';
   static const default_ = 'DEFAULT';
+
+  /// The feature has no value set: the code default is returned.
+  static const disabled = 'DISABLED';
   static const error = 'ERROR';
 }
 
@@ -126,12 +132,12 @@ Map<String, Object> _flagMetadata(EvaluatedFeature evaluation) => {
 };
 
 /// Applies OpenFeature resolution semantics to a FeatureHub evaluation: not
-/// found, type mismatch, value-less features (the code default, `DEFAULT`),
+/// found, type mismatch, value-less features (the code default, `DISABLED`),
 /// JSON parsing, and `TARGETING_MATCH` (with the matched strategy as the
-/// variant) or `STATIC`.
+/// variant; `SPLIT` for a percentage rollout matched locally) or `STATIC`.
 ///
 /// This is the single implementation shared by the server and client
-/// providers, matching the TypeScript OpenFeature providers.
+/// providers, matching the Go SDK's OpenFeature provider.
 FeatureHubResolution<T> resolveFromEvaluation<T>(
   String flagKey,
   FeatureKind kind,
@@ -162,10 +168,12 @@ FeatureHubResolution<T> resolveFromEvaluation<T>(
 
   final raw = evaluation.value;
   if (raw == null) {
-    // value-less features resolve to the code default
+    // no value set (by the feature, or the strategy or interceptor that
+    // supplied it): the code default, as the Go SDK does
     return FeatureHubResolution(
       value: defaultValue,
-      reason: ResolutionReason.default_,
+      reason: ResolutionReason.disabled,
+      variant: evaluation.strategyId,
       flagMetadata: metadata,
     );
   }
@@ -216,9 +224,11 @@ FeatureHubResolution<T> resolveFromEvaluation<T>(
   final strategyId = evaluation.strategyId;
   return FeatureHubResolution(
     value: value as T,
-    reason: strategyId != null
-        ? ResolutionReason.targetingMatch
-        : ResolutionReason.static_,
+    reason: strategyId == null
+        ? ResolutionReason.static_
+        : evaluation.split
+        ? ResolutionReason.split
+        : ResolutionReason.targetingMatch,
     variant: strategyId,
     flagMetadata: metadata,
   );

@@ -46,6 +46,10 @@ OpenFeature providers for Dart.
   server-evaluated key (no strategies, `v` the matched strategy); without one, as delivered.
   `FeatureHubConfig.loadFeatureSnapshot(data)` loads a snapshot (or its JSON, or a list of features) into the
   repository as a full set of features
+* A percentage rollout strategy matched locally resolves with the reason `SPLIT` (as the Go SDK does); other
+  matches stay `TARGETING_MATCH`, including strategies the server applied
+* A feature with no value set resolves to the code default with the reason `DISABLED` (as the Go SDK does), rather
+  than `DEFAULT`; a matched strategy with no value keeps its id as the variant
 * `ClientFeatureRepository.featuresSha`: a SHA-256 of the repository's features' sorted `id:version`s, computed
   whenever features arrive, are updated or deleted, or are released. `FeatureHubConfig.featuresSha` gives it for
   client-evaluated API keys (null for server-evaluated keys). `ClientFeatureRepository.computeSha`

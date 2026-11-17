@@ -162,16 +162,29 @@ void main() {
       });
     });
 
-    test('value-less features give the default', () {
+    test('value-less features give the default, disabled', () {
       final r = resolveFromEvaluation(
-        'f',
+        'keep-silent',
         FeatureKind.string,
-        'def',
+        'always wonder',
         _feature(FeatureValueType.STRING, null),
       );
-      expect(r.value, 'def');
-      expect(r.reason, ResolutionReason.default_);
+      expect(r.value, 'always wonder');
+      expect(r.reason, ResolutionReason.disabled);
+      expect(r.variant, isNull);
       expect(r.isError, false);
+    });
+
+    test('a strategy with no value is disabled, with its variant', () {
+      final r = resolveFromEvaluation(
+        'keep-silent',
+        FeatureKind.string,
+        'always wonder',
+        _feature(FeatureValueType.STRING, null, strategyId: 'ormkorn'),
+      );
+      expect(r.value, 'always wonder');
+      expect(r.reason, ResolutionReason.disabled);
+      expect(r.variant, 'ormkorn');
     });
 
     test('static and targeting-match values', () {
@@ -276,6 +289,76 @@ void main() {
         ).value,
         7,
       );
+    });
+  });
+
+  group('the reason for a locally matched strategy', () {
+    final repository = ClientFeatureRepository()
+      ..notify(SSEResultState.features, [
+        FeatureState(
+          id: 'fv-pastry',
+          key: 'kwong-pastry',
+          version: 1,
+          type: FeatureValueType.STRING,
+          value: 'plain',
+          strategies: [
+            // everyone outside Thailand: an attribute strategy
+            FeatureRolloutStrategy(
+              id: 'chago',
+              value: 'mango',
+              attributes: [
+                FeatureRolloutStrategyAttribute(
+                  conditional: RolloutStrategyAttributeConditional.NOT_EQUALS,
+                  fieldName: 'country',
+                  values: ['thailand'],
+                  type: RolloutStrategyFieldType.STRING,
+                ),
+              ],
+            ),
+            // 100% of the rest (percentages are out of 1,000,000)
+            FeatureRolloutStrategy(
+              id: 'omu-co',
+              value: 'durian',
+              percentage: 1000000,
+              attributes: [],
+            ),
+          ],
+        ),
+      ]);
+
+    FeatureHubResolution<String> resolve(Map<String, Object> context) =>
+        resolveFromEvaluation(
+          'kwong-pastry',
+          FeatureKind.string,
+          'none',
+          repository.evaluate(
+            'kwong-pastry',
+            context: MapStrategyContext(context),
+          ),
+        );
+
+    test('a percentage rollout is SPLIT', () {
+      final r = resolve({'userkey': 'lingling', 'country': 'thailand'});
+      expect(r.value, 'durian');
+      expect(r.reason, ResolutionReason.split);
+      expect(r.variant, 'omu-co');
+    });
+
+    test('an attribute strategy is TARGETING_MATCH', () {
+      final r = resolve({'userkey': 'orm', 'country': 'new_zealand'});
+      expect(r.value, 'mango');
+      expect(r.reason, ResolutionReason.targetingMatch);
+      expect(r.variant, 'chago');
+    });
+
+    test('a strategy the server applied (v) is TARGETING_MATCH', () {
+      final r = resolveFromEvaluation(
+        'f',
+        FeatureKind.string,
+        'none',
+        _feature(FeatureValueType.STRING, 'durian', strategyId: 'omu-co'),
+      );
+      expect(r.reason, ResolutionReason.targetingMatch);
     });
   });
 }

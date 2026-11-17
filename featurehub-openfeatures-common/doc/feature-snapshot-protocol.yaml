@@ -496,6 +496,13 @@ providers:
     - {on: "Failed", event: "ERROR (PROVIDER_FATAL)"}
     - {on: "bye after ready", event: STALE, then READY when features arrive}
     - {on: "applied changes that alter a feature's version, or remove/add one", event: "CONFIGURATION_CHANGED with the changed keys"}
+  resolution_reasons:
+    - {when: "flag not found", value: code default, reason: ERROR, error: FLAG_NOT_FOUND}
+    - {when: "wrong type", value: code default, reason: ERROR, error: TYPE_MISMATCH}
+    - {when: "the resolved value is null (the feature, or the matched strategy or interceptor, has no value)", value: code default, reason: DISABLED, variant: "the matched strategy id, if any"}
+    - {when: "a percentage rollout strategy (percentage non-zero) matched locally", value: the strategy's value, reason: SPLIT, variant: the strategy id}
+    - {when: "any other strategy matched locally, or v from the server (whose kind is unknown)", value: the strategy's value, reason: TARGETING_MATCH, variant: the strategy id}
+    - {when: otherwise, value: the feature's value, reason: STATIC}
   headers_and_clients:
     headers: sent by every built-in transport (except browser SSE, whose EventSource cannot send headers; a warning is logged) and given to custom transports
     proxy: >-

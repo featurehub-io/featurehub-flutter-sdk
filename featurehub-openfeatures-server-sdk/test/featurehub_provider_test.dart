@@ -397,7 +397,7 @@ void main() {
         defaultValue: 'd',
       );
       expect(empty.value, 'd');
-      expect(empty.reason, 'DEFAULT');
+      expect(empty.reason, 'DISABLED');
       expect(empty.errorCode, isNull);
 
       final invalid = await client.getStringEvaluationDetails(

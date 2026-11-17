@@ -483,6 +483,7 @@ class ClientFeatureRepository {
       featureState: fs,
       value: applied.matched ? applied.value : fs.value,
       strategyId: applied.matched ? applied.strategyId : null,
+      split: applied.matched && applied.split,
     );
   }
 

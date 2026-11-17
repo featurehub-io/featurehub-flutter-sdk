@@ -19,12 +19,17 @@ class EvaluatedFeature {
   /// True if a value interceptor supplied [value].
   final bool intercepted;
 
+  /// True if [strategyId] is a percentage rollout that matched locally. (A
+  /// strategy the server applied is not known to be one.)
+  final bool split;
+
   const EvaluatedFeature({
     required this.key,
     this.featureState,
     this.value,
     this.strategyId,
     this.intercepted = false,
+    this.split = false,
   });
 
   /// True if the server has delivered this feature.

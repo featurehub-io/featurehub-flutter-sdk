@@ -73,7 +73,7 @@ class UserFeatures {
 
   /// True if the feature exists and has a value.
   static bool _isSet(FlagEvaluationDetails<Object?> details) =>
-      details.errorCode == null && details.reason != 'DEFAULT';
+      details.errorCode == null && details.reason != 'DISABLED';
 
   Future<bool> isEnabled(String key) =>
       _client.getBooleanFlag(key, defaultValue: false, context: _context);

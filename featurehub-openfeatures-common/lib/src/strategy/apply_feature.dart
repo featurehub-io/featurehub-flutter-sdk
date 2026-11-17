@@ -35,7 +35,15 @@ class Applied {
   /// The id of the strategy that matched.
   final String? strategyId;
 
-  const Applied(this.matched, this.value, this.strategyId);
+  /// True if the strategy that matched is a percentage rollout.
+  final bool split;
+
+  const Applied(
+    this.matched,
+    this.value,
+    this.strategyId, {
+    this.split = false,
+  });
 
   static const notMatched = Applied(false, null, null);
 }
@@ -100,10 +108,10 @@ class ApplyFeature {
         if (percentage <= useBasePercentage + rsiPercentage) {
           if (hasAttributes) {
             if (_matchAttribute(context, rsi)) {
-              return Applied(true, rsi.value, rsi.id);
+              return Applied(true, rsi.value, rsi.id, split: true);
             }
           } else {
-            return Applied(true, rsi.value, rsi.id);
+            return Applied(true, rsi.value, rsi.id, split: true);
           }
         }
 

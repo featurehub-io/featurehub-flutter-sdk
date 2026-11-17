@@ -13,6 +13,3 @@ analyzer:
   exclude:
     - build/**
     - example/**
-    - example-flutter/**
-    - example_old/**
-    - example_server/**

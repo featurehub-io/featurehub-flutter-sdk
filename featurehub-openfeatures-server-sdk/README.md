@@ -104,8 +104,9 @@ those; anything else resolves with `INVALID_CONTEXT`.
 | Situation | Value | Reason | Error code |
 |---|---|---|---|
 | A rollout strategy matched | the strategy's value | `TARGETING_MATCH` (variant: the strategy id) | |
+| A percentage rollout strategy matched locally (client-evaluated key) | the strategy's value | `SPLIT` (variant: the strategy id) | |
 | Otherwise | the feature's value | `STATIC` | |
-| The feature has no value | the default | `DEFAULT` | |
+| The feature has no value (or the matched strategy has none) | the default | `DISABLED` | |
 | Unknown flag | the default | `ERROR` | `FLAG_NOT_FOUND` |
 | Wrong type (e.g. a string flag as boolean, 1.5 as integer) | the default | `ERROR` | `TYPE_MISMATCH` |
 | Invalid JSON for an object flag | the default | `ERROR` | `PARSE_ERROR` |
