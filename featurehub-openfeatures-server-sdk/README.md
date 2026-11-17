@@ -38,7 +38,9 @@ features to its own clients from `GET /features`, evaluated for the context
 in the query parameters (for example `/features?targetingKey=fred&country=nz`)
 with `featureSnapshot`. The response's ETag is the features' SHA, so a client
 that sends it back in `If-None-Match` gets a `304 Not Modified` until the
-features change. A provider polls it with `featuresUrl`.
+features change. A provider polls it with `featuresUrl`. Serving features
+this way needs a client-evaluated key, so the example refuses to start with a
+server-evaluated one.
 
 ## Configuration from the environment
 
@@ -124,7 +126,7 @@ properties (`FeatureState.fp`) when it has any.
 | `mode` | `polling` if there is a poll interval, otherwise `streaming` | `streaming`, `polling` (every `pollInterval`) or `passive` (fetch on resolution once older than `pollInterval`) |
 | `pollInterval` | `FEATUREHUB_POLL_INTERVAL` (seconds), otherwise none | required for `polling` and `passive` |
 | `waitForReady` | 10s | how long initialization, and a server-evaluated context change, wait for features |
-| `reconnectPolicy` | 3s, 30s after a 5xx, stop on a 4xx | streaming reconnection, see `featurehub_sse_client` |
+| `reconnectPolicy` | `defaultReconnectPolicy`: 3s after a network error, 30s after a 5xx, doubling with each consecutive failure up to 5 minutes; stop on a 4xx | streaming reconnection; set any value with your own `ReconnectPolicy(delay:, serverErrorDelay:, backoffMultiplier:, maxDelay:, maxAttempts:)` (see `featurehub_sse_client`) |
 | `connectTimeout` | none | how long establishing an HTTP connection may take |
 | `stores` | none | stores that keep a copy of the features, attached before connecting (see `FeatureStore`): e.g. `featurehub_openfeatures_store_redis`, to share features between processes |
 | `interceptors` | none | value interceptors that supply feature values in place of FeatureHub's (see `ValueInterceptor`), overriding locked features too: e.g. `LocalYamlValueInterceptor` from `featurehub_openfeatures_yaml_interceptor`, for local overrides during development |
@@ -142,10 +144,16 @@ and [writing your own transport](../featurehub-openfeatures-common/README.md#wri
 
 ## Events
 
-`PROVIDER_READY` once features have arrived, `PROVIDER_CONFIGURATION_CHANGED`
-(with the changed flag keys) when features change, `PROVIDER_STALE` when the
-streaming connection is lost (and `PROVIDER_READY` once it recovers), and
-`PROVIDER_ERROR` (`PROVIDER_FATAL`) if FeatureHub rejects the API key.
+`PROVIDER_READY` once features have arrived, and
+`PROVIDER_CONFIGURATION_CHANGED` (with the changed flag keys) when features
+change. A lost connection that is being re-established is not reported: the
+provider stays ready, and the features arrive again on reconnection. If
+FeatureHub rejects the API key before any features, initialization fails
+with `PROVIDER_ERROR` (`PROVIDER_FATAL`).
+
+Any permanent stop after features have arrived (FeatureHub rejecting the key,
+or the environment going stale) is reported as `PROVIDER_STALE`, once and for
+good; flags keep resolving from the last features.
 
 When the environment goes stale (FeatureHub answers `236`, or sends
 `edge.stale`), the provider stops fetching and reports `PROVIDER_STALE` for

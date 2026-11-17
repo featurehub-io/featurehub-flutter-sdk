@@ -1,6 +1,6 @@
 // A minimal FeatureHub Edge, run as a hybrid (VM-side) server so the same
 // tests can run on the VM and in a browser. It sends the port, then serves
-// GET /features/?apiKey=... (polling, JSON) and `GET /features/<apiKey>`
+// GET /features?apiKey=... (polling, JSON) and `GET /features/<apiKey>`
 // (SSE). The `who` feature is the userkey from the x-featurehub header or
 // xfeaturehub query parameter. The first request for an API key ending in
 // "slow" is left unanswered.
@@ -90,7 +90,7 @@ Future<void> hybridMain(StreamChannel<Object?> channel) async {
         request.uri.queryParameters['xfeaturehub'];
     final features = jsonEncode(bundle(header).map((f) => f.toJson()).toList());
 
-    if (request.uri.path == '/features/') {
+    if (request.uri.path == '/features') {
       response.headers.contentType = ContentType.json;
       response.write('[{"id": "env", "features": $features}]');
       await response.close();

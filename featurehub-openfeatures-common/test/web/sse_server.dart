@@ -1,8 +1,10 @@
 // A hybrid (VM-side) SSE server for the browser tests. It reports its port,
 // then for each request: replies to /features/<key> with a features event and
 // then a failure event if the key is "fail", and reports each request's query.
-// The first request for the key "slow" is left unanswered. Polling requests
-// (GET /features/?apiKey=...) are answered gzip-compressed.
+// The first request for the key "slow" is left unanswered, and a key ending
+// "gone" or "broken" is answered 404 or 503 (the browser closes the stream
+// either way, without saying which). Polling requests
+// (GET /features?apiKey=...) are answered gzip-compressed.
 import 'dart:convert';
 import 'dart:io';
 
@@ -28,7 +30,7 @@ Future<void> hybridMain(StreamChannel<Object?> channel) async {
     final response = request.response;
     response.headers.set('Access-Control-Allow-Origin', '*');
 
-    if (request.uri.path == '/features/') {
+    if (request.uri.path == '/features') {
       channel.sink.add({
         'acceptEncoding': request.headers.value('accept-encoding'),
       });
@@ -58,6 +60,14 @@ Future<void> hybridMain(StreamChannel<Object?> channel) async {
       );
       await response.close();
       return;
+    }
+
+    for (final (suffix, status) in [('/gone', 404), ('/broken', 503)]) {
+      if (request.uri.path.endsWith(suffix)) {
+        response.statusCode = status;
+        await response.close();
+        return;
+      }
     }
 
     response.headers.contentType = ContentType('text', 'event-stream');

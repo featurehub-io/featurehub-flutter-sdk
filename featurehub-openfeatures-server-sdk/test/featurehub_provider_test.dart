@@ -438,7 +438,7 @@ void main() {
       await sub.cancel();
     });
 
-    test('goes stale and recovers', () async {
+    test('a lost connection is not stale', () async {
       final events = <ProviderLifecycleEventType>[];
       final sub = p.providerEvents.listen((e) => events.add(e.type));
 
@@ -446,10 +446,23 @@ void main() {
       p.repository!.notify(SSEResultState.features, _bundle());
       await Future<void>.delayed(Duration.zero);
 
-      expect(events, [
+      expect(events, isEmpty);
+      await sub.cancel();
+    });
+
+    test('a rejection after features is stale, and keeps resolving', () async {
+      final events = <ProviderLifecycleEvent>[];
+      final sub = p.providerEvents.listen(events.add);
+
+      p.repository!.notify(SSEResultState.failure, null);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(events.map((e) => e.type), [
         ProviderLifecycleEventType.PROVIDER_STALE,
-        ProviderLifecycleEventType.PROVIDER_READY,
       ]);
+      expect(events.single.message, contains('will not be updated again'));
+      final client = api.getClient('test');
+      expect(await client.getBooleanFlag('flag', defaultValue: false), true);
       await sub.cancel();
     });
 
@@ -661,7 +674,7 @@ void main() {
         }
         final features = jsonEncode(_bundle().map((f) => f.toJson()).toList());
         final response = request.response;
-        if (request.uri.path == '/features/') {
+        if (request.uri.path == '/features') {
           response.headers.contentType = ContentType.json;
           response.write('[{"id": "env", "features": $features}]');
           await response.close();

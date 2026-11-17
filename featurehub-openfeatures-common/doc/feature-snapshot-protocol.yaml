@@ -78,14 +78,15 @@ encoding:
       $schema: https://json-schema.org/draft/2020-12/schema
       $id: featurehub/rollout-strategy
       type: object
-      required: [id, attributes]
+      required: [id]
       properties:
         id: {type: string}
         value: {description: "The value given when this strategy matches (same typing rules as feature_state.value)."}
-        percentage: {type: integer, description: "Optional percentage rollout, as FeatureHub encodes it."}
-        percentageAttributes: {type: array, items: {type: string}, default: []}
+        percentage: {type: [integer, "null"], description: "Optional percentage rollout, out of 1,000,000; absent or null means none."}
+        percentageAttributes: {type: [array, "null"], items: {type: string}, description: "Nullable; absent or null has the same meaning as an empty list."}
         attributes:
-          type: array
+          type: [array, "null"]
+          description: "Nullable; absent or null has the same meaning as an empty list (e.g. a pure percentage strategy)."
           items:
             type: object
             required: [conditional, fieldName, type]
@@ -93,8 +94,22 @@ encoding:
               id: {type: string}
               conditional: {enum: [EQUALS, ENDS_WITH, STARTS_WITH, GREATER, GREATER_EQUALS, LESS, LESS_EQUALS, NOT_EQUALS, INCLUDES, EXCLUDES, REGEX]}
               fieldName: {type: string}
-              values: {type: array, default: []}
+              values: {type: [array, "null"], description: "Nullable; absent or null has the same meaning as an empty list."}
               type: {enum: [STRING, SEMANTIC_VERSION, NUMBER, DATE, DATETIME, BOOLEAN, IP_ADDRESS]}
+
+    decoding_rules:
+      - "attributes, percentageAttributes, an attribute's values and percentage are nullable, and may be absent: decoders MUST accept null and absence (other SDKs keep them as null; the Dart one decodes the lists as empty lists)"
+      - "the meaning is the same either way: evaluation (rollout-strategies.yaml) treats a null or absent list exactly like an empty one, and a null percentage as none"
+    dart_status: >-
+      Dart only: the Dart decoder (featurehub_client_api
+      FeatureRolloutStrategy) treats a null or absent values or
+      percentageAttributes as an empty list, but throws a DeserialisationError
+      for a null or absent attributes, which fails the whole feature. That is a
+      known gap against this rule, in the Dart SDK alone.
+    other_languages: >-
+      Every other language (Go, TypeScript, Java, ...) decodes a null or absent
+      attributes, percentageAttributes or values as null, and evaluates it as
+      an empty list; their encoders may write null for an empty list.
 
   feature_snapshot:
     description: >-
@@ -126,6 +141,10 @@ encoding:
         - "`features` missing or not an array"
         - "any element is not a decodable feature_state (missing id/key/version/type, or bad type)"
         - "anything else (number, null, HTML, ...)"
+      version_required: >-
+        `version` is required in every feature of a snapshot: a feature whose
+        version is absent or null is a format error. Decoders MUST NOT default
+        it to 0 (the SHA, the update rule and change events all depend on it).
 
   sha:
     description: >-
@@ -182,11 +201,11 @@ encoding:
     rules:
       - entries with a null value are skipped
       - "`targetingKey` or `userkey` (case-insensitive) becomes `userkey`; its value is stringified (see wire_value)"
-      - "the well-known keys email, device, platform, version, country, session are recognised case-insensitively and written lowercase"
+      - "the well-known keys device, platform, version, country, session are recognised case-insensitively and written lowercase"
       - any other key passes through unchanged (case preserved)
       - "allowed values: string, number, boolean, date-time, or a list of those"
       - "any other value (an object, or a list containing one) is an invalid context: server -> 400; client provider -> INVALID_CONTEXT error"
-      - "attribute order: userkey first, then the others in input order"
+      - "attribute order: userkey first, then the others"
     wire_value:
       description: How each attribute value becomes a string when sent (query parameter or x-featurehub header).
       rules:
@@ -210,9 +229,8 @@ encoding:
 # ---------------------------------------------------------------------------
 server:
   description: >-
-    Your own server, connected to FeatureHub (normally with a client-evaluated
-    API key, so it holds every strategy), re-serving features to its own
-    clients. Reference: GET /features in
+    Your own server, connected to FeatureHub with a client-evaluated API key
+    (see api_key_requirement), re-serving features to its own clients. Reference: GET /features in
     featurehub-openfeatures-server-sdk/example/main.dart, using
     ClientFeatureRepository.featureSnapshot.
   endpoint:
@@ -238,7 +256,6 @@ server:
         - strip a leading "W/" (weak comparison)
         - it matches if any tag is "*" or equals the current ETag exactly (quotes included)
       on_match: '304 Not Modified, empty body, headers ETag and Cache-Control: no-cache'
-      when_stale: "once the server's own environment is stale, it MUST NOT answer 304: every request gets the full 236 response, so each client learns of it"
       check_order: the If-None-Match check MAY happen before evaluating the context (the reference does it first)
     evaluation:
       with_context:
@@ -259,20 +276,18 @@ server:
           clients.
       value_interceptors: not applied (local overrides stay local)
       sha: the repository SHA when the snapshot is taken (covers all features, unaffected by the context)
+    stale_environment: >-
+      Not part of this protocol. 236 (a stale environment) is only sent by
+      FeatureHub Edge's polling API (featurehub_edge.polling); a snapshot
+      server is not required to send it. When its own FeatureHub environment
+      goes stale it keeps serving the last features as usual (200 / 304).
     responses:
       - status: 200
         when: features served
         headers: {Content-Type: application/json, ETag: '"<sha>"', Cache-Control: no-cache}
         body: encoding.feature_snapshot
-      - status: 236
-        when: >-
-          the server's own environment is stale (its FeatureHub connection got
-          a 236 or edge.stale: repository.environmentStale). The features are
-          the last there will be.
-        headers: {Content-Type: application/json, ETag: '"<sha>"', Cache-Control: no-cache}
-        body: encoding.feature_snapshot
       - status: 304
-        when: If-None-Match matches (never once stale)
+        when: If-None-Match matches
         headers: {ETag: '"<sha>"', Cache-Control: no-cache}
       - status: 400
         when: invalid context (encoding.evaluation_context rules)
@@ -288,10 +303,27 @@ server:
         - "Access-Control-Allow-Origin: * (or the origin)"
         - "Access-Control-Allow-Headers: *, or at least if-none-match plus any custom headers"
         - "Access-Control-Expose-Headers: ETag (so script can read it)"
-  server_api_key_warning: >-
-    With a server-evaluated FeatureHub key the server's repository holds one
-    context's evaluated features (no strategies), so every client would get
-    that one context's values. Use a client-evaluated key on the server.
+  api_key_requirement:
+    rule: >-
+      A snapshot server MUST connect to FeatureHub with a client-evaluated
+      API key (one containing `*`), so its repository holds every feature's
+      rollout strategies and can evaluate them for each request's context.
+    why: >-
+      With a server-evaluated key, FeatureHub evaluates the features for the
+      server's own single context and sends them without strategies.
+      Evaluating those "for a request's context" changes nothing, so every
+      client would silently get the server's one context's values, and the
+      ETag (the SHA of ids and versions) would not reveal it.
+    enforcement: >-
+      A snapshot server MUST refuse to run with a server-evaluated key:
+      either refuse to start, or answer every features request with an error
+      (e.g. 500 or 503) rather than serve another context's values. The
+      reference example refuses to start. (For the same reason the Redis
+      store refuses to attach to a server-evaluated key.)
+    feature_stores_and_no_key: >-
+      A server whose provider has no FeatureHub key (its features come from
+      stores, or from another server with sendContext false) is fine as long
+      as its features keep their strategies.
   open_question: >-
     The reference example always evaluates (no query = empty context = default
     values). Clients that evaluate locally (sendContext=false, the server
@@ -337,16 +369,17 @@ client:
         - "if the request URL (i.e. the context) changed while waiting, discard the response"
         - "store etag = response ETag header, or '\"' + snapshot.sha + '\"' if absent; remember the URL it belongs to"
         - "notify(features, snapshot.features) - a full set (transport.notifications)"
-    - status: 236
-      action:
-        - as 200 (decode, store the etag, notify the full set)
-        - "then mark dead (no further requests) and mark the environment stale (repository.environment_stale)"
     - status: 304
       action: no change; update next_allowed
-    - status: "4xx except 408 and 429"
+    - status: "4xx except 429"
       action: "permanent rejection: mark dead (no further requests), notify(failure)"
-    - status: "anything else (5xx, 408, 429), network error, timeout"
+    - status: "anything else (5xx, 429), network error, timeout"
       action: raise an error; the caller logs it and a later request retries
+  retryable_429: >-
+    429 is retryable for the snapshot client only: your own server (or a
+    gateway in front of it) may rate-limit. FeatureHub's own APIs are
+    different: there every 4xx, 429 included, is permanent (see
+    featurehub_edge.polling and featurehub_edge.streaming.connection_errors).
   browser_notes: >-
     Browsers pass author-set If-None-Match through and deliver a 304 to script
     (verified in Chrome). A client MUST also cope with a 200 served from the
@@ -400,14 +433,15 @@ repository:
       payload: one feature_state (only key/id needed)
       semantics: remove it (and, where catch-and-release is supported, any update for it held back); recompute the SHA
     bye:
-      semantics: readiness NotReady (providers report STALE until features arrive)
+      semantics: "readiness NotReady. Providers do NOT report stale: the connection is being re-established, and the features arrive again on reconnection"
     failure:
-      semantics: readiness Failed (providers report a fatal error)
+      semantics: "readiness Failed. Before any features: the provider's initialisation fails (PROVIDER_FATAL). After features: a permanent stop, so the provider reports STALE for good and keeps resolving from the last features"
   environment_stale:
     call: markEnvironmentStale() (not a notify state)
     semantics: >-
       The source says the environment is stale and will send no further
-      updates (FeatureHub's 236 or edge.stale, or a snapshot server's 236),
+      updates (FeatureHub Edge's 236 when polling, or edge.stale when
+      streaming),
       after the last features. Sets environmentStale = true, once; readiness
       is unchanged (it stays Ready), so initialisation is not delayed and
       resolutions continue from the last features. Providers report STALE,
@@ -462,9 +496,9 @@ transport:
     - {call: "notify(features, list)", when: "a full set; the first makes the provider ready"}
     - {call: "notify(feature, one)", when: one feature added or updated}
     - {call: "notify(deleteFeature, one)", when: one feature deleted}
-    - {call: "notify(bye, null)", when: "connection lost, being re-established (provider reports STALE until features arrive)"}
+    - {call: "notify(bye, null)", when: "connection lost, being re-established (the provider stays ready; it is not reported as stale)"}
     - {call: "notify(failure, null)", when: "permanently rejected, e.g. invalid key (provider reports fatal); stop trying"}
-    - {call: "markEnvironmentStale()", when: "after the last features, the source says the environment is stale (236, edge.stale): provider reports STALE for good and keeps resolving; stop"}
+    - {call: "markEnvironmentStale()", when: "after the last features, FeatureHub says the environment is stale (polling 236, streaming edge.stale): provider reports STALE for good and keeps resolving; stop"}
   relaying_featurehub_events:
     description: >-
       FeatureHub Edge's SSE stream uses these event names with JSON `data:`;
@@ -516,15 +550,22 @@ providers:
       nothing; otherwise report RECONCILING (app provider), replace the
       repository's context, call transport.contextChanged, wait (up to
       waitForReady) for the next readiness notification, then report
-      CONTEXT_CHANGED (or a fatal error if Failed). The server provider does
-      this per resolution, serialised, so it serves one context at a time.
+      CONTEXT_CHANGED. Once the provider is stale (its source stopped for
+      good), nothing can be fetched: a context change reports CONTEXT_CHANGED
+      at once (no RECONCILING, no fetch) and the last features are kept. The
+      server provider does this per resolution, serialised, so it serves one
+      context at a time.
     when_local: nothing to fetch; each resolution evaluates against its own context
   events:
     - {on: "first readiness within waitForReady", event: READY}
     - {on: "not ready within waitForReady", event: "ERROR (GENERAL): '<source> did not become ready within <waitForReady>'"}
-    - {on: "Failed", event: "ERROR (PROVIDER_FATAL)"}
-    - {on: "bye after ready", event: STALE, then READY when features arrive}
-    - {on: "environment stale (236, edge.stale)", event: "STALE, after READY (even if it was stale from the first response), once; never followed by READY. Resolutions continue from the last features, with their usual reasons"}
+    - {on: "Failed before any features (during initialisation)", event: "ERROR (PROVIDER_FATAL); initialisation fails"}
+    - {on: "bye (a lost connection being re-established)", event: "none: the provider stays ready"}
+    - on: "a permanent stop after features: Failed (a rejection, a browser connection error), or the FeatureHub environment going stale (polling 236, streaming edge.stale)"
+      event: >-
+        STALE, after READY (even if the stop came with the first response),
+        once; never followed by READY or ERROR. Resolutions continue from the
+        last features, with their usual reasons.
     - {on: "applied changes that alter a feature's version, or remove/add one", event: "CONFIGURATION_CHANGED with the changed keys"}
   resolution: >-
     How a resolved feature becomes an OpenFeature result (reasons, variants,
@@ -545,11 +586,31 @@ featurehub_edge:
     How the built-in transports talk to FeatureHub Edge itself (not your own
     server). Reference: featurehub_config.dart (polling),
     sse_client_dartio.dart and sse_client_web.dart (streaming).
+  extra_headers:
+    rule: >-
+      Both FeatureHub transports, polling and streaming, MUST let the
+      application configure extra headers (for example for an API gateway,
+      a proxy in front of Edge, extra authentication or tracing) and MUST
+      send them with every request: each poll, and each streaming connection
+      and reconnection.
+    precedence: >-
+      The SDK's own protocol headers win over an extra header of the same
+      name: x-featurehub (the context, for a server-evaluated key) on both,
+      and If-None-Match where it is used. Other extra headers are sent as
+      given.
+    browsers: >-
+      A browser's EventSource cannot send headers, so in a browser extra
+      headers are only sent when polling; a client SHOULD warn if they are
+      configured for streaming (the Dart client logs a warning).
+    dart: >-
+      The providers' and FeatureHubConnection's `headers` option, passed to
+      FeatureHubConfig (polling) and the SSE listener (streaming); custom
+      transports get them as FeatureHubTransportTarget.headers.
   polling:
     request: >-
-      GET <host>/features/?apiKey=<key>&contextSha=<sha256 of the
+      GET <host>/features?apiKey=<key>&contextSha=<sha256 of the
       x-featurehub header, or 0>; with the x-featurehub header for a
-      server-evaluated key, and the configured headers.
+      server-evaluated key, and the extra headers (extra_headers).
     responses:
       - {status: 200, action: "load the features (an array of environments, each with its features): a full set"}
       - status: 236
@@ -557,7 +618,7 @@ featurehub_edge:
           load the features as for 200, then stop polling for good and
           markEnvironmentStale(). Not a failure and not a lost connection:
           readiness stays Ready and the provider reports STALE, permanently.
-      - {status: "4xx", action: "the key is rejected: notify(failure), stop polling"}
+      - {status: "4xx", action: "the key is rejected: notify(failure), stop polling. Every 4xx, 429 included (unlike the snapshot client, which retries 429)"}
       - {status: "other, or a network error / timeout", action: "an error; the next poll retries"}
     cache_control:
       rule: >-
@@ -577,16 +638,71 @@ featurehub_edge:
     request: >-
       An SSE stream from <host>/features/<key>, sending the x-featurehub
       header (dart:io) or the xfeaturehub query parameter (browsers, whose
-      EventSource cannot send headers), for a server-evaluated key.
+      EventSource cannot send headers), for a server-evaluated key; and, on
+      dart:io, the extra headers (extra_headers) on every connection and
+      reconnection.
+    go_status: >-
+      The Go SDK does not support server-evaluated keys over streaming: it
+      does not send the x-featurehub header (or the xfeaturehub parameter) on
+      the SSE connection. Go applications with a server-evaluated key use
+      polling, which does send it.
     events:
       - "features / feature / delete_feature: as transport.relaying_featurehub_events"
       - "failure: notify(failure), close; no reconnect"
-      - "bye, or the stream dropping: notify(bye) (provider STALE), and reconnect under the reconnect policy"
+      - "bye, or the stream dropping: notify(bye) (the provider stays ready; it is not reported as stale), and reconnect under the reconnect policy"
       - >-
         config {"edge.stale": true}: arrives after the features have been
         delivered; markEnvironmentStale(), close the stream, and do not
         reconnect or send bye. Readiness stays Ready; the provider reports
         STALE, permanently.
+    connection_errors:
+      description: >-
+        When the stream cannot be opened, or a reconnection attempt fails, an
+        SSE client that is not a browser's EventSource (which hides the HTTP
+        status) MUST determine whether the failure was a 4xx or a 5xx
+        response, as they mean opposite things.
+      classification:
+        - status: 4xx
+          meaning: "permanent: the API key or environment is rejected. Every 4xx, 429 included (unlike the snapshot client, which retries 429)"
+          action: "notify(failure) and stop: no further attempts (before any features the provider fails to initialise; after them it goes STALE for good)"
+        - status: 5xx
+          meaning: "temporary: Edge, or something in front of it, is failing"
+          action: "notify(bye) (the provider stays ready) and keep trying, with a backoff"
+        - status: "no status: a network error, a timeout, or the stream ending"
+          meaning: temporary
+          action: "notify(bye) and keep trying, with a backoff"
+        - status: "any other non-200 (1xx, 3xx)"
+          meaning: unexpected
+          action: stop, as for a permanent failure (the reference treats only 5xx as retryable)
+      backoff: >-
+        Retries SHOULD wait longer after a 5xx than after a network error, and
+        SHOULD grow with each consecutive failure up to a cap, so a failing Edge
+        is not hammered. The count resets once a connection opens. A
+        configurable maximum number of attempts MAY stop retrying; running out
+        of attempts is still a temporary failure (bye), not a rejection.
+      reference_defaults: >-
+        Dart (defaultReconnectPolicy, a featurehub_sse_client ReconnectPolicy):
+        3s after a network error or a dropped stream (a server retry: field
+        may replace it), 30s after a 5xx; delay = base *
+        backoffMultiplier^(attempt - 1), capped at maxDelay, with
+        backoffMultiplier 2 and maxDelay 5 minutes; unlimited attempts;
+        shouldRetryStatus 5xx only.
+      configuration: >-
+        Every value MUST be configurable by the application: the network-error
+        delay, the 5xx delay, the multiplier, the cap, the maximum number of
+        attempts, and which statuses are retried (Dart: the providers'
+        reconnectPolicy option).
+      browsers: >-
+        A browser's EventSource does not expose the status of a failed
+        connection, so a browser client cannot tell a 4xx from a 5xx. A
+        connection error (the EventSource closing: readyState CLOSED) is
+        therefore final: the client notifies failure and stops, with no
+        further attempts. Before any features the provider's initialisation
+        fails (PROVIDER_FATAL); after them the provider goes STALE for good,
+        keeping the last features. A dropped connection the browser reconnects by
+        itself (readyState CONNECTING) is only a bye. A connection that the
+        client's own request timeout abandons MAY be retried under the
+        reconnect policy; running out of attempts is then also final.
 
 # ---------------------------------------------------------------------------
 # 8. Conformance checks (each is a test in the reference implementation)

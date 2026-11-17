@@ -33,6 +33,7 @@ spec:
 # ---------------------------------------------------------------------------
 inputs:
   strategies: the feature's `strategies`, in order (feature-snapshot-protocol.yaml rollout_strategy)
+  nullable_fields: "a strategy's attributes and percentageAttributes, and an attribute's values, may be null or absent: treat as empty lists"
   feature_value_id: the feature's `id` (FeatureState.id), part of the hash
   context:
     get_attr: "attribute name -> a string, number, boolean or date-time, a list of those, or absent"
@@ -54,7 +55,7 @@ algorithm:
 
     for rsi in strategies, in order:
       p := rsi.percentage              # absent counts as 0 (see known_typescript_bugs)
-      has_attrs := rsi.attributes is not empty
+      has_attrs := rsi.attributes is not empty   # null / absent = empty
 
       if p != 0 and (js_truthy(default_key) or rsi.percentageAttributes is not empty):
         key := percentage_key_for(context, rsi.percentageAttributes)

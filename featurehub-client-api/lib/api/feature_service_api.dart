@@ -86,7 +86,10 @@ class FeatureServiceApiDelegate {
   Future<ApiResponse> getFeatureStates(List<String> apiKey,
       {Options? options, String? contextSha}) async {
     // create path and map variables
-    final __path = '/features/';
+    // FeatureHub Edge polls at /features (as the other SDKs request), not
+    // /features/ as the generator emits from the API definition: keep this if
+    // the client is regenerated
+    final __path = '/features';
 
     // query params
     final queryParams = <QueryParam>[];

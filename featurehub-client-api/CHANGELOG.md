@@ -1,3 +1,8 @@
+1.5.0
+=====
+* Requires Dart 3.12.2 or later, and uses `lints` instead of `flutter_lints`
+* Polls FeatureHub Edge at `/features` (as the other SDKs do), not `/features/` as generated from the API definition
+
 1.4.0
 =====
 * Updated SDK based on current Edge API

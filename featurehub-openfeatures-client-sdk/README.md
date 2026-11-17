@@ -79,8 +79,9 @@ await api.setProviderAndWait(
   features for the new context, then reports `contextChanged`, as for a
   server-evaluated key.
 - `headers` are sent with each request, for example for authentication.
-  A 4xx response other than 408 or 429 is treated as a rejection: the
-  provider reports `providerFatal` and stops polling.
+  A 4xx response other than 408 or 429 is treated as a rejection, and
+  polling stops: before any features the provider fails to initialize
+  (`providerFatal`), after them it reports `stale` for good.
 - With `sendContext: false` no context is sent. The server must then serve
   the features with their strategies, which are evaluated locally.
 - A server on another origin must allow the `If-None-Match` header in its
@@ -94,11 +95,13 @@ from its `stores` alone (it needs at least one).
 These are the same as for the server provider: see its
 [README](../featurehub-openfeatures-server-sdk/README.md#evaluation-context).
 Events are `ready`, `configurationChanged` (with the changed flag keys),
-`stale` (and `ready` once the connection recovers), `reconciling` and
-`contextChanged`, and `error` (`providerFatal`) if FeatureHub rejects the key.
-A stale environment (`236` from FeatureHub or your own server, or
-`edge.stale`) is reported as `stale` for good; flags keep resolving from the
-last features.
+`reconciling` and `contextChanged`, and `error` (`providerFatal`) if
+FeatureHub rejects the key before any features. A lost connection that is
+being re-established is not reported: the provider stays ready. Any permanent
+stop after features have arrived (a rejection, a browser connection error, or
+a stale FeatureHub environment: `236` when polling, `edge.stale` when
+streaming) is reported as `stale`, once and for good; flags keep resolving
+from the last features, and a context change keeps them.
 
 ## Options
 
@@ -107,7 +110,7 @@ last features.
 | `mode` | `streaming` | `streaming`, `polling` (every `pollInterval`) or `passive` (a resolution refreshes in the background once the features are older than `pollInterval`) |
 | `pollInterval` | 30s | |
 | `waitForReady` | 10s | how long initialization and a context change wait for features |
-| `reconnectPolicy` | 3s, 30s after a 5xx, stop on a 4xx | streaming reconnection (in browsers the native `EventSource` reconnects; if it gives up, the provider retries after `serverErrorDelay`) |
+| `reconnectPolicy` | `defaultReconnectPolicy`: 3s after a network error, 30s after a 5xx, doubling with each consecutive failure up to 5 minutes; stop on a 4xx | streaming reconnection on Android and iOS; set any value with your own `ReconnectPolicy(delay:, serverErrorDelay:, backoffMultiplier:, maxDelay:, maxAttempts:)`. In browsers the native `EventSource` reconnects after a dropped connection, but a connection error (the browser giving up, which hides whether it was a 4xx or 5xx) stops streaming for good: before any features the provider fails to initialize, after them it goes `stale` |
 | `connectTimeout` | none | how long establishing an HTTP connection may take (in browsers, polling only: the browser controls `EventSource` connections) |
 | `stores` | none | stores that keep a copy of the features, attached before connecting (see `FeatureStore`): e.g. `featurehub_openfeatures_store_localstorage`, to start web applications with the features they last had |
 | `interceptors` | none | value interceptors that supply feature values in place of FeatureHub's (see `ValueInterceptor`), overriding locked features too: e.g. `LocalYamlValueInterceptor` from `featurehub_openfeatures_yaml_interceptor`, for local overrides during development |

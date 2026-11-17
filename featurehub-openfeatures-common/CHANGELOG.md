@@ -39,6 +39,14 @@ OpenFeature providers for Dart.
 * Your own transports: `FeatureHubTransport` is documented as a public contract, `transportFactory` creates one with a
   `FeatureHubTransportTarget` (the repository, the connection's settings, and the context to fetch for), and
   `FeatureHubUpdateMode` moves with it to `featurehub_transport.dart` (still exported)
+* Streaming reconnects with `defaultReconnectPolicy` unless given one: 3s after a network error, 30s after a 5xx,
+  doubling with each consecutive failure up to 5 minutes (previously a constant delay); every value is configurable
+* In browsers, a connection error (the `EventSource` giving up, which hides whether it was a 4xx or 5xx) is final:
+  the listener reports a failure and stops. Previously it retried
+* `ProviderStateTracker` reports stale only for a permanent stop after features (`onStale(StaleCause)`: the
+  environment going stale, or the source failing for good), once, and the providers keep resolving from the last
+  features; a lost connection (`bye`) is no longer reported, and nothing is reported as recovered. A failure before
+  any features is still an initialization error
 * A `Cache-Control: max-age` on a FeatureHub polling response replaces the poll interval, shorter or longer (as the
   TypeScript SDK does); previously it could only lengthen it
 * Polling now polls at every interval: each poll was timed from the previous response rather than its request, so
@@ -52,10 +60,10 @@ OpenFeature providers for Dart.
   matches stay `TARGETING_MATCH`, including strategies the server applied
 * A feature with no value set resolves to the code default with the reason `DISABLED` (as the Go SDK does), rather
   than `DEFAULT`; a matched strategy with no value keeps its id as the variant
-* A stale environment (FeatureHub's `236`, or `edge.stale`, or a `236` from your own server) is reported with
+* A stale FeatureHub environment (`236` when polling, `edge.stale` when streaming) is reported with
   `ClientFeatureRepository.markEnvironmentStale` (`environmentStale`, `environmentStaleStream`): readiness is
-  unchanged, and the providers report STALE for good (`ProviderStateTracker.onEnvironmentStale`). The server
-  example answers `236` once its own environment is stale
+  unchanged, and the providers report STALE for good. Your own
+  server's features API is not required to send `236`
 * `ClientFeatureRepository.featuresSha`: a SHA-256 of the repository's features' sorted `id:version`s, computed
   whenever features arrive, are updated or deleted, or are released. `FeatureHubConfig.featuresSha` gives it for
   client-evaluated API keys (null for server-evaluated keys). `ClientFeatureRepository.computeSha`

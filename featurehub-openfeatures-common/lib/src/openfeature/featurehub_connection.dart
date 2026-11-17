@@ -96,7 +96,7 @@ class FeatureHubConnection {
     ClientFeatureRepository? repository,
     this.mode = FeatureHubUpdateMode.streaming,
     this.pollInterval = const Duration(seconds: 30),
-    ReconnectPolicy reconnectPolicy = const ReconnectPolicy(),
+    ReconnectPolicy reconnectPolicy = defaultReconnectPolicy,
     Duration? connectTimeout,
     Duration? requestTimeout,
     Dio? dio,

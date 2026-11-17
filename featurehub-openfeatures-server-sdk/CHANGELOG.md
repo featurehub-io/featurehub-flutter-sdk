@@ -29,3 +29,9 @@
   own transport (WebSockets, another SSE client, ...).
 - A stale environment (`236` or `edge.stale`) is reported as stale, for good;
   flags keep resolving from the last features.
+- Streaming reconnects back off by default (doubling up to 5 minutes;
+  `defaultReconnectPolicy`), and every value is configurable.
+- A lost connection is no longer reported as stale. Any permanent stop after
+  features have arrived (a rejection, a stale environment) is reported as
+  stale, for good, and flags keep resolving from the last features; a
+  rejection before any features still fails initialization.

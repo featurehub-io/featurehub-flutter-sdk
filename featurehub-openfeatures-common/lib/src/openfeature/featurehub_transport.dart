@@ -36,11 +36,13 @@ enum FeatureHubUpdateMode {
 ///   updated (a newer version, or a new value for the context).
 /// - `notify(SSEResultState.deleteFeature, feature)`: one feature deleted.
 /// - `notify(SSEResultState.bye, null)`: the connection was lost and is
-///   being re-established. Providers report the features as stale until the
-///   next set of features arrives.
+///   being re-established. Providers stay ready (they do not report stale):
+///   the features arrive again on reconnection.
 /// - `notify(SSEResultState.failure, null)`: the source rejected the
-///   connection for good (for example, an invalid API key). Providers report
-///   a fatal error; stop trying.
+///   connection for good (for example, an invalid API key); stop trying.
+///   Before any features, the provider's initialization fails; after them,
+///   the provider reports stale for good and keeps resolving from the last
+///   features.
 /// - [ClientFeatureRepository.markEnvironmentStale]: the source says the
 ///   environment is stale (FeatureHub's `236`, or `edge.stale`), after giving
 ///   the last features. Providers report stale for good, and keep resolving
@@ -78,6 +80,17 @@ abstract interface class FeatureHubTransport {
   /// Stops, releasing any connections.
   Future<void> close();
 }
+
+/// The reconnect policy FeatureHub's streaming connections use unless one is
+/// given: 3 seconds after a network error or a dropped stream, 30 seconds
+/// after a 5xx response, each doubling with every consecutive failure up to a
+/// 5 minute cap, retrying indefinitely; a 4xx response stops. Give your own
+/// [ReconnectPolicy] (its `delay`, `serverErrorDelay`, `backoffMultiplier`,
+/// `maxDelay`, `maxAttempts`, ...) to change any of these.
+const defaultReconnectPolicy = ReconnectPolicy(
+  backoffMultiplier: 2,
+  maxDelay: Duration(minutes: 5),
+);
 
 /// Creates a transport for a connection (see [FeatureHubTransport]).
 typedef FeatureHubTransportFactory =
@@ -133,7 +146,7 @@ class FeatureHubTransportTarget {
     this.mode = FeatureHubUpdateMode.streaming,
     this.pollInterval = const Duration(seconds: 30),
     this.headers = const {},
-    this.reconnectPolicy = const ReconnectPolicy(),
+    this.reconnectPolicy = defaultReconnectPolicy,
     this.connectTimeout,
     this.requestTimeout,
     this.dio,

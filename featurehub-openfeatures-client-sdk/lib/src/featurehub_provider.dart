@@ -93,6 +93,12 @@ final class FeatureHubProvider
   /// How long initialization and a context change wait for features.
   final Duration waitForReady;
 
+  /// How streaming reconnects: by default [fh.defaultReconnectPolicy] (3s
+  /// after a network error, 30s after a 5xx, doubling each consecutive
+  /// failure up to 5 minutes; a 4xx stops). Every value is configurable. In
+  /// browsers the native `EventSource` reconnects after a dropped
+  /// connection, but a connection error is final: before any features the
+  /// provider fails to initialize, after them it goes stale for good.
   final ReconnectPolicy reconnectPolicy;
 
   /// How long establishing an HTTP connection may take (null: indefinitely).
@@ -151,7 +157,7 @@ final class FeatureHubProvider
     fh.FeatureHubUpdateMode? mode,
     this.pollInterval = const Duration(seconds: 30),
     this.waitForReady = const Duration(seconds: 10),
-    this.reconnectPolicy = const ReconnectPolicy(),
+    this.reconnectPolicy = fh.defaultReconnectPolicy,
     this.connectTimeout,
     this.requestTimeout,
     this._catchAndReleaseMode = false,
@@ -338,28 +344,13 @@ final class FeatureHubProvider
     _ready = true;
     _tracker = fh.ProviderStateTracker(
       connection.repository,
-      onStale: () => _emit(
+      // a permanent stop after features: keep resolving from the last ones
+      onStale: (cause) => _emit(
         ProviderEventType.stale,
-        message:
-            'Lost the connection to FeatureHub; features may be out of date',
+        message: _staleMessage(connection, cause),
       ),
-      onRecovered: () => _emit(ProviderEventType.ready),
-      onFatal: () {
-        _ready = false;
-        _emit(
-          ProviderEventType.error,
-          message: _rejected(connection),
-          errorCode: ErrorCode.providerFatal,
-        );
-      },
       onFlagsChanged: (keys) =>
           _emit(ProviderEventType.configurationChanged, flagsChanged: keys),
-      onEnvironmentStale: () => _emit(
-        ProviderEventType.stale,
-        message:
-            'The FeatureHub environment is stale: features will not be '
-            'updated again',
-      ),
     );
     _emit(ProviderEventType.ready);
   }
@@ -370,8 +361,9 @@ final class FeatureHubProvider
     EvaluationContext newContext,
   ) async {
     final connection = _connection;
-    if (clientEvaluated || connection == null) {
-      // client-evaluated features are evaluated against each new context
+    if (clientEvaluated || connection == null || _tracker?.stale == true) {
+      // client-evaluated features are evaluated against each new context;
+      // once the source has stopped for good, the last features are kept
       _emit(ProviderEventType.contextChanged);
       return;
     }
@@ -389,19 +381,22 @@ final class FeatureHubProvider
     }
 
     _emit(ProviderEventType.reconciling);
-    final readiness = await connection.setContext(mapped, waitForReady);
-    if (readiness == fh.Readyness.Failed) {
-      _emit(
-        ProviderEventType.error,
-        message:
-            '${connection.sourceDescription} failed to fetch the features for '
-            'the new context',
-        errorCode: ErrorCode.providerFatal,
-      );
-    } else {
-      _emit(ProviderEventType.contextChanged);
-    }
+    // if the source fails for good meanwhile, the provider goes stale and
+    // keeps the last features
+    await connection.setContext(mapped, waitForReady);
+    _emit(ProviderEventType.contextChanged);
   }
+
+  static String _staleMessage(
+    fh.FeatureHubConnection connection,
+    fh.StaleCause cause,
+  ) => switch (cause) {
+    fh.StaleCause.environmentStale =>
+      'The FeatureHub environment is stale: features will not be updated '
+          'again',
+    fh.StaleCause.connectionFailed =>
+      '${_rejected(connection)} Features will not be updated again.',
+  };
 
   static String _rejected(fh.FeatureHubConnection connection) =>
       connection.connectsToFeatureHub

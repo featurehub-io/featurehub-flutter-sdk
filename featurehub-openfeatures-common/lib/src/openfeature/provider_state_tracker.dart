@@ -2,49 +2,60 @@ import 'dart:async';
 
 import '../repository.dart';
 
-/// Turns a repository's readiness and feature changes into the OpenFeature
-/// provider events the FeatureHub providers emit: stale when the connection
-/// is lost, ready again when it recovers, fatal when FeatureHub rejects the
-/// API key, stale for good when the environment goes stale (`236` or
-/// `edge.stale`), and configuration changed (with the changed flag keys)
-/// when features change.
+/// Why a provider went stale (see [ProviderStateTracker]).
+enum StaleCause {
+  /// The environment is stale: FeatureHub answered `236` (polling) or sent
+  /// `edge.stale` (streaming), and will send no further updates.
+  environmentStale,
+
+  /// The source failed for good after features had arrived: a 4xx rejection,
+  /// or a browser connection error.
+  connectionFailed,
+}
+
+/// Turns a repository's changes into the OpenFeature provider events the
+/// FeatureHub providers emit once they are ready: configuration changed
+/// (with the changed flag keys) when features change, and stale when the
+/// features will never be updated again.
+///
+/// A provider goes stale only on a permanent stop after features have
+/// arrived: the environment going stale ([StaleCause.environmentStale]), or
+/// the source failing for good ([StaleCause.connectionFailed]). It is
+/// reported once, never recovers, and the provider keeps resolving from the
+/// last features. A lost connection that is being re-established (a `bye`)
+/// is not reported: the provider stays ready, and the features arrive again
+/// when it reconnects. (A failure before any features is an initialization
+/// error, handled by the provider, not here.)
 class ProviderStateTracker {
   final ClientFeatureRepository repository;
-  final void Function() onStale;
-  final void Function() onRecovered;
-  final void Function() onFatal;
-  final void Function(List<String> flagsChanged) onFlagsChanged;
 
-  /// The environment went stale (see
-  /// [ClientFeatureRepository.environmentStale]): reported once, and never
-  /// followed by a recovery. Reported after the tracker is created if it
-  /// already was.
-  final void Function() onEnvironmentStale;
-  bool _environmentStale = false;
+  /// The provider went stale, for good: called at most once.
+  final void Function(StaleCause cause) onStale;
+  final void Function(List<String> flagsChanged) onFlagsChanged;
 
   final _subscriptions = <StreamSubscription<Object?>>[];
   Map<String, int> _versions;
   bool _stale = false;
 
-  /// Starts tracking; call once the repository is ready.
+  /// Starts tracking; call once the repository is ready. Events are
+  /// delivered asynchronously, so a provider's READY comes first even if the
+  /// source had already stopped.
   ProviderStateTracker(
     this.repository, {
     required this.onStale,
-    required this.onRecovered,
-    required this.onFatal,
     required this.onFlagsChanged,
-    required this.onEnvironmentStale,
   }) : _versions = _currentVersions(repository) {
     _subscriptions
-      ..add(repository.readynessStream.listen(_readinessChanged))
-      // delivered asynchronously, so a provider's READY comes first even if
-      // the environment was already stale when it initialised
+      ..add(
+        repository.readynessStream.listen((readiness) {
+          if (readiness == Readyness.Failed) {
+            _goStale(StaleCause.connectionFailed);
+          }
+        }),
+      )
       ..add(
         repository.environmentStaleStream.listen((stale) {
-          if (stale && !_environmentStale) {
-            _environmentStale = true;
-            onEnvironmentStale();
-          }
+          if (stale) _goStale(StaleCause.environmentStale);
         }),
       )
       ..add(
@@ -54,29 +65,18 @@ class ProviderStateTracker {
       );
   }
 
+  /// True once the provider has gone stale: its source has stopped for good.
+  bool get stale => _stale;
+
+  void _goStale(StaleCause cause) {
+    if (_stale) return;
+    _stale = true;
+    onStale(cause);
+  }
+
   static Map<String, int> _currentVersions(ClientFeatureRepository repo) => {
     for (final fs in repo.featureStates) fs.key: fs.version,
   };
-
-  void _readinessChanged(Readyness readiness) {
-    // a stale environment stays stale: it is never reported as recovered,
-    // nor as stale again
-    if (_environmentStale && readiness != Readyness.Failed) return;
-    switch (readiness) {
-      case Readyness.Ready:
-        if (_stale) {
-          _stale = false;
-          onRecovered();
-        }
-      case Readyness.NotReady:
-        if (!_stale) {
-          _stale = true;
-          onStale();
-        }
-      case Readyness.Failed:
-        onFatal();
-    }
-  }
 
   void _changed() {
     final versions = _currentVersions(repository);

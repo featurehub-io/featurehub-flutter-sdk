@@ -90,7 +90,8 @@ evaluation:
 resolution:
   before_evaluation:
     - {when: "the provider has not finished initialising", value: code default, reason: ERROR, error_code: PROVIDER_NOT_READY}
-    - {when: "the repository has failed (the source rejected us)", value: code default, reason: ERROR, error_code: PROVIDER_FATAL}
+    - {when: "initialisation failed (the source rejected us before any features)", value: code default, reason: ERROR, error_code: PROVIDER_FATAL}
+    - {when: "the provider is stale (its source stopped for good after features)", value: "resolved normally from the last features", reason: "the usual reasons (not ERROR, not STALE)"}
     - {when: "the evaluation context is invalid", value: code default, reason: ERROR, error_code: INVALID_CONTEXT}
     - {when: "an unexpected error while evaluating", value: code default, reason: ERROR, error_code: GENERAL}
   steps:   # applied in order; the first that applies decides

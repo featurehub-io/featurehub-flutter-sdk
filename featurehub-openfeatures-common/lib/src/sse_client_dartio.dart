@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:logging/logging.dart';
 
 import '../featurehub_config.dart';
+import 'openfeature/featurehub_transport.dart' show defaultReconnectPolicy;
 import 'repository.dart';
 
 final _log = Logger('featurehub_io_eventsource');
@@ -52,7 +53,7 @@ class EventSourceRepositoryListener {
     String apiKey,
     ClientFeatureRepository repository, {
     bool? doInit = true,
-    this._reconnectPolicy = const ReconnectPolicy(),
+    this._reconnectPolicy = defaultReconnectPolicy,
     this._connectTimeout,
     this._requestTimeout,
     this._headers = const {},

@@ -156,6 +156,34 @@ void main() {
       listener.close();
     });
 
+    for (final key in ['a/b/gone', 'a/b/broken']) {
+      test(
+        'a connection error ($key) is final: the stream stops, failed',
+        () async {
+          final repo = ClientFeatureRepository();
+          final listener = EventSourceRepositoryListener(
+            host,
+            key,
+            repo,
+            reconnectPolicy: const ReconnectPolicy(
+              delay: Duration(milliseconds: 10),
+              serverErrorDelay: Duration(milliseconds: 10),
+            ),
+          );
+
+          await until(() => listener.closed);
+          expect(repo.readyness, Readyness.Failed);
+          // no reconnection: one request only
+          expect((await messages.next as Map)['path'], '/features/$key');
+          final another = await messages.hasNext.timeout(
+            const Duration(milliseconds: 500),
+            onTimeout: () => false,
+          );
+          expect(another, false, reason: 'no reconnection');
+        },
+      );
+    }
+
     test('a failure event closes the connection', () async {
       final repo = ClientFeatureRepository();
       final listener = EventSourceRepositoryListener(host, 'a/b/fail', repo);

@@ -220,7 +220,7 @@ void main() {
       await sub.cancel();
     });
 
-    test('goes stale and recovers', () async {
+    test('a lost connection is not stale', () async {
       final events = <ProviderEventType>[];
       final sub = p.events.listen((e) => events.add(e.type));
 
@@ -228,8 +228,32 @@ void main() {
       p.repository!.notify(SSEResultState.features, bundle());
       await Future<void>.delayed(Duration.zero);
 
-      expect(events, [ProviderEventType.stale, ProviderEventType.ready]);
+      expect(events, isEmpty);
       await sub.cancel();
+    });
+
+    test('a rejection after features is stale, and keeps resolving', () async {
+      final events = <ProviderEvent>[];
+      final sub = p.events.listen(events.add);
+
+      p.repository!.notify(SSEResultState.failure, null);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(events.map((e) => e.type), [ProviderEventType.stale]);
+      expect(events.single.message, contains('will not be updated again'));
+      final details = api.getClient().getStringDetails('colour', '');
+      expect(details.value, isNotEmpty);
+      expect(details.errorCode, isNull);
+
+      // a context change keeps the last features
+      final changes = <ProviderEventType>[];
+      final changeSub = p.events.listen((e) => changes.add(e.type));
+      await api.setEvaluationContextAndWait(
+        EvaluationContext(targetingKey: 'kornaphat'),
+      );
+      expect(changes, [ProviderEventType.contextChanged]);
+      await sub.cancel();
+      await changeSub.cancel();
     });
 
     test('shutdown closes the connection', () async {
@@ -331,6 +355,31 @@ void main() {
       expect(transport!.headers, ['userkey=fred', 'userkey=mary']);
       await sub.cancel();
     });
+
+    test(
+      'after a rejection, a context change keeps the last features',
+      () async {
+        await api.setEvaluationContextAndWait(
+          EvaluationContext(targetingKey: 'ling'),
+        );
+        final p = provider('env/key');
+        await api.setProviderAndWait(p);
+        p.repository!.notify(SSEResultState.failure, null);
+        await Future<void>.delayed(Duration.zero);
+
+        final events = <ProviderEventType>[];
+        final sub = p.events.listen((e) => events.add(e.type));
+        final watch = Stopwatch()..start();
+        await api.setEvaluationContextAndWait(
+          EvaluationContext(targetingKey: 'orm'),
+        );
+        expect(watch.elapsed, lessThan(const Duration(seconds: 1)));
+        expect(events, [ProviderEventType.contextChanged]);
+        expect(transport!.headers, ['userkey=ling'], reason: 'nothing fetched');
+        expect(api.getClient().getStringValue('who', ''), 'ling');
+        await sub.cancel();
+      },
+    );
 
     test('an invalid context is an error', () async {
       final p = provider('env/key');

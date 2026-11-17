@@ -18,13 +18,15 @@ library;
 
 export 'package:featurehub_openfeatures_common/featurehub_openfeatures_common.dart'
     show
+        defaultReconnectPolicy,
         FeatureHubUpdateMode,
         FeatureSnapshot,
         FeatureStore,
         FeatureStoreTarget,
         ValueInterceptor,
         ValueMatch,
-        InvalidContextException;
+        InvalidContextException,
+        StaleCause;
 export 'package:featurehub_sse_client/featurehub_sse_client.dart'
     show ReconnectPolicy;
 

@@ -270,11 +270,8 @@ void main() {
       changes = [];
       tracker = ProviderStateTracker(
         repo,
-        onStale: () {},
-        onRecovered: () {},
-        onFatal: () {},
+        onStale: (_) {},
         onFlagsChanged: changes.add,
-        onEnvironmentStale: () {},
       );
     });
 

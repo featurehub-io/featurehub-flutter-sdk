@@ -1,6 +1,7 @@
 import 'package:featurehub_sse_client/featurehub_sse_client.dart';
 import 'package:http/http.dart' as http;
 
+import 'openfeature/featurehub_transport.dart' show defaultReconnectPolicy;
 import 'repository.dart';
 
 /// The platform-independent API of the SSE listener. The implementation is
@@ -22,7 +23,7 @@ class EventSourceRepositoryListener {
     String apiKey,
     ClientFeatureRepository repository, {
     bool? doInit = true,
-    ReconnectPolicy reconnectPolicy = const ReconnectPolicy(),
+    ReconnectPolicy reconnectPolicy = defaultReconnectPolicy,
     Duration? connectTimeout,
     Duration? requestTimeout,
     Map<String, String> headers = const {},

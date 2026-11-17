@@ -25,10 +25,6 @@ final _log = Logger('featurehub_snapshot_client');
 ///   the list of features), loaded as a full set of features.
 /// - Its `ETag` is sent back as `If-None-Match` (for the same URL), so the
 ///   server can answer `304 Not Modified` while the features are unchanged.
-/// - A `236` response is the last snapshot: the server's own environment is
-///   stale. Its features are loaded, the repository is marked stale
-///   ([ClientFeatureRepository.markEnvironmentStale]) and no further
-///   requests are made.
 /// - A 4xx response (other than 408 and 429) means the server has rejected
 ///   the request: the repository is marked failed and no further requests
 ///   are made. Other errors are thrown, and a later request may succeed.
@@ -129,17 +125,12 @@ class FeatureSnapshotClient {
       _nextRequest = started.add(interval);
       return;
     }
-    if (status == 200 || status == 236) {
+    if (status == 200) {
       final snapshot = FeatureSnapshot.from(response.data);
       _etag = response.headers.value('etag') ?? '"${snapshot.sha}"';
       _etagUrl = uri;
       _nextRequest = started.add(interval);
       repository.notify(SSEResultState.features, snapshot.features);
-      if (status == 236) {
-        // the last features: stop, and report the environment stale
-        _dead = true;
-        repository.markEnvironmentStale();
-      }
       return;
     }
     if (status >= 400 && status < 500 && status != 408 && status != 429) {

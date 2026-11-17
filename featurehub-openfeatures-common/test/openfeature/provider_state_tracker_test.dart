@@ -19,11 +19,8 @@ void main() {
 
   ProviderStateTracker track() => tracker = ProviderStateTracker(
     repo,
-    onStale: () => events.add('stale'),
-    onRecovered: () => events.add('ready'),
-    onFatal: () => events.add('fatal'),
+    onStale: (cause) => events.add('stale ${cause.name}'),
     onFlagsChanged: (keys) => events.add('changed $keys'),
-    onEnvironmentStale: () => events.add('environment stale'),
   );
 
   setUp(() {
@@ -37,49 +34,53 @@ void main() {
     repo.shutdown();
   });
 
-  test('a stale environment is reported once, and the features stay', () async {
+  test('a lost connection (bye) is not stale', () async {
+    track();
+    repo.notify(SSEResultState.bye, null);
+    await _pump();
+    repo.notify(SSEResultState.features, [_pastry]);
+    await _pump();
+    expect(events, isEmpty);
+    expect(tracker!.stale, false);
+  });
+
+  test('a stale environment is stale once, and the features stay', () async {
     track();
     repo.markEnvironmentStale();
     repo.markEnvironmentStale();
     await _pump();
 
-    expect(events, ['environment stale']);
-    expect(repo.environmentStale, true);
+    expect(events, ['stale environmentStale']);
+    expect(tracker!.stale, true);
     expect(repo.readyness, Readyness.Ready);
     expect(repo.evaluate('kwong-pastry').value, 'mango');
   });
 
-  test('an environment already stale is reported after creation', () async {
+  test('a failure after features is stale, and the features stay', () async {
+    track();
+    repo.notify(SSEResultState.failure, null);
+    await _pump();
+
+    expect(events, ['stale connectionFailed']);
+    expect(tracker!.stale, true);
+    expect(repo.evaluate('kwong-pastry').value, 'mango');
+  });
+
+  test('stale is reported once, whatever comes after', () async {
+    track();
+    repo.markEnvironmentStale();
+    await _pump();
+    repo.notify(SSEResultState.failure, null);
+    repo.notify(SSEResultState.features, [_pastry]);
+    await _pump();
+    expect(events, ['stale environmentStale']);
+  });
+
+  test('a source already stopped is reported after creation', () async {
     repo.markEnvironmentStale();
     track();
     expect(events, isEmpty, reason: 'after the provider reports ready');
     await _pump();
-    expect(events, ['environment stale']);
-  });
-
-  test('a stale environment never recovers, nor goes stale again', () async {
-    track();
-    repo.markEnvironmentStale();
-    await _pump();
-
-    repo.notify(SSEResultState.bye, null);
-    await _pump();
-    repo.notify(SSEResultState.features, [_pastry]);
-    await _pump();
-    expect(events, ['environment stale']);
-
-    // a rejection is still reported
-    repo.notify(SSEResultState.failure, null);
-    await _pump();
-    expect(events, ['environment stale', 'fatal']);
-  });
-
-  test('a lost connection is stale, then recovers', () async {
-    track();
-    repo.notify(SSEResultState.bye, null);
-    await _pump();
-    repo.notify(SSEResultState.features, [_pastry]);
-    await _pump();
-    expect(events, ['stale', 'ready']);
+    expect(events, ['stale environmentStale']);
   });
 }

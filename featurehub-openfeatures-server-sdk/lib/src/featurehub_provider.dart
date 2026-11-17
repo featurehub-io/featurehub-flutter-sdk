@@ -94,6 +94,9 @@ class FeatureHubProvider
   /// change) waits for features.
   final Duration waitForReady;
 
+  /// How streaming reconnects: by default [defaultReconnectPolicy] (3s
+  /// after a network error, 30s after a 5xx, doubling each consecutive
+  /// failure up to 5 minutes; a 4xx stops). Every value is configurable.
   final ReconnectPolicy reconnectPolicy;
 
   /// How long establishing an HTTP connection may take (null: indefinitely).
@@ -184,7 +187,7 @@ class FeatureHubProvider
     FeatureHubUpdateMode? mode,
     Duration? pollInterval,
     Duration waitForReady = const Duration(seconds: 10),
-    ReconnectPolicy reconnectPolicy = const ReconnectPolicy(),
+    ReconnectPolicy reconnectPolicy = defaultReconnectPolicy,
     Duration? connectTimeout,
     Duration? requestTimeout,
     bool catchAndReleaseMode = false,
@@ -465,31 +468,19 @@ class FeatureHubProvider
 
     _tracker = ProviderStateTracker(
       connection.repository,
-      onStale: () => _emit(
-        ProviderLifecycleEventType.PROVIDER_STALE,
-        'Lost the connection to FeatureHub; features may be out of date',
-      ),
-      onRecovered: () => _emit(
-        ProviderLifecycleEventType.PROVIDER_READY,
-        'FeatureHub is ready',
-      ),
-      onFatal: () {
-        _ready = false;
-        _emit(
-          ProviderLifecycleEventType.PROVIDER_ERROR,
-          _rejected(connection),
-          errorCode: ErrorCode.PROVIDER_FATAL,
-        );
-      },
+      // a permanent stop after features: keep resolving from the last ones
+      onStale: (cause) =>
+          _emit(ProviderLifecycleEventType.PROVIDER_STALE, switch (cause) {
+            StaleCause.environmentStale =>
+              'The FeatureHub environment is stale: features will not be '
+                  'updated again',
+            StaleCause.connectionFailed =>
+              '${_rejected(connection)} Features will not be updated again.',
+          }),
       onFlagsChanged: (keys) => _emit(
         ProviderLifecycleEventType.PROVIDER_CONFIGURATION_CHANGED,
         'FeatureHub features changed',
         flagsChanged: keys,
-      ),
-      onEnvironmentStale: () => _emit(
-        ProviderLifecycleEventType.PROVIDER_STALE,
-        'The FeatureHub environment is stale: features will not be updated '
-        'again',
       ),
     );
   }
@@ -606,11 +597,11 @@ class FeatureHubProvider
     MappedContext context,
   ) {
     final run = _lock.then((_) async {
-      final readiness = await connection.setContext(context, waitForReady);
-      if (readiness == Readyness.Failed) {
-        throw StateError(
-          'FeatureHub failed to refresh the features for the new context',
-        );
+      // once the source has stopped for good (stale), nothing can be fetched
+      // for a new context: the last features are used; likewise if it fails
+      // for good while fetching
+      if (_tracker?.stale != true) {
+        await connection.setContext(context, waitForReady);
       }
       return connection.repository.evaluate(flagKey);
     });

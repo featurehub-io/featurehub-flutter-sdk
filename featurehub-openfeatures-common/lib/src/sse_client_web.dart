@@ -10,6 +10,7 @@ import 'package:logging/logging.dart';
 import 'package:web/web.dart' as web;
 
 import '../featurehub_config.dart';
+import 'openfeature/featurehub_transport.dart' show defaultReconnectPolicy;
 import 'repository.dart';
 
 final _log = Logger('featurehub_web_eventsource');
@@ -27,10 +28,15 @@ const _featureEvents = [
 /// Listens to the FeatureHub event stream in a browser, using the native
 /// `EventSource` (the http package cannot stream responses in browsers).
 ///
-/// The browser reconnects by itself after a dropped connection. If it gives
-/// up (any non-200 response; browsers do not expose the status code), this
-/// listener reconnects after [ReconnectPolicy.serverErrorDelay], up to
-/// [ReconnectPolicy.maxAttempts] consecutive times.
+/// The browser reconnects by itself after a dropped connection (reported as
+/// a `bye`; providers stay ready). If it gives up on the connection instead
+/// (it does so for any non-200 response, and browsers do not expose the
+/// status, so a 4xx cannot be told from a 5xx), the error is final: the
+/// listener reports a failure and stops. Before any features that fails the
+/// provider's initialization; after them the provider reports stale for
+/// good and keeps resolving from the last features. A connection that does not open within the request timeout
+/// is retried under the reconnect policy, up to
+/// [ReconnectPolicy.maxAttempts] consecutive times, then also fails.
 ///
 /// Browsers cannot send headers with `EventSource`, so for server-evaluated
 /// API keys the client context is sent as the `xfeaturehub` query parameter.
@@ -55,7 +61,7 @@ class EventSourceRepositoryListener {
     String apiKey,
     ClientFeatureRepository repository, {
     bool? doInit = true,
-    this._reconnectPolicy = const ReconnectPolicy(),
+    this._reconnectPolicy = defaultReconnectPolicy,
     // browsers control the connection timeout themselves
     Duration? connectTimeout,
     this._requestTimeout,
@@ -196,21 +202,20 @@ class EventSourceRepositoryListener {
       return;
     }
 
-    // the browser has given up on this connection (it does not say why)
-    _disconnect();
-    _scheduleReconnect(_reconnectPolicy.serverErrorDelay);
+    // the browser has given up on this connection and does not say why (a
+    // 4xx cannot be told from a 5xx): the error is final
+    _log.severe('The browser closed the feature event stream: giving up');
+    _repository.notify(SSEResultState.failure, null);
+    close();
   }
 
   void _scheduleReconnect(Duration base) {
     final maxAttempts = _reconnectPolicy.maxAttempts;
     if (maxAttempts != null && _attempts >= maxAttempts) {
-      // TODO(evaluate): running out of attempts after network errors is
-      // reported as a failure, which the providers treat as a rejected API
-      // key (PROVIDER_FATAL) and never recover from, whereas the dart:io
-      // listener reports `bye` in the same case. The browser does not say
-      // why an EventSource failed, so a 4xx cannot be told apart here.
+      // as when the browser gives up: in a browser, giving up is final
       _log.severe('Unable to connect to feature repository, giving up');
       _repository.notify(SSEResultState.failure, null);
+      close();
       return;
     }
 

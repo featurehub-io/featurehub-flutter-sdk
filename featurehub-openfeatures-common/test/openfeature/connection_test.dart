@@ -13,7 +13,7 @@ import 'package:featurehub_sse_client/featurehub_sse_client.dart'
 import 'package:http/http.dart' as http;
 import 'package:test/test.dart';
 
-/// A minimal FeatureHub Edge: GET /features/?apiKey=... (polling) and
+/// A minimal FeatureHub Edge: GET /features?apiKey=... (polling) and
 /// `GET /features/<apiKey>` (SSE). The colour feature's value is the userkey
 /// from the x-featurehub header (or query parameter), so server-side
 /// evaluation is visible.
@@ -75,7 +75,7 @@ class _Edge {
       return;
     }
 
-    if (request.uri.path == '/features/') {
+    if (request.uri.path == '/features') {
       response.headers.contentType = ContentType.json;
       if (cacheControl != null) {
         response.headers.set(HttpHeaders.cacheControlHeader, cacheControl!);
@@ -150,7 +150,12 @@ void main() {
           host: edge.host,
           apiKey: 'a/b/c',
           mode: mode,
-          headers: {'proxy-authorization': 'Basic abc', 'x-team': 'web'},
+          headers: {
+            'proxy-authorization': 'Basic abc',
+            'x-team': 'web',
+            // the SDK's own context header wins
+            'x-featurehub': 'userkey=someone-else',
+          },
           dio: dio,
           httpClient: httpClient,
         );
@@ -163,8 +168,8 @@ void main() {
         final request = edge.requests.last;
         expect(request.headers.value('proxy-authorization'), 'Basic abc');
         expect(request.headers.value('x-team'), 'web');
-        // the context header is still sent
-        expect(request.headers.value('x-featurehub'), 'userkey=fred');
+        // the context header is still the SDK's own
+        expect(request.headers['x-featurehub'], ['userkey=fred']);
         if (mode == FeatureHubUpdateMode.streaming) {
           expect(httpClient.sent, greaterThan(0));
           expect(dioRequests, 0);

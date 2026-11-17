@@ -21,9 +21,10 @@
 // /features?targetingKey=fred&country=nz. Its ETag is the features' SHA, so
 // a client sending it back in If-None-Match gets a 304 until the features
 // change. A client provider polls it with
-// FeatureHubProvider(featuresUrl: '<this server>/features'). With a
-// server-evaluated key every client gets the features FeatureHub evaluated
-// for the provider's single context: use a client-evaluated key.
+// FeatureHubProvider(featuresUrl: '<this server>/features'). It needs a
+// client-evaluated key (FEATUREHUB_CLIENT_API_KEY): with a server-evaluated
+// one FeatureHub evaluates the features for this server's single context, so
+// every client would get those values, and the server refuses to start.
 import 'dart:convert';
 import 'dart:io';
 
@@ -178,9 +179,7 @@ bool ifNoneMatch(Request request, String etag) {
 }
 
 /// Serves the features evaluated for the context in the query parameters,
-/// with their SHA as the ETag: 304 if the client already has them. Once the
-/// environment is stale (FeatureHub sends no more updates), every answer is
-/// `236` with the features, so clients load them and stop polling too.
+/// with their SHA as the ETag: 304 if the client already has them.
 Response features(Request request, FeatureHubProvider provider) {
   final repository = provider.repository;
   if (repository == null) return Response(503);
@@ -190,9 +189,7 @@ Response features(Request request, FeatureHubProvider provider) {
   // so the SHA validates each URL's response
   final etag = '"${repository.featuresSha}"';
   const caching = {'cache-control': 'no-cache'};
-  final stale = repository.environmentStale;
-  // a stale environment is always answered in full, so clients learn of it
-  if (!stale && ifNoneMatch(request, etag)) {
+  if (ifNoneMatch(request, etag)) {
     return Response.notModified(headers: {'etag': etag, ...caching});
   }
 
@@ -202,9 +199,8 @@ Response features(Request request, FeatureHubProvider provider) {
   } on InvalidContextException catch (e) {
     return Response.badRequest(body: e.message);
   }
-  return Response(
-    stale ? 236 : 200,
-    body: jsonEncode(snapshot),
+  return Response.ok(
+    jsonEncode(snapshot),
     headers: {'content-type': 'application/json', 'etag': etag, ...caching},
   );
 }
@@ -325,14 +321,26 @@ Future<void> main() async {
     exit(1);
   }
 
-  // the provider is ready while it has features (not stale, not failed)
+  // GET /features evaluates the features for each client's context, which
+  // needs their strategies: a server-evaluated key delivers features already
+  // evaluated for this server's own context, which every client would get
+  if (!provider.clientEvaluated) {
+    stderr.writeln(
+      'This server serves features to its own clients (GET /features), so it '
+      'needs a client-evaluated API key (containing *), set in '
+      '${FeatureHubProvider.clientApiKeyVariable}; the key given is '
+      'server-evaluated.',
+    );
+    exit(1);
+  }
+
+  // ready once the provider has features. PROVIDER_STALE does not change
+  // that: the features' source has stopped updating (the environment is
+  // stale, or the key was rejected), but this server still works and serves
+  // the last features, so it should stay in service
   var ready = false;
   provider.providerEvents.listen((event) {
-    ready =
-        event.type == ProviderLifecycleEventType.PROVIDER_READY ||
-        (ready &&
-            event.type ==
-                ProviderLifecycleEventType.PROVIDER_CONFIGURATION_CHANGED);
+    if (event.type == ProviderLifecycleEventType.PROVIDER_READY) ready = true;
   });
 
   _log.info(
