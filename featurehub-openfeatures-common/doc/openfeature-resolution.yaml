@@ -1,0 +1,188 @@
+# How a FeatureHub OpenFeature provider resolves a flag: a machine-readable
+# specification, so providers in every language give the same results.
+#
+# It covers what happens once the features are in the repository, however they
+# got there (see feature-snapshot-protocol.yaml for transports): the order of
+# checks, interceptors, strategy evaluation, type conversion, reasons,
+# variants, error codes and flag metadata.
+#
+# Reference implementation: featurehub-openfeatures-common
+#   lib/src/openfeature/resolution.dart   (resolveFromEvaluation)
+#   lib/src/repository.dart               (ClientFeatureRepository.evaluate)
+#   lib/src/openfeature/context_mapper.dart (mapEvaluationContext)
+# with tests in test/openfeature/mapping_and_resolution_test.dart. Agreed with
+# the Go SDK (featurehub-go-sdk, pkg/core/provider.go) where noted.
+#
+# MUST / SHOULD / MAY as in RFC 2119.
+
+spec:
+  name: featurehub-openfeature-resolution
+  version: 1.0.0
+  status: implemented-in-dart
+  related:
+    transports: feature-snapshot-protocol.yaml (encoding of FeatureState, the context mapping, providers)
+    stores: feature-store.yaml (how flags come to exist without FeatureHub, and the YAML store/interceptor pair)
+    strategy_evaluation: >-
+      FeatureHub's standard rollout strategy algorithm, not re-specified here.
+      Reference: lib/src/strategy/ (a port of the TypeScript SDK), with 4,007
+      golden cases in test/strategy/fixtures/typescript_golden.json.
+      Percentages are out of 1,000,000.
+
+# ---------------------------------------------------------------------------
+# Flag kinds: the OpenFeature resolution methods and the FeatureHub types
+# ---------------------------------------------------------------------------
+kinds:
+  boolean: {feature_type: BOOLEAN}
+  string: {feature_type: STRING}
+  integer: {feature_type: NUMBER}
+  double: {feature_type: NUMBER}
+  object: {feature_type: JSON}
+
+# ---------------------------------------------------------------------------
+# Evaluation: the value before OpenFeature semantics are applied
+# (ClientFeatureRepository.evaluate)
+# ---------------------------------------------------------------------------
+evaluation:
+  inputs:
+    key: the flag key
+    context: >-
+      For local evaluation (a client-evaluated key, or features with
+      strategies): the OpenFeature context mapped to FeatureHub attributes
+      (feature-snapshot-protocol.yaml encoding.evaluation_context). An
+      invalid context is an INVALID_CONTEXT error.
+  steps:
+    - step: interceptors
+      rule: >-
+        Value interceptors are consulted first, in registration order. An
+        interceptor is skipped for a locked feature (l = true) unless it was
+        registered with allowLockOverride (the default). The first that
+        matches supplies the value; strategy id = none; intercepted = true.
+    - step: not_found
+      rule: >-
+        If the repository has no feature for the key, the result is "not
+        found" (FLAG_NOT_FOUND), even if an interceptor matched. Interceptors
+        only change the values of features that exist; they never create a
+        flag. A flag must first exist in the repository, from FeatureHub or
+        from a feature store, which is how local-only flags are added (for
+        example the YAML store paired with the YAML interceptor).
+      rationale: >-
+        A flag's existence and type come from the feature, not the override:
+        without a feature there is no type to convert the interceptor's value
+        to, and resolving unknown keys would hide misspelt flag names.
+      agreed: >-
+        The Go SDK, which resolves an interceptor match for an unknown key as
+        STATIC, is to change to FLAG_NOT_FOUND.
+    - step: no_strategies
+      rule: >-
+        If the feature has no strategies (absent or empty): value = the
+        feature's value; strategy id = its `v` (the strategy the server
+        applied, or none); split = false.
+    - step: local_strategies
+      rule: >-
+        Otherwise apply the strategies, in order, to the context. If one
+        matches: value = its value, strategy id = its id, split = true if
+        it is a percentage rollout (its percentage is non-zero). Otherwise:
+        value = the feature's value, strategy id = none.
+  output: {feature: "the FeatureState or none", value: any, strategy_id: "string or none", split: bool, intercepted: bool}
+
+# ---------------------------------------------------------------------------
+# Resolution: OpenFeature semantics (resolveFromEvaluation), in this order
+# ---------------------------------------------------------------------------
+resolution:
+  before_evaluation:
+    - {when: "the provider has not finished initialising", value: code default, reason: ERROR, error_code: PROVIDER_NOT_READY}
+    - {when: "the repository has failed (the source rejected us)", value: code default, reason: ERROR, error_code: PROVIDER_FATAL}
+    - {when: "the evaluation context is invalid", value: code default, reason: ERROR, error_code: INVALID_CONTEXT}
+    - {when: "an unexpected error while evaluating", value: code default, reason: ERROR, error_code: GENERAL}
+  steps:   # applied in order; the first that applies decides
+    - id: not_found
+      when: the feature does not exist
+      result: {value: code default, reason: ERROR, error_code: FLAG_NOT_FOUND, flag_metadata: none}
+    - id: wrong_feature_type
+      when: the feature's type is not the kind's feature_type (e.g. a STRING feature resolved as boolean)
+      result: {value: code default, reason: ERROR, error_code: TYPE_MISMATCH, flag_metadata: yes}
+      note: checked before the value, so a value-less feature of the wrong type is a TYPE_MISMATCH
+    - id: no_value
+      when: the evaluated value is null (the feature, or the matched strategy or interceptor, has no value)
+      result: {value: code default, reason: DISABLED, variant: "the strategy id, if one matched", flag_metadata: yes}
+      agreed_with: go
+    - id: convert
+      when: always, otherwise
+      rules: conversion
+      on_failure: {value: code default, reason: ERROR, error_code: "TYPE_MISMATCH (or PARSE_ERROR for invalid JSON)", flag_metadata: yes}
+    - id: reason
+      result:
+        - {when: "no strategy id (the feature's own value, or an interceptor)", reason: STATIC, variant: none}
+        - {when: "a percentage rollout matched locally (split)", reason: SPLIT, variant: the strategy id, agreed_with: go}
+        - {when: "any other strategy id (matched locally, or `v` from the server)", reason: TARGETING_MATCH, variant: the strategy id}
+      notes:
+        - "A strategy the server applied (`v`) is always TARGETING_MATCH: its percentage is not sent, so it cannot be known to be a split."
+        - "The variant is always the strategy id, never its name (agreed; the Go SDK is to change)."
+        - "A server-evaluated feature with no `v` is STATIC, not UNKNOWN (agreed; the Go SDK is to change)."
+        - "DEFAULT is not used."
+
+  conversion:
+    description: >-
+      Converting the evaluated value to the kind requested. Interceptors (and
+      some sources) supply strings, so strings are converted.
+    boolean:
+      - "a boolean: as is"
+      - "the string \"true\" or \"false\" (exact, lowercase): that boolean"
+      - "anything else: TYPE_MISMATCH"
+    string:
+      - "a string: as is"
+      - "a number or boolean: its string form"
+    integer:
+      - "a number, or a string parsing as a number, that is whole (3 or 3.0): that integer"
+      - "a fraction (1.5), or an unparseable string: TYPE_MISMATCH"
+    double:
+      - "a number, or a string parsing as a number: that number as a double"
+      - "anything else: TYPE_MISMATCH"
+    object:
+      - "a string: parsed as JSON; invalid JSON is PARSE_ERROR"
+      - "an already-decoded value: as is"
+      - "the result must be a JSON object (map); anything else (a list, a number, ...) is TYPE_MISMATCH"
+
+  test_vectors:
+    - {feature: null, interceptor_value: "kwong pastry", kind: string, default: "always wonder", expect: {value: "always wonder", reason: ERROR, error_code: FLAG_NOT_FOUND}, note: "an interceptor matching a key the repository does not have"}
+    - {feature: {type: STRING, value: null}, kind: string, default: "always wonder", expect: {value: "always wonder", reason: DISABLED, variant: null}}
+    - {feature: {type: STRING, value: null}, strategy_id: ormkorn, kind: string, default: "always wonder", expect: {value: "always wonder", reason: DISABLED, variant: ormkorn}}
+    - {feature: {type: STRING, value: x}, kind: boolean, default: false, expect: {value: false, reason: ERROR, error_code: TYPE_MISMATCH}}
+    - {feature: {type: BOOLEAN, value: "true"}, intercepted: true, kind: boolean, default: false, expect: {value: true, reason: STATIC}}
+    - {feature: {type: NUMBER, value: "7"}, intercepted: true, kind: integer, default: 0, expect: {value: 7, reason: STATIC}}
+    - {feature: {type: NUMBER, value: 1.5}, kind: integer, default: 0, expect: {value: 0, reason: ERROR, error_code: TYPE_MISMATCH}}
+    - {feature: {type: JSON, value: "{not json"}, kind: object, default: {}, expect: {reason: ERROR, error_code: PARSE_ERROR}}
+    - {feature: {type: STRING, value: durian}, strategy_id: omu-co, kind: string, expect: {value: durian, reason: TARGETING_MATCH, variant: omu-co}, note: "v from the server"}
+    - feature:
+        type: STRING
+        value: plain
+        strategies:
+          - {id: chago, value: mango, attributes: [{conditional: NOT_EQUALS, fieldName: country, values: [thailand], type: STRING}]}
+          - {id: omu-co, value: durian, percentage: 1000000, attributes: []}
+      cases:
+        - {context: {userkey: lingling, country: thailand}, expect: {value: durian, reason: SPLIT, variant: omu-co}}
+        - {context: {userkey: orm, country: new_zealand}, expect: {value: mango, reason: TARGETING_MATCH, variant: chago}}
+
+# ---------------------------------------------------------------------------
+# Flag metadata
+# ---------------------------------------------------------------------------
+flag_metadata:
+  description: >-
+    The OpenFeature flag metadata of every resolution of an existing feature
+    (including DISABLED, TYPE_MISMATCH and PARSE_ERROR results; not
+    FLAG_NOT_FOUND, PROVIDER_NOT_READY or PROVIDER_FATAL).
+  construction:   # in this order; later entries replace earlier ones of the same name
+    - "every entry of the feature's properties (`fp`, string to string), if it has any"
+    - "featureVersion: the feature's version (an integer), if it is 0 or more"
+    - "featureType: the feature's type name (BOOLEAN, STRING, NUMBER or JSON)"
+  precedence: featureVersion and featureType replace a property of the same name
+  go_sdk_difference: >-
+    The Go SDK's metadata is the properties alone, without featureVersion and
+    featureType. To be aligned with this rule.
+  test_vectors:
+    - {feature: {version: 4, type: STRING}, expect: {featureVersion: 4, featureType: STRING}}
+    - feature: {version: 4, type: STRING, fp: {shop: "omu&co", owner: kwong}}
+      expect: {shop: "omu&co", owner: kwong, featureVersion: 4, featureType: STRING}
+    - feature: {version: 4, type: STRING, fp: {featureVersion: "99", shop: "omu&co"}}
+      expect: {shop: "omu&co", featureVersion: 4, featureType: STRING}
+      note: the property named featureVersion is replaced by the feature's version

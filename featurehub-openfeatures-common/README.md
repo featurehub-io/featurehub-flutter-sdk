@@ -182,6 +182,14 @@ clients the SDK creates, so set it on your own clients if you need it.
 is a machine-readable specification of the snapshot encoding, server, client
 and transport contract, with test vectors, for implementing them in other
 languages.
+[`doc/openfeature-resolution.yaml`](doc/openfeature-resolution.yaml)
+specifies how the providers resolve a flag, so other-language providers give
+the same results: the order of checks, type conversion, reasons, variants,
+error codes and flag metadata.
+[`doc/feature-store.yaml`](doc/feature-store.yaml) specifies feature stores:
+the store contract, how store features are treated, the local storage, Redis
+and YAML formats (shared with the other SDKs), and how stores pair with
+value interceptors.
 
 A transport is what fetches the features: the built-in ones stream or poll
 FeatureHub, or poll your own server. To use something else, such as
