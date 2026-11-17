@@ -190,6 +190,9 @@ error codes and flag metadata.
 the store contract, how store features are treated, the local storage, Redis
 and YAML formats (shared with the other SDKs), and how stores pair with
 value interceptors.
+[`doc/rollout-strategies.yaml`](doc/rollout-strategies.yaml) specifies
+rollout strategy evaluation (percentage rollouts and every matcher), with the
+golden fixture generated from the TypeScript SDK as its conformance suite.
 
 A transport is what fetches the features: the built-in ones stream or poll
 FeatureHub, or poll your own server. To use something else, such as

@@ -1,0 +1,278 @@
+# FeatureHub rollout strategy evaluation: a machine-readable specification.
+#
+# How a feature's rollout strategies are applied to an evaluation context, so
+# that every SDK places a user in the same bucket and matches the same
+# attributes. Used for client-evaluated API keys, raw feature snapshots, and
+# anywhere strategies are evaluated locally.
+#
+# NORMATIVE SOURCE: the golden fixture, not this prose. Every behaviour here is
+# what the FeatureHub TypeScript SDK does (packages/core src/strategy_matcher),
+# captured as 3,443 matcher cases, 349 strategy scenarios, 200 percentages and
+# 15 hashes in featurehub-openfeatures-common/test/strategy/fixtures/
+# typescript_golden.json. Where this text and the fixture disagree, the
+# fixture wins. FeatureHub Edge evaluates server-evaluated keys with its own
+# (Java) implementation; a difference between Edge and the fixture is a bug to
+# report, not something an SDK should copy.
+#
+# Reference port: featurehub-openfeatures-common/lib/src/strategy/
+#   apply_feature.dart (the algorithm), matchers.dart (per type),
+#   murmur3.dart, netmask.dart (IPv4 blocks), js_compat.dart (JS conversions).
+#
+# MUST / SHOULD / MAY as in RFC 2119.
+
+spec:
+  name: featurehub-rollout-strategies
+  version: 1.0.0
+  status: implemented-in-dart; conforms to the TypeScript SDK via the golden fixture
+  related:
+    encoding: feature-snapshot-protocol.yaml (rollout_strategy JSON; context mapping)
+    resolution: openfeature-resolution.yaml (SPLIT vs TARGETING_MATCH, DISABLED)
+
+# ---------------------------------------------------------------------------
+# 1. Inputs
+# ---------------------------------------------------------------------------
+inputs:
+  strategies: the feature's `strategies`, in order (feature-snapshot-protocol.yaml rollout_strategy)
+  feature_value_id: the feature's `id` (FeatureState.id), part of the hash
+  context:
+    get_attr: "attribute name -> a string, number, boolean or date-time, a list of those, or absent"
+    default_percentage_key: >-
+      The `session` attribute if present, else `userkey`; a list value is its
+      elements stringified (js_to_string) and joined with ",". Absent if
+      neither is set.
+  output: "matched (bool), value (the strategy's value), strategy_id, split (true if the matching strategy is a percentage rollout)"
+
+# ---------------------------------------------------------------------------
+# 2. The algorithm
+# ---------------------------------------------------------------------------
+algorithm:
+  pseudocode: |
+    if context is absent or strategies is empty: return NOT_MATCHED
+    percentage := none ; percentage_key := none
+    base := {}                         # per percentage key: the share used so far
+    default_key := context.default_percentage_key()
+
+    for rsi in strategies, in order:
+      p := rsi.percentage              # absent counts as 0
+      has_attrs := rsi.attributes is not empty
+
+      if p != 0 and (js_truthy(default_key) or rsi.percentageAttributes is not empty):
+        key := percentage_key_for(context, rsi.percentageAttributes)
+        base[key] := base[key] or 0
+        if percentage is none or key != percentage_key:
+          percentage_key := key
+          percentage := percentage_of(key, feature_value_id)
+        use_base := 0 if has_attrs else base[key]
+        if percentage <= use_base + p:              # inclusive
+          if not has_attrs: return MATCH(rsi, split = true)
+          if attributes_match(context, rsi): return MATCH(rsi, split = true)
+        if not has_attrs:
+          base[percentage_key] := base[percentage_key] + p
+
+      if p == 0 and has_attrs and attributes_match(context, rsi):
+        return MATCH(rsi, split = false)
+
+    return NOT_MATCHED
+  consequences:
+    - "Percentage-only strategies stack: with 20% then 30%, users in [0, 200000] get the first, (200000, 500000] the second, all keyed by the same percentage key."
+    - "A percentage strategy with attributes does not stack: it compares the user's percentage against its own percentage alone, and also needs its attributes to match."
+    - "A percentage strategy is skipped entirely when the context has no default key (no session or userkey) and the strategy names no percentageAttributes."
+    - "A strategy with neither a percentage nor attributes never matches."
+    - "The percentage is recalculated only when the percentage key changes between strategies."
+
+  percentage_of:
+    formula: "floor(murmur3_x86_32(utf8(key + feature_value_id), seed = 0) / 4294967296 * 1000000)"
+    range: "0 to 999999; strategy percentages are out of 1,000,000 (so 250000 is 25%)"
+    vectors:   # from the fixture's `percentage` section
+      - {key: user0, feature_value_id: fv1, percentage: 15345}
+      - {key: user1, feature_value_id: fv1, percentage: 178815}
+      - {key: user2, feature_value_id: fv1, percentage: 278206}
+
+  murmur3:
+    variant: "MurmurHash3, x86, 32-bit, seed 0, over the UTF-8 bytes of the string (as the murmurhash npm package's v3); unsigned result"
+    vectors:   # from the fixture's `murmur` section
+      - {key: "", hash: 0}
+      - {key: "a", hash: 1009084850}
+      - {key: "abc", hash: 3017643002}
+      - {key: "abcd", hash: 1139631978}
+      - {key: "fred$NZ", hash: 196420430}
+      - {key: "日本語", hash: 2779017879}
+      - {key: "émoji 😀", hash: 132264109}
+    pitfall: "hash UTF-8 bytes, not UTF-16 code units or code points; on platforms without unsigned 32-bit arithmetic, multiply in 16-bit halves"
+
+  percentage_key_for:
+    rules:
+      - "no percentageAttributes: the context's default percentage key"
+      - "otherwise: for each named attribute, its value stringified (a list joined with \",\") if JavaScript-truthy, else the literal \"<none>\"; joined with \"$\""
+    js_truthy: "false for absent, false, 0, NaN and the empty string; true otherwise (including an empty list)"
+    vectors:
+      - {percentageAttributes: [country, device], context: {country: nz, device: mobile}, key: "nz$mobile"}
+      - {percentageAttributes: [country, device], context: {country: "", device: mobile}, key: "<none>$mobile"}
+      - {percentageAttributes: [country], context: {country: 0}, key: "<none>"}
+      - {percentageAttributes: [country], context: {country: [a, b]}, key: "a,b"}
+
+  attributes_match:
+    rules:
+      - "every attribute must match (AND)"
+      - "supplied := context.get_attr(attr.fieldName)"
+      - "if supplied is absent (or is an empty list and fieldName is \"now\", case-insensitive): for type DATE use [today as YYYY-MM-DD in UTC]; for DATETIME use [now as an ISO-8601 UTC date-time]"
+      - "if supplied is still absent: the attribute does not match"
+      - "a list: its non-null elements; a single value: [value]"
+      - "an empty list: the attribute does not match"
+      - "the attribute matches if ANY supplied element matches (matchers below)"
+    note: >-
+      TypeScript also skips an EQUALS attribute whose `values` is null when the
+      context supplies an empty list; decoders that turn null values into an
+      empty list cannot tell the cases apart, and an empty supplied list never
+      matches either way.
+
+# ---------------------------------------------------------------------------
+# 3. Conversions borrowed from JavaScript (the source of most porting bugs)
+# ---------------------------------------------------------------------------
+js_conversions:
+  js_to_string: "a whole-number float prints without a fraction (1.0 -> \"1\"); NaN -> \"NaN\"; infinities -> \"Infinity\" / \"-Infinity\"; booleans -> \"true\" / \"false\""
+  js_parse_int: "leading whitespace, optional sign, then decimal digits; the longest such prefix (\"12abc\" -> 12, \" 3\" -> 3); NaN if there are no digits"
+  js_parse_float: "the longest numeric prefix after leading whitespace (decimal, optional fraction and exponent, or Infinity); NaN if none"
+  js_number: "the whole trimmed string must be numeric (also 0x, 0b, 0o prefixes); empty -> 0; otherwise NaN"
+  nan: "every comparison with NaN is false (so NOT_EQUALS against a NaN supplied value is true)"
+  string_compare: "plain string ordering by UTF-16 code unit (\"A\" < \"a\")"
+  regex: "ECMAScript regular expressions, searched (not anchored unless the pattern anchors); an invalid pattern never matches"
+
+# ---------------------------------------------------------------------------
+# 4. Matchers, by field type
+# ---------------------------------------------------------------------------
+# For each type: how the supplied value and the attribute's `values` are
+# prepared, then what each conditional means. "any" = true if at least one
+# value satisfies it; null values are dropped first.
+matchers:
+  STRING:
+    prepare: {supplied: js_to_string, values: js_to_string each}
+    EQUALS: any value equals supplied
+    NOT_EQUALS: no value equals supplied (true for no values)
+    STARTS_WITH: supplied starts with any value
+    ENDS_WITH: supplied ends with any value
+    INCLUDES: supplied contains any value
+    EXCLUDES: supplied contains no value (true for no values)
+    GREATER / GREATER_EQUALS / LESS / LESS_EQUALS: supplied compares so against any value (string_compare)
+    REGEX: any value, as a pattern, matches supplied
+
+  NUMBER:
+    prepare:
+      supplied: "a number as is; a string: js_parse_float if it contains \".\", else js_parse_int"
+      values: "numbers as is; others js_parse_float(js_to_string(v))"
+    EQUALS: any value == supplied
+    NOT_EQUALS: no value == supplied
+    GREATER / GREATER_EQUALS / LESS / LESS_EQUALS: supplied compares so against any value (numerically)
+    INCLUDES / EXCLUDES / STARTS_WITH / ENDS_WITH / REGEX: >-
+      as STRING, but on js_to_string(the parsed supplied number) against the
+      values stringified (so "100.0" is "100", which STARTS_WITH 1)
+
+  SEMANTIC_VERSION:
+    prepare: {supplied: js_to_string, values: js_to_string each}
+    compare: >-
+      semver-compare (npm 1.0.0): split both on "."; for parts 1 to 3 compare
+      js_number(part) (a missing part is NaN): greater wins; a number beats
+      NaN; equal (or both NaN) continues; all three equal -> 0. Pre-release and
+      build suffixes are not understood ("1.2.3-beta" has a NaN third part).
+    EQUALS / INCLUDES: any value compares equal
+    NOT_EQUALS / EXCLUDES: any value compares unequal (ANY, not NONE - with two values this is almost always true)
+    GREATER / GREATER_EQUALS / LESS / LESS_EQUALS: supplied compares so against any value
+    STARTS_WITH / ENDS_WITH / REGEX: never match
+
+  DATE:
+    prepare:
+      supplied: >-
+        Parsed as JavaScript's Date: a date-only "YYYY-MM-DD" is UTC; a
+        date-time with an offset is converted to UTC; a date-time without an
+        offset is local time. Then formatted as "YYYY-MM-DD" (UTC). Unparseable
+        -> no match.
+      values: js_to_string each, NOT normalised (they should already be YYYY-MM-DD)
+    conditionals: as STRING, on those strings (so GREATER is lexicographic on ISO dates)
+
+  DATETIME:
+    prepare:
+      supplied: "parsed as for DATE, then formatted \"YYYY-MM-DDTHH:MM:SSZ\" (UTC, seconds; milliseconds dropped)"
+      values: js_to_string each, not normalised
+    conditionals: as STRING, on those strings
+
+  BOOLEAN:
+    prepare:
+      to_bool: "a boolean as is; anything else true only if js_to_string gives exactly \"true\""
+      values: to_bool each; no values -> never matches
+      supplied: to_bool
+    EQUALS: supplied == the FIRST value (the rest are ignored)
+    NOT_EQUALS: supplied != the first value
+    others: never match
+
+  IP_ADDRESS:
+    semantics: "IPv4 only, as the netmask npm package 2.0.2; IPv6 never matches"
+    prepare: {supplied: js_to_string, values: js_to_string each}
+    value_forms: "a block in CIDR (10.0.0.0/8) or dotted-mask (172.16.0.0/255.240.0.0) form, or a single address (a /32)"
+    address_forms: "dotted quad, or the short long / class A / class B forms; each part decimal, octal (leading 0) or hex (leading 0x)"
+    contains: "an address is in a block if address & mask == network & mask; a supplied block is contained if its first and last addresses are"
+    EQUALS / INCLUDES: any value's block contains supplied
+    NOT_EQUALS / EXCLUDES: no value's block contains supplied
+    others: never match
+    invalid: an invalid address or block never matches
+
+  matcher_vectors:   # selected from the fixture's `matchers` section
+    - {type: STRING, conditional: GREATER, values: [a, b], supplied: A, result: false, shows: "code-unit ordering"}
+    - {type: STRING, conditional: NOT_EQUALS, values: [], supplied: a, result: true}
+    - {type: STRING, conditional: EXCLUDES, values: [], supplied: a, result: true}
+    - {type: NUMBER, conditional: EQUALS, values: [1, 2], supplied: "1.0", result: true}
+    - {type: NUMBER, conditional: GREATER, values: [10], supplied: "12abc", result: true, shows: "parseInt prefix"}
+    - {type: NUMBER, conditional: STARTS_WITH, values: [1, 2], supplied: "100.0", result: true, shows: "string ops on the parsed number"}
+    - {type: NUMBER, conditional: NOT_EQUALS, values: [1, 2], supplied: abc, result: true, shows: "NaN"}
+    - {type: SEMANTIC_VERSION, conditional: EQUALS, values: ["1.2"], supplied: "1.2", result: true}
+    - {type: SEMANTIC_VERSION, conditional: EQUALS, values: ["1.2.3"], supplied: "1.2.3-beta", result: false}
+    - {type: SEMANTIC_VERSION, conditional: NOT_EQUALS, values: ["1.10.0", "1.2.0"], supplied: "1.10.0", result: true, shows: "ANY unequal"}
+    - {type: DATE, conditional: EQUALS, values: ["2020-06-15"], supplied: "2020-06-15T23:30:00+10:00", result: true, shows: "converted to UTC first"}
+    - {type: DATE, conditional: EQUALS, values: ["2020-06-15"], supplied: "2020-06-15T10:00:00Z", result: true}
+    - {type: DATETIME, conditional: EQUALS, values: ["2019-01-01T01:01:01Z"], supplied: "2019-01-01T01:01:01.123Z", result: true, shows: "milliseconds dropped"}
+    - {type: DATETIME, conditional: EQUALS, values: ["2021-05-05T10:00:00Z", "2022-01-01T00:00:00Z"], supplied: "2021-05-05T10:00:00+02:00", result: false, shows: "that is 08:00Z"}
+    - {type: BOOLEAN, conditional: EQUALS, values: [false], supplied: x, result: true, shows: "non-true strings are false"}
+    - {type: BOOLEAN, conditional: GREATER, values: ["true"], supplied: "true", result: false}
+    - {type: IP_ADDRESS, conditional: INCLUDES, values: ["10.0.0.0/8"], supplied: "0x0a.0.0.1", result: true, shows: "hex octet"}
+    - {type: IP_ADDRESS, conditional: INCLUDES, values: ["10.0.0.0/8"], supplied: "010.0.0.1", result: false, shows: "010 is octal 8"}
+    - {type: IP_ADDRESS, conditional: INCLUDES, values: ["10.0.0.0/24", "192.168.0.0/16"], supplied: "192.168.0.0/24", result: true, shows: "a supplied block"}
+
+# ---------------------------------------------------------------------------
+# 5. The golden fixture: the conformance suite
+# ---------------------------------------------------------------------------
+golden_fixture:
+  path: featurehub-openfeatures-common/test/strategy/fixtures/typescript_golden.json
+  format: a JSON object with four arrays
+  sections:
+    murmur:
+      count: 15
+      case: {key: string, hash: "unsigned 32-bit int"}
+      check: "murmur3_x86_32(utf8(key), 0) == hash"
+    percentage:
+      count: 200
+      case: {key: string, id: string, value: int}
+      check: "percentage_of(key, id) == value"
+    matchers:
+      count: 3443
+      case: {type: field type, conditional: conditional, values: list, supplied: "string | number | boolean", result: bool}
+      check: "the matcher for `type`, with an attribute {conditional, type, values, fieldName: \"f\"}, applied to `supplied`, gives `result`"
+      coverage: "all 7 field types x all 11 conditionals (77 combinations)"
+    apply:
+      count: 349
+      case: {name: string, strategies: "list of rollout_strategy", featureValueId: string, context: "map of attributes", matched: bool, value: any, strategyId: "string or null"}
+      check: "the algorithm, with a context whose default key is `session` if present else `userkey`, gives matched / value / strategyId"
+      scenarios: {"percentage only": 132, "percentage attributes": 104, "percentage with attributes": 100, "attributes only": 8, "number and ip": 5}
+  regenerate: >-
+    From the TypeScript SDK with test/strategy/fixtures/generate.ts.txt: set
+    its FEATUREHUB_JS_CORE path to featurehub-javascript-sdk/packages/core,
+    bundle with esbuild (NODE_PATH=<packages/core>/node_modules esbuild
+    generate.ts --bundle --platform=node --format=esm --outfile=generate.mjs),
+    then run TZ=UTC node generate.mjs typescript_golden.json.
+  reference_runner: featurehub-openfeatures-common/test/strategy/typescript_golden_test.dart
+  gaps:   # behaviour the fixture does NOT exercise; test these yourself
+    - "the `now` substitution for absent DATE / DATETIME attributes (time-dependent)"
+    - "date-times without an offset (local time): the fixture is generated with TZ=UTC"
+    - "native date-time values in the context (JSON has none; they are normalised to UTC like strings)"
+    - "regular expression features beyond simple anchors and wildcards (flavour differences between languages)"
+    - "percentages for more than one feature value id (all 200 use fv1)"
+    - "IPv6 addresses (unsupported: they never match)"
+    - "the null-values EQUALS case described under algorithm.attributes_match.note"

@@ -23,10 +23,9 @@ spec:
     transports: feature-snapshot-protocol.yaml (encoding of FeatureState, the context mapping, providers)
     stores: feature-store.yaml (how flags come to exist without FeatureHub, and the YAML store/interceptor pair)
     strategy_evaluation: >-
-      FeatureHub's standard rollout strategy algorithm, not re-specified here.
-      Reference: lib/src/strategy/ (a port of the TypeScript SDK), with 4,007
-      golden cases in test/strategy/fixtures/typescript_golden.json.
-      Percentages are out of 1,000,000.
+      rollout-strategies.yaml (the algorithm, the matchers, and the golden
+      fixture that is its conformance suite). Percentages are out of
+      1,000,000.
 
 # ---------------------------------------------------------------------------
 # Flag kinds: the OpenFeature resolution methods and the FeatureHub types
