@@ -28,6 +28,21 @@ spec:
     resolution: openfeature-resolution.yaml (interceptors never create flags)
 
 # ---------------------------------------------------------------------------
+# Catch-and-release: an optional feature
+# ---------------------------------------------------------------------------
+catch_and_release:
+  description: >-
+    Catch-and-release holds feature updates back until the application calls
+    release(), so a user interface does not change under the user. It is
+    only supported by some SDKs, typically those used for user interfaces
+    (this Dart/Flutter SDK, and the JavaScript/TypeScript SDK). The Ruby,
+    Python, Go and Java SDKs do not support it.
+  implementations_without_it: >-
+    MUST ignore every rule and check below marked
+    `only_with: catch_and_release`; nothing else in this specification
+    depends on it.
+
+# ---------------------------------------------------------------------------
 # 1. The store contract
 # ---------------------------------------------------------------------------
 store:
@@ -78,7 +93,7 @@ store:
 raw_feature_updates:
   description: >-
     A stream of every feature change as it arrives at the repository, before
-    catch-and-release handling, with its source. Delivered asynchronously
+    any catch-and-release handling (where supported), with its source. Delivered asynchronously
     (after notify returns), to any number of listeners.
   sources:
     featurehub-edge: >-
@@ -93,7 +108,7 @@ raw_feature_updates:
     FeatureReceived: {fields: [feature, source], meaning: "one feature added or changed"}
     FeatureDeleted: {fields: [feature, source], meaning: "one feature deleted"}
   rules:
-    - "events are published for every notify of features, feature or deleteFeature, including updates that catch-and-release holds back"
+    - "events are published for every notify of features, feature or deleteFeature (where catch-and-release is supported, including updates it holds back)"
     - "identify features by id (a feature's key can change)"
     - "a store MUST ignore events with its own source, or loading its features would write them straight back"
 
@@ -104,6 +119,7 @@ repository_rules:
   - id: store-features-are-features
     rule: a store's full set is applied like any other (update rule, missing features removed, repository ready)
   - id: store-features-do-not-start-catch-and-release
+    only_with: catch_and_release
     rule: >-
       Catch-and-release only takes effect after the first full set from the
       FeatureHub source (featurehub-edge), or a failure. Features from a
@@ -120,6 +136,7 @@ repository_rules:
       repository.update_rule), so FeatureHub's feature replaces a store's
       even when the store gave it the same version.
   - id: deletes-clear-held-updates
+    only_with: catch_and_release
     rule: a delete also discards any update for that feature held back by catch-and-release
 
 # ---------------------------------------------------------------------------
@@ -284,7 +301,7 @@ yaml:
 conformance:
   - {id: own-source-ignored, check: "a store's own loaded features are not written back"}
   - {id: stored-features-first, check: "with stored features the provider is ready before FeatureHub answers"}
-  - {id: no-catch-from-store, check: "with catch-and-release on, FeatureHub's first features replace the store's"}
+  - {id: no-catch-from-store, only_with: catch_and_release, check: "with catch-and-release on, FeatureHub's first features replace the store's"}
   - {id: full-set-removes, check: "FeatureHub's full set removes store-only flags"}
   - {id: local-storage-format, check: "the item key and JSON object format above; a delete removes the entry"}
   - {id: redis-sha-compatible, check: "the stored sha matches the SHA algorithm's test vectors and the TypeScript implementation"}

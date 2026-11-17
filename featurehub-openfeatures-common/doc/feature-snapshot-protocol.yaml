@@ -142,8 +142,10 @@ encoding:
       - SHA-256 of the UTF-8 bytes, as 64 lowercase hex characters
     when_recomputed: >-
       The repository recomputes it after every applied change: a full set of
-      features, a single feature update, a delete, a catch-and-release release,
-      and clearing the features. In catch-and-release mode it describes the
+      features, a single feature update, a delete, and clearing the features.
+      In SDKs that support catch-and-release (only some do, typically those
+      for user interfaces; see feature-store.yaml catch_and_release), also
+      after a release, and while updates are held back it describes the
       applied features, not those held back.
     test_vectors:
       - features: []
@@ -383,7 +385,7 @@ repository:
       semantics: apply with the update rule; recompute the SHA if applied
     deleteFeature:
       payload: one feature_state (only key/id needed)
-      semantics: remove it (and any held-back catch-and-release update for it); recompute the SHA
+      semantics: remove it (and, where catch-and-release is supported, any update for it held back); recompute the SHA
     bye:
       semantics: readiness NotReady (providers report STALE)
     failure:
