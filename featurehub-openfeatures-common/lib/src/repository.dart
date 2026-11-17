@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
 import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_openfeatures_common/featurehub.dart';
 import 'package:logging/logging.dart';
@@ -231,6 +232,8 @@ class ClientFeatureRepository {
   Set<String>? _caughtFullSetKeys;
 
   bool get _catchActive => _catchAndReleaseMode && _initialStateResolved;
+
+  String _featuresSha = computeSha(const []);
   // indexed by id (not key)
   final Map<String?, FeatureState> _catchReleaseStates = {};
   final List<_InterceptorHolder> _featureValueInterceptors = [];
@@ -257,6 +260,27 @@ class ClientFeatureRepository {
       _featuresChangedListeners.stream;
 
   void _featuresChanged() => _featuresChangedListeners.add(this);
+
+  /// The [computeSha] of the features the repository holds.
+  ///
+  /// It is computed again whenever features arrive, a feature is updated or
+  /// deleted, and when caught features are released, however they arrive
+  /// (streaming, polling or a store). In catch and release mode it describes
+  /// the features applied, not those held back. It identifies the features
+  /// only for client-evaluated API keys, which every client receives alike;
+  /// [FeatureHubConfig.featuresSha] gives it only for those.
+  String get featuresSha => _featuresSha;
+
+  void _updateFeaturesSha() => _featuresSha = computeSha(featureStates);
+
+  /// The SHA-256 (hex) of [features]' `id:version`s, sorted by id and joined
+  /// with `|`, as every FeatureHub SDK computes it (for example for the
+  /// Redis store's `_sha` key).
+  static String computeSha(Iterable<FeatureState> features) {
+    final sorted = [...features]..sort((a, b) => a.id.compareTo(b.id));
+    final input = sorted.map((f) => '${f.id}:${f.version}').join('|');
+    return sha256.convert(utf8.encode(input)).toString();
+  }
 
   /// Every feature change as it arrives, before catch and release handling,
   /// with its source: for stores that keep a copy of the features (see
@@ -333,6 +357,7 @@ class ClientFeatureRepository {
               _triggerNewStateAvailable();
             }
             if (source == featureHubEdgeSource) _initialStateResolved = true;
+            _updateFeaturesSha();
             _readynessState = Readyness.Ready;
             _broadcastReadynessState();
           }
@@ -345,6 +370,7 @@ class ClientFeatureRepository {
             _caughtFullSetKeys?.add(feature.key);
           } else {
             if (_featureUpdate(feature)) {
+              _updateFeaturesSha();
               _featuresChanged();
               _triggerNewStateAvailable();
             }
@@ -460,6 +486,52 @@ class ClientFeatureRepository {
     );
   }
 
+  /// The features the repository holds, with their [featuresSha], for a
+  /// server to pass on to its own clients (which load them with
+  /// [FeatureHubConfig.loadFeatureSnapshot]).
+  ///
+  /// With no [context], the features are as delivered by FeatureHub
+  /// (copies, including any rollout strategies). With a [context] (an
+  /// OpenFeature evaluation context, in map form, see
+  /// [mapEvaluationContext]), each feature's strategies are applied to it, as
+  /// FeatureHub does for a server-evaluated API key: the features have the
+  /// value for that context, no strategies, and `v` the id of the strategy
+  /// that matched (null if none did). Features without strategies are as
+  /// delivered. Value interceptors are not applied: they override values
+  /// locally, so they are not passed on.
+  ///
+  /// Throws an [InvalidContextException] if [context] holds a value
+  /// FeatureHub cannot represent.
+  FeatureSnapshot featureSnapshot({Map<String, Object?>? context}) {
+    final strategyContext = context == null
+        ? null
+        : mapEvaluationContext(context).strategyContext;
+    final features = [
+      for (final fs in featureStates)
+        strategyContext == null
+            ? fs.copyWith()
+            : _evaluatedFor(fs, strategyContext),
+    ];
+    return FeatureSnapshot(_featuresSha, features);
+  }
+
+  FeatureState _evaluatedFor(FeatureState fs, StrategyContext context) {
+    final strategies = fs.strategies;
+    if (strategies == null || strategies.isEmpty) return fs.copyWith();
+    final applied = applyFeature.apply(strategies, fs.key, fs.id, context);
+    return FeatureState(
+      id: fs.id,
+      key: fs.key,
+      l: fs.l,
+      version: fs.version,
+      type: fs.type,
+      value: applied.matched ? applied.value : fs.value,
+      v: applied.matched ? applied.strategyId : null,
+      fp: fs.fp == null ? null : Map.of(fs.fp!),
+      environmentId: fs.environmentId,
+    );
+  }
+
   /// The features currently known (excluding keys that have only been asked
   /// for), as delivered by the server.
   Iterable<FeatureState> get featureStates =>
@@ -551,7 +623,10 @@ class ClientFeatureRepository {
     if (fullSetKeys != null) {
       updated = _removeMissing(fullSetKeys) || updated;
     }
-    if (updated) _featuresChanged();
+    if (updated) {
+      _updateFeaturesSha();
+      _featuresChanged();
+    }
 
     if (disableCatchAndRelease == true) {
       _catchAndReleaseMode = false;
@@ -632,7 +707,10 @@ class ClientFeatureRepository {
   }
 
   void _deleteFeature(FeatureState feature) {
-    if (_features.remove(feature.key) != null) _featuresChanged();
+    if (_features.remove(feature.key) != null) {
+      _updateFeaturesSha();
+      _featuresChanged();
+    }
   }
 
   /// call this to clear the repository if you are swapping environments
@@ -641,6 +719,7 @@ class ClientFeatureRepository {
       f.shutdown();
     }
     _features.clear();
+    _updateFeaturesSha();
   }
 
   /// after this method is called, the repository is not usable, create a new one.

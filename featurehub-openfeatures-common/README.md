@@ -39,7 +39,11 @@ uses it to keep a copy of the features. The providers attach their `stores`
 before connecting to FeatureHub; a store loads what it holds into the
 repository with `notify(..., source: ...)` and ignores updates from its own
 source. This is the Dart equivalent of the TypeScript SDK's
-`RawUpdateFeatureListener`. Two stores are available:
+`RawUpdateFeatureListener`.
+
+Without a FeatureHub connection, `FeatureStoreTarget.host` and `apiKey`
+are null. If the features come from your own server, `featuresUrl` is set
+instead. These stores are available:
 
 - [`featurehub_openfeatures_store_localstorage`](../featurehub-openfeatures-store-localstorage):
   browser storage, for the client provider in web applications;
@@ -83,12 +87,200 @@ between users. Server-evaluated keys are intended for apps, browsers and
 batch processes. Where context switching is required, such as a server
 handling requests for different users, you must use a client-evaluated key.
 
+## Serving features from your own server
+
+A server can pass its features on to its own clients, for example a web
+application whose API gives the browser its features rather than the browser
+connecting to FeatureHub. On the server, `featureSnapshot` gives the
+features and their SHA (`repository.featuresSha`):
+
+```dart
+// in a request handler, with a client-evaluated key
+final snapshot = repository.featureSnapshot(
+  context: {'targetingKey': userId, 'country': 'nz'},
+);
+return Response.ok(jsonEncode(snapshot), headers: {'content-type': 'application/json'});
+```
+
+With a context (an OpenFeature evaluation context, as a map), each feature is
+evaluated for it as FeatureHub does for a server-evaluated key: the features
+have that context's values, no strategies, and `v` the id of the strategy
+that matched. The client only ever sees its own values. Without a context the
+features are given as they are, strategies included, so only do that for
+trusted clients. Value interceptors are not applied.
+
+On the client, give the provider a `featuresUrl` instead of a host and API
+key. A `FeatureHubConnection` with one polls, or passively refreshes, the
+features through a `FeatureSnapshotClient`. It sends the context as query
+parameters and the last `ETag` as `If-None-Match`, and loads each snapshot
+as a full set of features.
+
+To load a snapshot yourself, `FeatureHubConfig.loadFeatureSnapshot` takes
+what the server returned: the snapshot, its JSON as a map or a string, or
+just a list of features.
+
+```dart
+final response = await http.get(Uri.parse('https://my.app/api/features'));
+config.loadFeatureSnapshot(response.body);
+```
+
 Read detailed documentation on FeatureHub [here](https://docs.featurehub.io)
 
 Visit Demo FeatureHub Admin Console [here](https://demo.featurehub.io)
 
 https://user-images.githubusercontent.com/9538697/135741127-d813595c-28a4-4d5b-81f2-f754e02d584e.mov
 
+
+## Headers and proxies
+
+Every provider and `FeatureHubConnection` takes:
+
+- `headers`, sent with every request: FeatureHub polling, FeatureHub
+  streaming, and your own server's features API. Use them for an API gateway,
+  extra authentication, or tracing. In browsers, streaming uses the native
+  `EventSource`, which cannot send headers, so use polling (or your own
+  transport) if they must be sent.
+- `dio`, the `Dio` that makes the polling requests;
+- `httpClient`, the `http.Client` that makes the streaming connections
+  (`dart:io` only).
+
+Give your own clients to go through a proxy. On `dart:io`, for example:
+
+```dart
+import 'dart:io';
+
+import 'package:dio/dio.dart';
+import 'package:dio/io.dart';
+import 'package:http/io_client.dart';
+
+HttpClient proxied() => HttpClient()
+  ..findProxy = ((uri) => 'PROXY proxy.example.com:3128')
+  ..addProxyCredentials(
+    'proxy.example.com',
+    3128,
+    'corp',
+    HttpClientBasicCredentials('user', 'secret'),
+  );
+
+FeatureHubProvider(
+  host: 'https://edge.example.com',
+  apiKey: apiKey,
+  headers: {'x-gateway-key': 'abc123'},
+  dio: Dio()
+    ..httpClientAdapter = IOHttpClientAdapter(createHttpClient: proxied),
+  httpClient: IOClient(proxied()),
+);
+```
+
+Proxy credentials belong on the `HttpClient`, as above, because headers go
+to the server rather than to the proxy. `connectTimeout` only applies to
+clients the SDK creates, so set it on your own clients if you need it.
+
+## Writing your own transport
+
+[`doc/feature-snapshot-protocol.yaml`](doc/feature-snapshot-protocol.yaml)
+is a machine-readable specification of the snapshot encoding, server, client
+and transport contract, with test vectors, for implementing them in other
+languages.
+
+A transport is what fetches the features: the built-in ones stream or poll
+FeatureHub, or poll your own server. To use something else, such as
+WebSockets, another SSE client or a message queue, write a
+`FeatureHubTransport` and give the provider (or `FeatureHubConnection`) a
+`transportFactory`. It is called with a `FeatureHubTransportTarget`, which
+holds:
+
+- the `repository` to fill;
+- the settings the provider was given: `host`, `apiKey`, `featuresUrl`,
+  `mode`, `pollInterval`, `headers`, `reconnectPolicy`, the timeouts, and any
+  `dio` and `httpClient`;
+- `sendsContext`, and the context to fetch for, as `contextAttributes`
+  (`{'userkey': ['fred'], ...}`) or `contextHeader` (FeatureHub's
+  `x-featurehub` form).
+
+A transport implements four methods:
+
+| Method | What it must do |
+|---|---|
+| `start()` | Start fetching. Initialization waits, up to `waitForReady`, for the first full set of features. |
+| `contextChanged()` | If `sendsContext`, fetch the features for the new context and notify them as a full set; the provider waits for that. Otherwise do nothing. |
+| `refreshIfStale()` | Passive mode: fetch if the features are older than `pollInterval`. Called as flags are resolved. Otherwise do nothing. |
+| `close()` | Stop, and release any connections. |
+
+It gives what it receives to the repository with `notify`:
+
+| Call | When |
+|---|---|
+| `notify(SSEResultState.features, features)` | The full set of features (a `List<FeatureState>`, or their JSON). The first makes the provider ready; features missing from a later set are removed. |
+| `notify(SSEResultState.feature, feature)` | One feature added or updated. |
+| `notify(SSEResultState.deleteFeature, feature)` | One feature deleted. |
+| `notify(SSEResultState.bye, null)` | The connection was lost and is being re-established: the provider reports `stale` until features arrive again. |
+| `notify(SSEResultState.failure, null)` | The source rejected you for good (for example an invalid key): the provider reports a fatal error. Stop trying. |
+
+FeatureHub's event stream sends exactly these, as event names (`features`,
+`feature`, `delete_feature`, `bye`, `failure`) with JSON data, so a
+transport relaying them can pass each one on with
+`notify(SSEResultStateExtension.fromJson(name), jsonDecode(data))`. A
+`config` event with `{"edge.stale": true}` means the environment will not
+change again, so stop. `FeatureSnapshot.from` reads the snapshots your own
+server serves.
+
+A WebSocket transport, whose server sends `{"event": ..., "data": ...}`
+messages and is sent the context when it changes, looks like this (it is
+also a test, in `test/openfeature/custom_transport_test.dart`):
+
+```dart
+class WebSocketTransport implements FeatureHubTransport {
+  final FeatureHubTransportTarget target;
+  WebSocket? _socket;
+
+  WebSocketTransport(this.target);
+
+  @override
+  Future<void> start() async {
+    final socket = await WebSocket.connect(
+      target.featuresUrl!,
+      headers: target.headers,
+    );
+    _socket = socket;
+    socket.listen(
+      (message) {
+        final json = jsonDecode(message as String) as Map<String, dynamic>;
+        target.repository.notify(
+          SSEResultStateExtension.fromJson(json['event']),
+          json['data'],
+        );
+      },
+      onDone: () => target.repository.notify(SSEResultState.bye, null),
+    );
+    _sendContext();
+  }
+
+  void _sendContext() =>
+      _socket?.add(jsonEncode({'context': target.contextAttributes}));
+
+  @override
+  Future<void> contextChanged() async => _sendContext();
+
+  @override
+  Future<void> refreshIfStale() async {}
+
+  @override
+  Future<void> close() async => _socket?.close();
+}
+
+FeatureHubProvider(
+  featuresUrl: 'wss://my.app/features',
+  transportFactory: WebSocketTransport.new,
+);
+```
+
+Whether the context is sent depends on the API key. With a client-evaluated
+key it never is, and the strategies are evaluated locally. With a
+server-evaluated key it always is. Without a key (only a `featuresUrl`, or
+nothing), `sendContext` decides: it defaults to true for the client provider
+and false for the server provider. A production transport would also
+reconnect after a lost connection, for example using `reconnectPolicy`.
 
 ## Getting started
 

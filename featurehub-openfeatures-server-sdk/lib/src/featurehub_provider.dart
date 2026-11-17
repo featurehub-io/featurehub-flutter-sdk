@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 
+import 'package:dio/dio.dart';
 import 'package:featurehub_openfeatures_common/featurehub_openfeatures_common.dart';
 import 'package:featurehub_sse_client/featurehub_sse_client.dart'
     show ReconnectPolicy;
+import 'package:http/http.dart' as http;
 import 'package:logging/logging.dart';
 import 'package:openfeature_dart_server_sdk/evaluation_context.dart';
 import 'package:openfeature_dart_server_sdk/feature_provider.dart';
@@ -31,15 +33,55 @@ final _log = Logger('featurehub_openfeature_server');
 ///   context does change, the bundle is re-fetched for it; if that fails or
 ///   times out, resolutions use the previous context's bundle.
 ///
+/// With a [featuresUrl] instead of a host and API key, the provider never
+/// connects to FeatureHub: it polls (or passively refreshes) the features from
+/// another server's API (see [FeatureSnapshotClient]). By default no context
+/// is sent: the server gives the features with their rollout strategies, and
+/// each resolution evaluates them against its own context, as for a
+/// client-evaluated key. With [sendContext] the server evaluates them for one
+/// context, as for a server-evaluated key. With none of these the features
+/// come from the [stores] alone.
+///
 /// The OpenFeature `targetingKey` is FeatureHub's `userkey`; see
 /// [mapEvaluationContext] for how other attributes are mapped.
 class FeatureHubProvider
     implements Provider, ProviderInitialization, ProviderShutdown {
-  /// The FeatureHub Edge URL, e.g. `https://edge.example.com`.
-  final String host;
+  /// The FeatureHub Edge URL, e.g. `https://edge.example.com`, or null if
+  /// the provider does not connect to FeatureHub.
+  final String? host;
 
-  /// The environment's SDK API key.
-  final String apiKey;
+  /// The environment's SDK API key, or null if the provider does not connect
+  /// to FeatureHub.
+  final String? apiKey;
+
+  /// Another server's features API, polled instead of FeatureHub (see
+  /// [FeatureSnapshotClient]), or null.
+  final String? featuresUrl;
+
+  /// With a [featuresUrl] or a [transportFactory] (and no API key): true to
+  /// send the evaluation context, so the source evaluates the features for
+  /// it (serving a single context, as a server-evaluated key does); false
+  /// (the default) to evaluate their rollout strategies locally for each
+  /// resolution.
+  final bool sendContext;
+
+  /// Headers sent with every request, for example for a proxy, gateway or
+  /// authentication: to FeatureHub (streaming and polling) and to
+  /// [featuresUrl]. A [transportFactory]'s transport is given them too.
+  final Map<String, String> headers;
+
+  /// Makes the polling requests (to FeatureHub or [featuresUrl]), for example
+  /// configured with a proxy. By default one is created.
+  final Dio? dio;
+
+  /// Makes the streaming connections, for example configured with a proxy.
+  /// By default one is created.
+  final http.Client? httpClient;
+
+  /// Creates your own transport, replacing the built-in ones: over
+  /// WebSockets, another SSE client, or anything else (see
+  /// [FeatureHubTransport] for what it has to do).
+  final FeatureHubTransportFactory? transportFactory;
 
   final FeatureHubUpdateMode mode;
 
@@ -62,7 +104,9 @@ class FeatureHubProvider
   /// attempt that times out is retried according to [reconnectPolicy].
   final Duration? requestTimeout;
 
-  /// True if [apiKey] is client-evaluated.
+  /// True if features are evaluated locally for each context: [apiKey] is
+  /// client-evaluated, a [featuresUrl] or [transportFactory] is used without
+  /// [sendContext], or the features come from the stores alone.
   final bool clientEvaluated;
 
   /// Stores that keep a copy of the features (see [FeatureStore]),
@@ -117,13 +161,26 @@ class FeatureHubProvider
   /// is one, and otherwise streams. Polling and passive modes require a
   /// [pollInterval].
   ///
-  /// Throws an [ArgumentError] if there is no host or API key, or if the poll
-  /// interval is invalid or missing for polling. [environment] replaces the
+  /// With a [featuresUrl], the provider polls that server instead of
+  /// FeatureHub (the host and API key are then not read from the
+  /// environment), and needs a [pollInterval]. With none of these (given or
+  /// in the environment), it gets its features from [stores] alone.
+  ///
+  /// Throws an [ArgumentError] if there is a host but no API key or the
+  /// reverse, if a [featuresUrl] is given with them or with streaming, if
+  /// there is nothing to get features from, or if the poll interval is
+  /// invalid or missing for polling. [environment] replaces the
   /// process environment (for tests), and [connectionFactory] the connection
   /// to FeatureHub (for tests).
   factory FeatureHubProvider({
     String? host,
     String? apiKey,
+    String? featuresUrl,
+    bool sendContext = false,
+    Map<String, String> headers = const {},
+    Dio? dio,
+    http.Client? httpClient,
+    FeatureHubTransportFactory? transportFactory,
     FeatureHubUpdateMode? mode,
     Duration? pollInterval,
     Duration waitForReady = const Duration(seconds: 10),
@@ -143,19 +200,39 @@ class FeatureHubProvider
       return value == null || value.isEmpty ? null : value;
     }
 
-    final resolvedHost = _nonEmpty(host) ?? setting(edgeUrlVariable);
-    if (resolvedHost == null) {
+    final resolvedUrl = _nonEmpty(featuresUrl);
+    if (resolvedUrl != null &&
+        (_nonEmpty(host) != null || _nonEmpty(apiKey) != null)) {
+      throw ArgumentError(
+        'FeatureHubProvider takes a featuresUrl or a host and apiKey, not both',
+        'featuresUrl',
+      );
+    }
+    // with a featuresUrl, FeatureHub settings in the environment are ignored
+    final resolvedHost = resolvedUrl != null
+        ? null
+        : _nonEmpty(host) ?? setting(edgeUrlVariable);
+    final resolvedKey = resolvedUrl != null
+        ? null
+        : _nonEmpty(apiKey) ??
+              setting(clientApiKeyVariable) ??
+              setting(serverApiKeyVariable);
+    if (resolvedHost == null && resolvedKey == null) {
+      if (resolvedUrl == null && transportFactory == null && stores.isEmpty) {
+        throw ArgumentError(
+          'FeatureHubProvider requires a host and an apiKey (or '
+              '$edgeUrlVariable and $clientApiKeyVariable or '
+              '$serverApiKeyVariable to be set), a featuresUrl, a '
+              'transportFactory, or stores to get its features from',
+          'host',
+        );
+      }
+    } else if (resolvedHost == null) {
       throw ArgumentError(
         'FeatureHubProvider requires a host, or $edgeUrlVariable to be set',
         'host',
       );
-    }
-
-    final resolvedKey =
-        _nonEmpty(apiKey) ??
-        setting(clientApiKeyVariable) ??
-        setting(serverApiKeyVariable);
-    if (resolvedKey == null) {
+    } else if (resolvedKey == null) {
       throw ArgumentError(
         'FeatureHubProvider requires an apiKey, or $clientApiKeyVariable or '
             '$serverApiKeyVariable to be set',
@@ -180,9 +257,18 @@ class FeatureHubProvider
 
     final resolvedMode =
         mode ??
-        (interval == null
+        (interval == null && resolvedUrl == null
             ? FeatureHubUpdateMode.streaming
             : FeatureHubUpdateMode.polling);
+    if (resolvedUrl != null &&
+        transportFactory == null &&
+        resolvedMode == FeatureHubUpdateMode.streaming) {
+      throw ArgumentError(
+        'Features from a featuresUrl are polled: use the polling or passive '
+            'mode',
+        'mode',
+      );
+    }
     if (resolvedMode != FeatureHubUpdateMode.streaming && interval == null) {
       throw ArgumentError(
         '${resolvedMode.name} mode requires a pollInterval, or '
@@ -194,6 +280,12 @@ class FeatureHubProvider
     return FeatureHubProvider._(
       host: resolvedHost,
       apiKey: resolvedKey,
+      featuresUrl: resolvedUrl,
+      sendContext: sendContext,
+      headers: headers,
+      dio: dio,
+      httpClient: httpClient,
+      transportFactory: transportFactory,
       mode: resolvedMode,
       pollInterval: resolvedMode == FeatureHubUpdateMode.streaming
           ? null
@@ -212,6 +304,12 @@ class FeatureHubProvider
   FeatureHubProvider._({
     required this.host,
     required this.apiKey,
+    required this.featuresUrl,
+    required this.sendContext,
+    required this.headers,
+    required this.dio,
+    required this.httpClient,
+    required this.transportFactory,
     required this.mode,
     required this.pollInterval,
     required this.waitForReady,
@@ -222,7 +320,15 @@ class FeatureHubProvider
     required this.stores,
     required this.interceptors,
     required this._connectionFactory,
-  }) : clientEvaluated = FeatureHubConfig.isClientEvaluatedKeys([apiKey]);
+  }) : clientEvaluated = apiKey != null
+           ? FeatureHubConfig.isClientEvaluatedKeys([apiKey])
+           : featuresUrl != null || transportFactory != null
+           ? !sendContext
+           : true;
+
+  /// True if the provider connects to FeatureHub (it has a [host] and an
+  /// [apiKey]).
+  bool get connectsToFeatureHub => host != null;
 
   static String? _nonEmpty(String? value) =>
       value == null || value.trim().isEmpty ? null : value.trim();
@@ -297,6 +403,12 @@ class FeatureHubProvider
         FeatureHubConnection(
           host: host,
           apiKey: apiKey,
+          featuresUrl: featuresUrl,
+          sendContext: sendContext,
+          headers: headers,
+          dio: dio,
+          httpClient: httpClient,
+          transportFactory: transportFactory,
           mode: mode,
           // only used when polling, which always has an interval
           pollInterval: pollInterval ?? Duration.zero,
@@ -317,6 +429,7 @@ class FeatureHubProvider
             repository: connection.repository,
             host: host,
             apiKey: apiKey,
+            featuresUrl: featuresUrl,
           ),
         );
       } catch (e, s) {
@@ -330,8 +443,9 @@ class FeatureHubProvider
     if (readiness != Readyness.Ready) {
       final fatal = readiness == Readyness.Failed;
       final message = fatal
-          ? 'FeatureHub rejected the API key, or the environment does not exist.'
-          : 'FeatureHub did not become ready within $waitForReady.';
+          ? _rejected(connection)
+          : '${connection.sourceDescription} did not become ready within '
+                '$waitForReady.';
       _emit(
         ProviderLifecycleEventType.PROVIDER_ERROR,
         message,
@@ -363,7 +477,7 @@ class FeatureHubProvider
         _ready = false;
         _emit(
           ProviderLifecycleEventType.PROVIDER_ERROR,
-          'FeatureHub rejected the API key, or the environment no longer exists',
+          _rejected(connection),
           errorCode: ErrorCode.PROVIDER_FATAL,
         );
       },
@@ -374,6 +488,11 @@ class FeatureHubProvider
       ),
     );
   }
+
+  static String _rejected(FeatureHubConnection connection) =>
+      connection.connectsToFeatureHub
+      ? 'FeatureHub rejected the API key, or the environment does not exist.'
+      : '${connection.sourceDescription} rejected the request.';
 
   Future<void> _closeStores() async {
     for (final store in stores) {

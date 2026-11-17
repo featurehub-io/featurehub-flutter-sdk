@@ -50,6 +50,45 @@ See [`example/main.dart`](example/main.dart).
   strategies, which are evaluated locally, so a context change needs no
   network request.
 
+## Features from your own server
+
+Give a `featuresUrl` instead of `host` and `apiKey`, and the provider gets
+its features from your own server's API rather than from FeatureHub. The
+server SDK's [example](../featurehub-openfeatures-server-sdk/example/main.dart)
+serves that API from `GET /features`. The server evaluates the features for
+the application's context, so neither a FeatureHub key nor the rollout
+strategies reach the device:
+
+```dart
+await api.setProviderAndWait(
+  FeatureHubProvider(
+    featuresUrl: 'https://my.app/api/features',
+    pollInterval: const Duration(seconds: 30),
+  ),
+);
+```
+
+- The context is sent as query parameters: `userkey` (OpenFeature's
+  `targetingKey`), then the other attributes. A list becomes a repeated
+  parameter.
+- The provider polls every `pollInterval`, or with
+  `mode: FeatureHubUpdateMode.passive` refreshes when a flag is read once the
+  features are older than that. Streaming isn't available. Each request
+  sends the last `ETag` as `If-None-Match`, so the server can answer `304`.
+- When the context changes the provider reports `reconciling`, fetches the
+  features for the new context, then reports `contextChanged`, as for a
+  server-evaluated key.
+- `headers` are sent with each request, for example for authentication.
+  A 4xx response other than 408 or 429 is treated as a rejection: the
+  provider reports `providerFatal` and stops polling.
+- With `sendContext: false` no context is sent. The server must then serve
+  the features with their strategies, which are evaluated locally.
+- A server on another origin must allow the `If-None-Match` header in its
+  CORS preflight and expose the `ETag` header. The example does both.
+
+Without a `host`, `apiKey` or `featuresUrl`, the provider gets its features
+from its `stores` alone (it needs at least one).
+
 ## Evaluation context, resolution and events
 
 These are the same as for the server provider: see its
@@ -71,6 +110,15 @@ Events are `ready`, `configurationChanged` (with the changed flag keys),
 | `interceptors` | none | value interceptors that supply feature values in place of FeatureHub's (see `ValueInterceptor`), overriding locked features too: e.g. `LocalYamlValueInterceptor` from `featurehub_openfeatures_yaml_interceptor`, for local overrides during development |
 | `catchAndReleaseMode` | false | hold feature updates back until `release()` is called; takes effect once the initial features have arrived, so it can be set at creation. Released changes are announced as configuration changed events |
 | `requestTimeout` | none | how long a polling request may take, or how long a streaming connection attempt waits for the stream to open (an attempt that times out is retried under `reconnectPolicy`) |
+| `headers` | none | sent with every request: FeatureHub polling and streaming (not in browsers, whose `EventSource` cannot send headers) and `featuresUrl`; for a gateway, extra authentication or tracing |
+| `dio` | created | the `Dio` for polling, e.g. one configured with a proxy |
+| `httpClient` | created | the `http.Client` for streaming on Android and iOS, e.g. one configured with a proxy |
+| `transportFactory` | none | your own transport (WebSockets, another SSE client, ...) in place of the built-in ones |
+| `featuresUrl`, `sendContext` | none, true | poll your own server instead of FeatureHub (see above) |
+
+See the common package's README for
+[headers and proxies](../featurehub-openfeatures-common/README.md#headers-and-proxies)
+and [writing your own transport](../featurehub-openfeatures-common/README.md#writing-your-own-transport).
 
 ## Web
 

@@ -1,0 +1,534 @@
+# FeatureHub feature snapshots and transports: a machine-readable specification.
+#
+# Describes, precisely enough to reimplement in another language:
+#   1. the encoding (FeatureState, FeatureSnapshot, the SHA, the ETag);
+#   2. the snapshot server (your own server re-serving FeatureHub features);
+#   3. the snapshot client (polling / passive refresh with If-None-Match);
+#   4. the transport contract (how any source fills a feature repository);
+#   5. how providers choose and wire a transport.
+#
+# Reference implementation: the Dart SDK in this repository,
+#   featurehub-openfeatures-common (lib/src/feature_snapshot.dart,
+#   lib/src/repository.dart, lib/src/openfeature/feature_snapshot_client.dart,
+#   lib/src/openfeature/featurehub_transport.dart,
+#   lib/src/openfeature/featurehub_connection.dart,
+#   lib/src/openfeature/context_mapper.dart), and the server example
+#   featurehub-openfeatures-server-sdk/example/main.dart (GET /features).
+#
+# Conventions: MUST / SHOULD / MAY as in RFC 2119. "repository" is the local
+# in-memory store of features that resolutions read from. Everything marked
+# `reference_behaviour` is what the Dart SDK does; implementations SHOULD match
+# it so clients and servers in different languages interoperate.
+
+spec:
+  name: featurehub-feature-snapshot
+  version: 1.0.0
+  status: implemented-in-dart
+  related:
+    featurehub_edge_sse_events: FeatureHub Edge's own SSE stream (event names reused, see transport.relaying_featurehub_events)
+    strategy_evaluation: >-
+      Rollout strategy evaluation is FeatureHub's standard algorithm (murmur3
+      percentage rollouts; STRING, NUMBER, DATE, DATETIME, SEMANTIC_VERSION,
+      IP_ADDRESS, BOOLEAN matchers). It is not re-specified here. Reference:
+      featurehub-openfeatures-common/lib/src/strategy/ (a port of the TypeScript
+      SDK), with 4,007 golden cases in test/strategy/fixtures/typescript_golden.json.
+
+# ---------------------------------------------------------------------------
+# 1. Encoding
+# ---------------------------------------------------------------------------
+encoding:
+  media_type: application/json
+  charset: utf-8
+
+  feature_state:
+    description: >-
+      One feature, as FeatureHub Edge delivers it. The same JSON object is used
+      on FeatureHub's own API, in snapshots, and in transport notifications.
+    json_schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: featurehub/feature-state
+      type: object
+      required: [id, key, version, type]
+      properties:
+        id: {type: string, description: "Feature value id. Unique per feature; used for sorting in the SHA."}
+        key: {type: string, description: "Feature key, as used by code."}
+        l: {type: boolean, default: false, description: "Locked in its environment."}
+        version: {type: integer, description: "Increases whenever the feature changes in FeatureHub. Decoders MUST accept a JSON number and truncate to integer."}
+        type: {enum: [BOOLEAN, STRING, NUMBER, JSON]}
+        value:
+          description: >-
+            Absent or null = no value (resolves to the code default). BOOLEAN:
+            boolean. STRING: string. NUMBER: number. JSON: a string holding JSON
+            text (not a nested object).
+        v: {type: [string, "null"], description: "Id of the rollout strategy that supplied `value` (server-evaluated or snapshot-evaluated features); null/absent if the default value applies."}
+        fp: {type: object, additionalProperties: {type: string}, description: "Feature properties (string to string). Optional."}
+        environmentId: {type: string, description: "Optional."}
+        strategies:
+          type: array
+          description: "Rollout strategies, in evaluation order. Present only when the receiver is to evaluate locally (client-evaluated keys, or a raw snapshot)."
+          items: {$ref: "featurehub/rollout-strategy"}
+      additionalProperties: true
+    encoding_rules:
+      - Encoders SHOULD omit `value`, `v`, `fp`, `environmentId` and `strategies` when null (the Dart encoder does).
+      - Encoders MUST always write `id`, `key`, `l`, `version`, `type`.
+      - Decoders MUST ignore unknown properties.
+
+  rollout_strategy:
+    json_schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: featurehub/rollout-strategy
+      type: object
+      required: [id, attributes]
+      properties:
+        id: {type: string}
+        value: {description: "The value given when this strategy matches (same typing rules as feature_state.value)."}
+        percentage: {type: integer, description: "Optional percentage rollout, as FeatureHub encodes it."}
+        percentageAttributes: {type: array, items: {type: string}, default: []}
+        attributes:
+          type: array
+          items:
+            type: object
+            required: [conditional, fieldName, type]
+            properties:
+              id: {type: string}
+              conditional: {enum: [EQUALS, ENDS_WITH, STARTS_WITH, GREATER, GREATER_EQUALS, LESS, LESS_EQUALS, NOT_EQUALS, INCLUDES, EXCLUDES, REGEX]}
+              fieldName: {type: string}
+              values: {type: array, default: []}
+              type: {enum: [STRING, SEMANTIC_VERSION, NUMBER, DATE, DATETIME, BOOLEAN, IP_ADDRESS]}
+
+  feature_snapshot:
+    description: >-
+      The features a repository holds plus their SHA, as served by a snapshot
+      server and read by a snapshot client.
+    json_schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: featurehub/feature-snapshot
+      type: object
+      required: [features]
+      properties:
+        sha: {type: string, pattern: "^[0-9a-f]{64}$", description: "See encoding.sha. Optional on input (computed if absent)."}
+        features: {type: array, items: {$ref: "featurehub/feature-state"}}
+    example:
+      sha: 90efe21f27585227b23a9782d8aabd8b5139cda839df1a0b8b60fe4c6673c9fd
+      features:
+        - {id: f1, key: FEATURE_STRING, l: false, version: 2, type: STRING, value: green, v: nz, environmentId: env}
+        - {id: f2, key: FEATURE_TITLE_TO_UPPERCASE, l: false, version: 1, type: BOOLEAN, value: true, environmentId: env}
+    decoding:
+      description: >-
+        A reader (Dart: FeatureSnapshot.from) MUST accept any of these inputs and
+        fail with a format error otherwise, leaving the repository unchanged:
+      accepted_inputs:
+        - an already-decoded snapshot object
+        - a JSON string (decoded first; invalid JSON is a format error)
+        - an object/map with `features` (an array) and optional `sha`; if `sha` is absent or not a string it is computed from the features
+        - a bare array of features; the sha is computed
+      errors:
+        - "`features` missing or not an array"
+        - "any element is not a decodable feature_state (missing id/key/version/type, or bad type)"
+        - "anything else (number, null, HTML, ...)"
+
+  sha:
+    description: >-
+      Identifies a set of features by their ids and versions only (not values).
+      Every FeatureHub SDK computes it the same way (the Redis store keys and the
+      snapshot ETag use it).
+    algorithm:
+      - take the features (the repository's current features; keys that code has only asked for, with no feature, are excluded)
+      - sort by `id`, ascending, by plain string comparison (UTF-16 code unit order; equal to code point order for BMP ids)
+      - map each to "<id>:<version>" (version as a base-10 integer)
+      - join with "|"
+      - SHA-256 of the UTF-8 bytes, as 64 lowercase hex characters
+    when_recomputed: >-
+      The repository recomputes it after every applied change: a full set of
+      features, a single feature update, a delete, a catch-and-release release,
+      and clearing the features. In catch-and-release mode it describes the
+      applied features, not those held back.
+    test_vectors:
+      - features: []
+        input: ""
+        sha: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+      - features: [{id: only, version: 0}]
+        input: "only:0"
+        sha: 03a55f20ac287349c236160cf813e321e0084e7c2cdef7cabf43374a85a971a8
+      - features:
+          - {id: f3c1a2b4-1d2e-4c5b-9a8b-7c6d5e4f3a2b, version: 3}
+          - {id: 0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d, version: 12}
+          - {id: a0000000-0000-4000-8000-000000000000, version: 1}
+        input: "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d:12|a0000000-0000-4000-8000-000000000000:1|f3c1a2b4-1d2e-4c5b-9a8b-7c6d5e4f3a2b:3"
+        sha: ffef4b48076b58be67b0abe8baa76b13915242208613701a2d3a8328e3eb4ef1
+      - features: [{id: f1, version: 2}, {id: f2, version: 1}]
+        input: "f1:2|f2:1"
+        sha: 90efe21f27585227b23a9782d8aabd8b5139cda839df1a0b8b60fe4c6673c9fd
+
+  etag:
+    format: 'the SHA in double quotes: "<sha>"  (a strong entity tag)'
+    example: '"90efe21f27585227b23a9782d8aabd8b5139cda839df1a0b8b60fe4c6673c9fd"'
+    why_valid_per_url: >-
+      The SHA covers ids and versions only, so different contexts get the same
+      ETag. This is still a correct validator because the context is in the
+      URL (query parameters) and HTTP caches/clients validate per URL, and the
+      evaluated values for a fixed context only change when a feature's
+      version changes (which changes the SHA). If a context were ever carried
+      in a header instead of the URL, the ETag MUST also incorporate the
+      context.
+
+  evaluation_context:
+    description: >-
+      How an OpenFeature evaluation context (a map, targeting key under
+      `targetingKey`) becomes FeatureHub attributes (Dart: mapEvaluationContext,
+      MappedContext).
+    rules:
+      - entries with a null value are skipped
+      - "`targetingKey` or `userkey` (case-insensitive) becomes `userkey`; its value is stringified (see wire_value)"
+      - "the well-known keys email, device, platform, version, country, session are recognised case-insensitively and written lowercase"
+      - any other key passes through unchanged (case preserved)
+      - "allowed values: string, number, boolean, date-time, or a list of those"
+      - "any other value (an object, or a list containing one) is an invalid context: server -> 400; client provider -> INVALID_CONTEXT error"
+      - "attribute order: userkey first, then the others in input order"
+    wire_value:
+      description: How each attribute value becomes a string when sent (query parameter or x-featurehub header).
+      rules:
+        - "date-time: UTC ISO-8601 (e.g. 2026-11-17T02:47:28.000Z)"
+        - "number: JavaScript String(n) - whole floats without a fraction (3.0 -> \"3\"), NaN -> \"NaN\", Infinity -> \"Infinity\""
+        - "boolean: \"true\" / \"false\""
+        - "string: as is"
+        - "list: one string per element (each element by the rules above)"
+    x_featurehub_header:
+      description: >-
+        FeatureHub's server-evaluated context header (also the `xfeaturehub`
+        query parameter for browser SSE). Not used by the snapshot client, but
+        exposed to custom transports as FeatureHubTransportTarget.contextHeader.
+      format: >-
+        for each attribute: "<key>=" + query-component-encode(values joined by ",");
+        sort these strings; join with ","; no attributes -> no header.
+      example: "country=nz,userkey=fred"
+
+# ---------------------------------------------------------------------------
+# 2. Snapshot server
+# ---------------------------------------------------------------------------
+server:
+  description: >-
+    Your own server, connected to FeatureHub (normally with a client-evaluated
+    API key, so it holds every strategy), re-serving features to its own
+    clients. Reference: GET /features in
+    featurehub-openfeatures-server-sdk/example/main.dart, using
+    ClientFeatureRepository.featureSnapshot.
+  endpoint:
+    method: GET
+    path: /features   # any path; clients are configured with the full URL
+    request:
+      query_parameters:
+        description: >-
+          The evaluation context. Each distinct name is an attribute; a name
+          given once is a string, a name repeated is a list of strings. All
+          values arrive as strings. `targetingKey` or `userkey` is the user key.
+          Decode both "+" and "%20" as space.
+        example: "/features?userkey=fred&country=nz&tags=a&tags=b"
+        resulting_context: {userkey: fred, country: nz, tags: [a, b]}
+      headers:
+        If-None-Match: optional; see conditional_requests
+        Accept: application/json (clients send it; servers MAY ignore)
+    conditional_requests:
+      etag: 'encoding.etag of the repository SHA at request time'
+      if_none_match_matching:
+        - split the header value on ","
+        - trim each tag
+        - strip a leading "W/" (weak comparison)
+        - it matches if any tag is "*" or equals the current ETag exactly (quotes included)
+      on_match: '304 Not Modified, empty body, headers ETag and Cache-Control: no-cache'
+      check_order: the If-None-Match check MAY happen before evaluating the context (the reference does it first)
+    evaluation:
+      with_context:
+        description: >-
+          Used whenever the server evaluates for the request (the reference
+          does so for every request, an empty query being an empty context).
+          The result is exactly what FeatureHub Edge would send for a
+          server-evaluated key.
+        per_feature:
+          - "if the feature has no strategies (absent or empty): output a copy as is, keeping its `v`"
+          - "otherwise apply the strategies, in order, to the context (spec.related.strategy_evaluation)"
+          - "output: id, key, l, version, type, fp (copy), environmentId unchanged; value = matched strategy's value, else the feature's value; v = matched strategy's id, else null; strategies omitted"
+      without_context:
+        description: >-
+          "As delivered": deep copies with strategies, for clients that
+          evaluate locally (e.g. a server provider using sendContext=false).
+          Exposes every strategy and its values: only serve this to trusted
+          clients.
+      value_interceptors: not applied (local overrides stay local)
+      sha: the repository SHA when the snapshot is taken (covers all features, unaffected by the context)
+    responses:
+      - status: 200
+        when: features served
+        headers: {Content-Type: application/json, ETag: '"<sha>"', Cache-Control: no-cache}
+        body: encoding.feature_snapshot
+      - status: 304
+        when: If-None-Match matches
+        headers: {ETag: '"<sha>"', Cache-Control: no-cache}
+      - status: 400
+        when: invalid context (encoding.evaluation_context rules)
+        body: text message
+      - status: 503
+        when: the server has no features yet (its own FeatureHub connection is not initialised)
+      - status: "401/403/404 or other 4xx"
+        when: server-specific rejections; clients treat these as permanent (see client.responses)
+    cors:
+      description: Needed when browser clients on another origin call it.
+      requirements:
+        - answer the OPTIONS preflight (If-None-Match and any custom headers are not CORS-safelisted, so browsers preflight)
+        - "Access-Control-Allow-Origin: * (or the origin)"
+        - "Access-Control-Allow-Headers: *, or at least if-none-match plus any custom headers"
+        - "Access-Control-Expose-Headers: ETag (so script can read it)"
+  server_api_key_warning: >-
+    With a server-evaluated FeatureHub key the server's repository holds one
+    context's evaluated features (no strategies), so every client would get
+    that one context's values. Use a client-evaluated key on the server.
+  open_question: >-
+    The reference example always evaluates (no query = empty context = default
+    values). Clients that evaluate locally (sendContext=false, the server
+    provider's default) need the without_context form. Undecided whether that
+    should be served when the query is empty, or from a separate endpoint.
+
+# ---------------------------------------------------------------------------
+# 3. Snapshot client
+# ---------------------------------------------------------------------------
+client:
+  description: >-
+    Fetches snapshots from the server and loads them into a repository.
+    Reference: FeatureSnapshotClient, driven by the polling transport in
+    featurehub_connection.dart.
+  configuration:
+    url: {required: true, description: "Full URL of the endpoint; may already have query parameters."}
+    send_context: {default: "true for app/browser (client) providers, false for server providers", description: "Send the repository's context as query parameters."}
+    headers: {default: {}, description: "Sent with every request (gateway keys, auth, tracing)."}
+    interval: {description: "Poll interval; also how long a response stays fresh."}
+    request_timeout: {default: none, description: "Whole-request limit; exceeding it is an error (retried)."}
+    connect_timeout: {default: none, description: "Only for an HTTP client the SDK creates."}
+    http_client: {default: created, description: "Injectable (e.g. configured with a proxy)."}
+  request:
+    url_construction:
+      - if send_context is false, or the context has no attributes, use url unchanged (no trailing "?")
+      - "otherwise: the url's existing query parameters, then the context attributes (map of name -> list of strings, see encoding.evaluation_context), each list value as a repeated parameter; a context attribute replaces a same-named url parameter"
+    example:
+      url: https://my.app/api/features?app=web
+      context: {targetingKey: fred, country: nz, tags: [a, b]}
+      request: https://my.app/api/features?app=web&userkey=fred&country=nz&tags=a&tags=b
+    headers:
+      Accept: application/json
+      "<custom headers>": from configuration.headers
+      If-None-Match: 'the stored ETag, only if it was stored for exactly this request URL; otherwise omitted'
+    freshness:
+      - "record started = now before sending"
+      - "an unforced request is skipped while now < next_allowed"
+      - "after a 200 or 304: next_allowed = started + interval (from the request start, not the response, so a poll every interval is never skipped as fresh)"
+  responses:
+    - status: 200
+      action:
+        - decode with encoding.feature_snapshot.decoding (a format error is an error, retried)
+        - "if the request URL (i.e. the context) changed while waiting, discard the response"
+        - "store etag = response ETag header, or '\"' + snapshot.sha + '\"' if absent; remember the URL it belongs to"
+        - "notify(features, snapshot.features) - a full set (transport.notifications)"
+    - status: 304
+      action: no change; update next_allowed
+    - status: "4xx except 408 and 429"
+      action: "permanent rejection: mark dead (no further requests), notify(failure)"
+    - status: "anything else (5xx, 408, 429), network error, timeout"
+      action: raise an error; the caller logs it and a later request retries
+  browser_notes: >-
+    Browsers pass author-set If-None-Match through and deliver a 304 to script
+    (verified in Chrome). A client MUST also cope with a 200 served from the
+    browser cache.
+
+# ---------------------------------------------------------------------------
+# 4. Polling / passive scheduling (shared by FeatureHub polling and snapshots)
+# ---------------------------------------------------------------------------
+polling_transport:
+  serialisation: one request at a time; a forced request waits for the one in flight
+  start:
+    - "if the repository is already ready (e.g. loaded from a store): request in the background; else await the first request"
+    - "then, in polling mode, schedule the next poll"
+  polling_mode:
+    schedule: >-
+      After each poll finishes, wait max(interval, next_allowed - now)
+      (next_allowed may be later if the server's Cache-Control max-age asks
+      for it), then make a forced request, then schedule again. Stop when
+      closed or dead. A fixed periodic timer MUST NOT be used with an
+      unforced freshness check: the tick lands microseconds inside the window
+      and every other poll is skipped.
+  passive_mode:
+    refresh_if_stale: >-
+      Called as flags are resolved (the server provider awaits it before each
+      resolution; the app provider fires it without waiting, resolution being
+      synchronous). Makes an unforced request.
+    failure_backoff: after a failed request, no unforced request until now + interval
+  context_changed: a forced request (fetches for the new context immediately)
+  errors: logged; the next poll or refresh retries
+
+# ---------------------------------------------------------------------------
+# 5. The repository side (what notify must do)
+# ---------------------------------------------------------------------------
+repository:
+  readiness: {initial: NotReady, values: [NotReady, Ready, Failed]}
+  notifications:
+    features:
+      payload: list of feature_state (objects or JSON)
+      semantics:
+        - apply each feature with the update rule below
+        - remove every held feature whose key is not in the set (keys only asked for by code, with no feature, are kept)
+        - readiness becomes Ready and is broadcast (every time, so waiters for "the next ready" wake up)
+        - recompute the SHA
+    feature:
+      payload: one feature_state
+      semantics: apply with the update rule; recompute the SHA if applied
+    deleteFeature:
+      payload: one feature_state (only key/id needed)
+      semantics: remove it (and any held-back catch-and-release update for it); recompute the SHA
+    bye:
+      semantics: readiness NotReady (providers report STALE)
+    failure:
+      semantics: readiness Failed (providers report a fatal error)
+  update_rule: >-
+    Reject an incoming feature if the held one has a higher version, or the
+    same version and the same value, v, id and type. Otherwise replace it.
+    (Same-version replacement is needed because a server-evaluated feature
+    changes value/v without a version change when the context changes, and
+    a stored/local feature may differ in id or type.)
+
+# ---------------------------------------------------------------------------
+# 6. Transport contract (pluggable sources: WebSockets, other SSE clients, ...)
+# ---------------------------------------------------------------------------
+transport:
+  description: >-
+    A transport moves features from any source into the repository. The
+    built-in ones are FeatureHub streaming (SSE), FeatureHub polling, and the
+    snapshot client. A user-supplied factory replaces them.
+  factory: "transportFactory(target: FeatureHubTransportTarget) -> FeatureHubTransport"
+  target_fields:
+    repository: the repository to notify
+    host: FeatureHub Edge URL, if configured
+    apiKey: FeatureHub API key, if configured
+    featuresUrl: your own server's URL, if configured
+    mode: "streaming | polling | passive"
+    pollInterval: duration
+    headers: map to send with every request
+    reconnectPolicy: reconnection delays (FeatureHub SSE semantics)
+    connectTimeout: duration or none
+    requestTimeout: duration or none
+    dio: the configured HTTP client for requests, if supplied
+    httpClient: the configured HTTP client for streaming, if supplied
+    sendsContext: true if the source must be told the context (it returns features evaluated for it)
+    contextAttributes: "derived: map name -> list of strings of the current context; empty if not sendsContext"
+    contextHeader: "derived: encoding.evaluation_context.x_featurehub_header of the current context; null if not sendsContext or no attributes"
+  methods:
+    start:
+      must: begin fetching; give the first full set via notify(features)
+      returns: may complete before features arrive; initialisation waits (up to waitForReady) for readiness
+    contextChanged:
+      called: only when sendsContext, after the repository's context has been replaced
+      must: fetch for the new context and notify a full set; the caller waits (up to its timeout) for the next readiness notification
+    refreshIfStale:
+      called: passive mode, on resolution
+      must: fetch if older than pollInterval; otherwise do nothing (a no-op is fine for push transports)
+    close:
+      must: stop and release connections
+  notifications:   # the only calls a transport needs to make
+    - {call: "notify(features, list)", when: "a full set; the first makes the provider ready"}
+    - {call: "notify(feature, one)", when: one feature added or updated}
+    - {call: "notify(deleteFeature, one)", when: one feature deleted}
+    - {call: "notify(bye, null)", when: "connection lost, being re-established (provider reports STALE until features arrive)"}
+    - {call: "notify(failure, null)", when: "permanently rejected, e.g. invalid key (provider reports fatal); stop trying"}
+  relaying_featurehub_events:
+    description: >-
+      FeatureHub Edge's SSE stream uses these event names with JSON `data:`;
+      a transport carrying them verbatim maps name -> notification and passes
+      the decoded data.
+    event_names:
+      ack: ignore
+      bye: bye
+      failure: failure
+      features: features
+      feature: feature
+      delete_feature: deleteFeature
+      config: 'not a repository event: data {"edge.stale": true} means the environment will never change again; stop'
+      error: ignore
+  example_websocket_protocol:
+    description: >-
+      The protocol used by the reference test
+      (featurehub-openfeatures-common/test/openfeature/custom_transport_test.dart);
+      any protocol works, this is an illustration.
+    connect: "WebSocket to featuresUrl, sending target.headers"
+    server_to_client: '{"event": "<event name>", "data": <JSON payload>}'
+    client_to_server_on_start_and_context_change: '{"context": {"userkey": ["fred"], ...}}'
+    on_socket_closed: notify(bye)
+
+# ---------------------------------------------------------------------------
+# 7. Provider wiring
+# ---------------------------------------------------------------------------
+providers:
+  source_selection:
+    - {given: "host + apiKey", transport: "FeatureHub streaming (default) or polling/passive"}
+    - {given: "featuresUrl", transport: "snapshot client, polling (default) or passive; streaming is an error unless a transportFactory is given"}
+    - {given: "transportFactory", transport: "the custom transport (it may use any of host, apiKey, featuresUrl)"}
+    - {given: "only stores", transport: "none; features come from stores"}
+  validation_errors:
+    - only one of host/apiKey given (empty strings count as not given)
+    - featuresUrl together with host or apiKey
+    - featuresUrl with streaming and no transportFactory
+    - "nothing to get features from (no host+apiKey, featuresUrl, transportFactory or stores)"
+    - "server provider: polling/passive without a pollInterval"
+  local_evaluation_rule:
+    description: Whether resolutions evaluate strategies locally (clientEvaluated) or the source is sent the context (sendsContext = !clientEvaluated).
+    rules:
+      - "apiKey given: clientEvaluated = the key contains '*'"
+      - "else featuresUrl or transportFactory given: clientEvaluated = !sendContext"
+      - "else (stores only): clientEvaluated = true"
+  context_change:
+    when_sends_context: >-
+      Map the new context; if its x-featurehub form equals the current one do
+      nothing; otherwise report RECONCILING (app provider), replace the
+      repository's context, call transport.contextChanged, wait (up to
+      waitForReady) for the next readiness notification, then report
+      CONTEXT_CHANGED (or a fatal error if Failed). The server provider does
+      this per resolution, serialised, so it serves one context at a time.
+    when_local: nothing to fetch; each resolution evaluates against its own context
+  events:
+    - {on: "first readiness within waitForReady", event: READY}
+    - {on: "not ready within waitForReady", event: "ERROR (GENERAL): '<source> did not become ready within <waitForReady>'"}
+    - {on: "Failed", event: "ERROR (PROVIDER_FATAL)"}
+    - {on: "bye after ready", event: STALE, then READY when features arrive}
+    - {on: "applied changes that alter a feature's version, or remove/add one", event: "CONFIGURATION_CHANGED with the changed keys"}
+  headers_and_clients:
+    headers: sent by every built-in transport (except browser SSE, whose EventSource cannot send headers; a warning is logged) and given to custom transports
+    proxy: >-
+      Supply HTTP clients configured with a proxy. Proxy credentials belong on
+      the HTTP client (e.g. proxy credentials API), not in `headers`, which go
+      to the origin server.
+
+# ---------------------------------------------------------------------------
+# 8. Conformance checks (each is a test in the reference implementation)
+# ---------------------------------------------------------------------------
+conformance:
+  - id: sha-vectors
+    check: encoding.sha.test_vectors all reproduce
+  - id: snapshot-roundtrip
+    check: "decode(encode(snapshot)) loads the same features; the client's repository SHA equals the server's"
+  - id: evaluate-for-context
+    given: "feature colour, value blue, strategy nz (country EQUALS nz) -> green"
+    expect:
+      "country=nz": {value: green, v: nz, strategies: absent}
+      "country=au": {value: blue, v: null}
+  - id: conditional-304
+    check: "a request with If-None-Match equal to the ETag (alone, as W/\"...\", or in a comma list) gets 304; another tag gets 200"
+  - id: client-if-none-match-per-url
+    check: "after a context change the first request carries no If-None-Match"
+  - id: client-discards-stale-context
+    check: "a response that arrives after the context changed is not loaded"
+  - id: client-rejection
+    check: "401 marks the client dead, notifies failure, and stops polling"
+  - id: client-retry
+    check: "500 leaves the repository not ready; the next poll succeeds"
+  - id: polling-every-interval
+    check: "with a 1s interval, 4 requests are made in 3.5s (initial + 3)"
+  - id: passive
+    check: "refreshIfStale fetches only after the interval; no requests of its own otherwise"
+  - id: custom-transport
+    check: "a user transport fills the repository, follows a context change, applies pushed updates, and a closed connection makes the repository NotReady"

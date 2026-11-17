@@ -10,7 +10,6 @@ platforms:
   macos:
   windows:
 dependencies:
-  crypto: ^3.0.6
   featurehub_client_api:
     path: ../featurehub-client-api
   featurehub_openfeatures_common:

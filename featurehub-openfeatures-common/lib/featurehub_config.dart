@@ -24,9 +24,16 @@ class FeatureHubConfig {
   /// waits indefinitely.
   final Duration? requestTimeout;
 
+  /// Headers sent with every request, for example for a proxy or gateway.
+  final Map<String, String> headers;
+
   /// [timeout] is the polling interval in seconds. [connectTimeout] limits how
   /// long establishing a connection may take, and [requestTimeout] how long a
   /// whole request may take; both default to waiting indefinitely.
+  ///
+  /// [dio] makes the requests, for example one configured with a proxy; by
+  /// default one is created with [connectTimeout] (which does not apply to a
+  /// [dio] given).
   FeatureHubConfig(
     String host,
     this._apiKeys,
@@ -34,17 +41,20 @@ class FeatureHubConfig {
     int timeout = 360,
     Duration? connectTimeout,
     this.requestTimeout,
+    this.headers = const {},
+    Dio? dio,
   }) : _clientEvaluated = isClientEvaluatedKeys(_apiKeys),
        _api = FeatureServiceApi(
          ApiClient(
            basePath: host,
            apiClientDelegate: DioClientDelegate(
-             Dio(
-               BaseOptions(
-                 connectTimeout: connectTimeout,
-                 receiveTimeout: requestTimeout,
-               ),
-             ),
+             dio ??
+                 Dio(
+                   BaseOptions(
+                     connectTimeout: connectTimeout,
+                     receiveTimeout: requestTimeout,
+                   ),
+                 ),
            ),
          ),
        ),
@@ -65,6 +75,12 @@ class FeatureHubConfig {
   /// each feature's rollout strategies and they are evaluated locally.
   bool get clientEvaluated => _clientEvaluated;
 
+  /// For client-evaluated API keys, the repository's
+  /// [ClientFeatureRepository.featuresSha]: the SHA-256 of its features,
+  /// computed again on every update. Null for server-evaluated keys, whose
+  /// features differ by context.
+  String? get featuresSha => _clientEvaluated ? _repository.featuresSha : null;
+
   /// True if [apiKeys] are client-evaluated keys. Throws an [ArgumentError] if
   /// client- and server-evaluated keys are mixed.
   static bool isClientEvaluatedKeys(List<String> apiKeys) {
@@ -77,6 +93,22 @@ class FeatureHubConfig {
       );
     }
     return clientEvaluated != 0;
+  }
+
+  /// Loads the features in [data] into the repository, as a full set from
+  /// FeatureHub (features not in it are removed): for a client that gets its
+  /// features from its own server rather than from FeatureHub, for example a
+  /// browser calling a web application's API that returns
+  /// [ClientFeatureRepository.featureSnapshot].
+  ///
+  /// [data] is a [FeatureSnapshot], its JSON form (a map or a JSON string),
+  /// or a list of features (as [FeatureState]s or their JSON). Returns the
+  /// snapshot loaded. Throws a [FormatException] if [data] is none of these,
+  /// leaving the repository unchanged.
+  FeatureSnapshot loadFeatureSnapshot(dynamic data) {
+    final snapshot = FeatureSnapshot.from(data);
+    _repository.notify(SSEResultState.features, snapshot.features);
+    return snapshot;
   }
 
   bool get isConnectionDead => _deadConnection;
@@ -119,7 +151,12 @@ class FeatureHubConfig {
     }
   }
 
-  Future<void> decodeResponse(ApiResponse response) async {
+  /// Loads the features in [response]. The next poll is allowed the timeout
+  /// after [requestedAt] (when the request was made; by default now).
+  Future<void> decodeResponse(
+    ApiResponse response, {
+    DateTime? requestedAt,
+  }) async {
     if (response.statusCode == 200 || response.statusCode == 236) {
       checkForCacheControl(response);
 
@@ -139,8 +176,11 @@ class FeatureHubConfig {
       _rejected(response.statusCode);
     }
 
+    // from when the request was made, so a poll every timeout is allowed
     if (_timeoutInSeconds > 0) {
-      _cacheTimeout = DateTime.now().add(Duration(seconds: _timeoutInSeconds));
+      _cacheTimeout = (requestedAt ?? DateTime.now()).add(
+        Duration(seconds: _timeoutInSeconds),
+      );
     }
   }
 
@@ -170,15 +210,17 @@ class FeatureHubConfig {
     if (_deadConnection) return _repository;
     if (!force && DateTime.now().isBefore(_cacheTimeout)) return _repository;
 
-    final options = xFeatureHubHeader == null
+    final options = xFeatureHubHeader == null && headers.isEmpty
         ? null
-        : (Options()..headers = {'x-featurehub': xFeatureHubHeader});
+        : (Options()
+            ..headers = {...headers, 'x-featurehub': ?xFeatureHubHeader});
 
     // added to break any caching if we change the header on the client side
     final sha = xFeatureHubHeader == null
         ? '0'
         : sha256.convert(utf8.encode(xFeatureHubHeader!)).toString();
 
+    final requestedAt = DateTime.now();
     Future<void> fetch() async {
       try {
         final response = await _api.apiDelegate.getFeatureStates(
@@ -186,7 +228,7 @@ class FeatureHubConfig {
           options: options,
           contextSha: sha,
         );
-        await decodeResponse(response);
+        await decodeResponse(response, requestedAt: requestedAt);
       } on ApiException catch (e) {
         // the client throws for error statuses
         if (!_isRejection(e.code)) rethrow;

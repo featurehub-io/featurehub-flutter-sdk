@@ -85,7 +85,7 @@ void main() {
       _featuresKey,
       jsonEncode(features.map((f) => f.toJson()).toList()),
     );
-    redis.set(_shaKey, RedisFeatureStore.computeSha(features));
+    redis.set(_shaKey, ClientFeatureRepository.computeSha(features));
   }
 
   List<FeatureState> stored() =>
@@ -110,7 +110,7 @@ void main() {
     // computed by the TypeScript SDK's store
     test('matches the other SDKs', () {
       expect(
-        RedisFeatureStore.computeSha([
+        ClientFeatureRepository.computeSha([
           FeatureState(
             id: 'f3c1a2b4-1d2e-4c5b-9a8b-7c6d5e4f3a2b',
             key: 'a',
@@ -133,7 +133,7 @@ void main() {
         'ffef4b48076b58be67b0abe8baa76b13915242208613701a2d3a8328e3eb4ef1',
       );
       expect(
-        RedisFeatureStore.computeSha([
+        ClientFeatureRepository.computeSha([
           FeatureState(
             id: 'only',
             key: 'o',
@@ -144,7 +144,7 @@ void main() {
         '03a55f20ac287349c236160cf813e321e0084e7c2cdef7cabf43374a85a971a8',
       );
       expect(
-        RedisFeatureStore.computeSha([]),
+        ClientFeatureRepository.computeSha([]),
         'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
       );
     });
@@ -190,7 +190,7 @@ void main() {
       ]);
       await _settle();
       expect(stored().map((f) => f.id), unorderedEquals(['a', 'b']));
-      expect(redis.data[_shaKey], RedisFeatureStore.computeSha(stored()));
+      expect(redis.data[_shaKey], ClientFeatureRepository.computeSha(stored()));
     });
 
     test('is not written when Redis already has it', () async {

@@ -19,6 +19,7 @@ library;
 export 'package:featurehub_openfeatures_common/featurehub_openfeatures_common.dart'
     show
         FeatureHubUpdateMode,
+        FeatureSnapshot,
         FeatureStore,
         FeatureStoreTarget,
         ValueInterceptor,

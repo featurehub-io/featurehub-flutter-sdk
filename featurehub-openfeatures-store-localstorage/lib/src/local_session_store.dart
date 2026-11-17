@@ -12,6 +12,10 @@ final _log = Logger('featurehub_local_session_store');
 /// the TypeScript SDK's store).
 const localSessionStoreSource = 'local-session-store';
 
+/// The storage key [LocalSessionStore] uses when the provider does not
+/// connect to FeatureHub (so there is no feature URL to key by).
+const localSessionStoreDefaultKey = 'featurehub-features';
+
 /// Where [LocalSessionStore] keeps its data: browser storage by default.
 abstract interface class FeatureStorage {
   String? getItem(String key);
@@ -65,7 +69,7 @@ class LocalSessionStore implements FeatureStore {
 
   @override
   Future<void> attach(FeatureStoreTarget target) async {
-    final key = target.featureUrl;
+    final key = target.featureUrl ?? localSessionStoreDefaultKey;
     _storageKey = key;
     final stored = _load(key);
     _subscription = target.repository.rawFeatureUpdates.listen(_update);

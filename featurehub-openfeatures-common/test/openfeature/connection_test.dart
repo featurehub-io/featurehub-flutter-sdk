@@ -5,10 +5,12 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dio/dio.dart';
 import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_openfeatures_common/featurehub_openfeatures_common.dart';
 import 'package:featurehub_sse_client/featurehub_sse_client.dart'
     show ReconnectPolicy;
+import 'package:http/http.dart' as http;
 import 'package:test/test.dart';
 
 /// A minimal FeatureHub Edge: GET /features/?apiKey=... (polling) and
@@ -126,6 +128,46 @@ void main() {
         await connection.close();
       });
 
+      test('sends the headers, with the HTTP client given', () async {
+        var dioRequests = 0;
+        final dio = Dio()
+          ..interceptors.add(
+            InterceptorsWrapper(
+              onRequest: (options, handler) {
+                dioRequests++;
+                handler.next(options);
+              },
+            ),
+          );
+        final httpClient = _CountingClient();
+        final connection = FeatureHubConnection(
+          host: edge.host,
+          apiKey: 'a/b/c',
+          mode: mode,
+          headers: {'proxy-authorization': 'Basic abc', 'x-team': 'web'},
+          dio: dio,
+          httpClient: httpClient,
+        );
+        await connection.start(
+          context: mapEvaluationContext({'targetingKey': 'fred'}),
+        );
+        await connection.waitForReady(const Duration(seconds: 5));
+        await connection.close();
+
+        final request = edge.requests.last;
+        expect(request.headers.value('proxy-authorization'), 'Basic abc');
+        expect(request.headers.value('x-team'), 'web');
+        // the context header is still sent
+        expect(request.headers.value('x-featurehub'), 'userkey=fred');
+        if (mode == FeatureHubUpdateMode.streaming) {
+          expect(httpClient.sent, greaterThan(0));
+          expect(dioRequests, 0);
+        } else {
+          expect(dioRequests, greaterThan(0));
+          expect(httpClient.sent, 0);
+        }
+      });
+
       test('a server-evaluated context is sent and refreshed', () async {
         final connection = FeatureHubConnection(
           host: edge.host,
@@ -238,6 +280,20 @@ void main() {
         await connection.close();
       }
     });
+  });
+
+  test('polling requests at every interval', () async {
+    final connection = FeatureHubConnection(
+      host: edge.host,
+      apiKey: 'a/b/c',
+      mode: FeatureHubUpdateMode.polling,
+      pollInterval: const Duration(seconds: 1),
+    );
+    await connection.start();
+    await Future<void>.delayed(const Duration(milliseconds: 3500));
+    await connection.close();
+    // the first request, and one at each of the three intervals since
+    expect(edge.requests, hasLength(4));
   });
 
   test('polling accepts gzip-compressed responses', () async {
@@ -413,4 +469,19 @@ void main() {
     expect(connection.repository.readyness, Readyness.Ready);
     await connection.close();
   });
+}
+
+/// Counts the requests it sends.
+class _CountingClient extends http.BaseClient {
+  final _inner = http.Client();
+  int sent = 0;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) {
+    sent++;
+    return _inner.send(request);
+  }
+
+  @override
+  void close() => _inner.close();
 }

@@ -1,4 +1,5 @@
 import 'package:featurehub_sse_client/featurehub_sse_client.dart';
+import 'package:http/http.dart' as http;
 
 import 'repository.dart';
 
@@ -11,6 +12,10 @@ import 'repository.dart';
 /// how long each connection attempt waits for the event stream to open; one
 /// that times out is retried according to [reconnectPolicy]. Both default to
 /// waiting indefinitely.
+///
+/// [headers] are sent when connecting, and [client] (for example one
+/// configured with a proxy) makes the connections; both on `dart:io` only,
+/// since a browser's `EventSource` can send neither.
 class EventSourceRepositoryListener {
   EventSourceRepositoryListener(
     String url,
@@ -20,6 +25,8 @@ class EventSourceRepositoryListener {
     ReconnectPolicy reconnectPolicy = const ReconnectPolicy(),
     Duration? connectTimeout,
     Duration? requestTimeout,
+    Map<String, String> headers = const {},
+    http.Client? client,
   });
 
   bool get closed => false;

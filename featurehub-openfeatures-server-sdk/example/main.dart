@@ -15,6 +15,15 @@
 // The features used are FEATURE_TITLE_TO_UPPERCASE (boolean),
 // FEATURE_STRING (string), FEATURE_NUMBER (number) and FEATURE_JSON (JSON
 // with a "foo" field), each evaluated for the user in the request.
+//
+// GET /features serves every feature to the server's own clients (such as a
+// browser), evaluated for the context in the query parameters, for example
+// /features?targetingKey=fred&country=nz. Its ETag is the features' SHA, so
+// a client sending it back in If-None-Match gets a 304 until the features
+// change. A client provider polls it with
+// FeatureHubProvider(featuresUrl: '<this server>/features'). With a
+// server-evaluated key every client gets the features FeatureHub evaluated
+// for the provider's single context: use a client-evaluated key.
 import 'dart:convert';
 import 'dart:io';
 
@@ -148,7 +157,58 @@ Future<Response> todoList(
   return jsonResponse(todos, status: status);
 }
 
-Router buildRouter(FeatureClient client, bool Function() ready) {
+/// The OpenFeature evaluation context in [request]'s query parameters:
+/// `targetingKey` for the user, and any other attributes. A parameter given
+/// more than once is a list.
+Map<String, Object?> queryContext(Request request) => {
+  for (final MapEntry(:key, :value) in request.url.queryParametersAll.entries)
+    key: value.length == 1 ? value.single : value,
+};
+
+/// True if the `If-None-Match` header in [request] matches [etag] (a quoted
+/// entity tag): it is `*`, or one of its tags, weak (`W/`) or not, is [etag].
+bool ifNoneMatch(Request request, String etag) {
+  final header = request.headers['if-none-match'];
+  if (header == null) return false;
+  return header
+      .split(',')
+      .map((tag) => tag.trim())
+      .map((tag) => tag.startsWith('W/') ? tag.substring(2) : tag)
+      .any((tag) => tag == '*' || tag == etag);
+}
+
+/// Serves the features evaluated for the context in the query parameters,
+/// with their SHA as the ETag: 304 if the client already has them.
+Response features(Request request, FeatureHubProvider provider) {
+  final repository = provider.repository;
+  if (repository == null) return Response(503);
+
+  // the features evaluated for one context change only when the features do
+  // (the SHA is of their ids and versions), and the context is in the URL,
+  // so the SHA validates each URL's response
+  final etag = '"${repository.featuresSha}"';
+  const caching = {'cache-control': 'no-cache'};
+  if (ifNoneMatch(request, etag)) {
+    return Response.notModified(headers: {'etag': etag, ...caching});
+  }
+
+  final FeatureSnapshot snapshot;
+  try {
+    snapshot = repository.featureSnapshot(context: queryContext(request));
+  } on InvalidContextException catch (e) {
+    return Response.badRequest(body: e.message);
+  }
+  return Response.ok(
+    jsonEncode(snapshot),
+    headers: {'content-type': 'application/json', 'etag': etag, ...caching},
+  );
+}
+
+Router buildRouter(
+  FeatureClient client,
+  FeatureHubProvider provider,
+  bool Function() ready,
+) {
   Future<Response> helloWorld(Request request, String name) async =>
       Response.ok(
         await UserFeatures(client, name).isEnabled('FEATURE_TITLE_TO_UPPERCASE')
@@ -216,6 +276,7 @@ Router buildRouter(FeatureClient client, bool Function() ready) {
     ..get('/todo/<user>', (Request request, String user) {
       return todoList(client, user);
     })
+    ..get('/features', (Request request) => features(request, provider))
     ..get(
       '/health/readiness',
       (Request request) =>
@@ -229,6 +290,8 @@ Middleware cors() {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': '*',
+    // so browser code can read the ETag
+    'Access-Control-Expose-Headers': 'ETag',
   };
   return (Handler inner) => (Request request) async {
     if (request.method == 'OPTIONS') {
@@ -277,7 +340,7 @@ Future<void> main() async {
   final handler = const Pipeline()
       .addMiddleware(logRequests())
       .addMiddleware(cors())
-      .addHandler(buildRouter(client, () => ready).call);
+      .addHandler(buildRouter(client, provider, () => ready).call);
 
   final server = await shelf_io.serve(handler, InternetAddress.anyIPv4, port);
   _log.info('listening on http://${server.address.host}:${server.port}');

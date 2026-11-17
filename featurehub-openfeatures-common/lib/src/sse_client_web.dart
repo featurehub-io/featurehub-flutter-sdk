@@ -5,6 +5,7 @@ import 'dart:js_interop';
 import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_sse_client/featurehub_sse_client.dart'
     show ReconnectPolicy;
+import 'package:http/http.dart' as http;
 import 'package:logging/logging.dart';
 import 'package:web/web.dart' as web;
 
@@ -58,9 +59,18 @@ class EventSourceRepositoryListener {
     // browsers control the connection timeout themselves
     Duration? connectTimeout,
     this._requestTimeout,
+    // a browser's EventSource can send neither headers nor use a client
+    Map<String, String> headers = const {},
+    http.Client? client,
   }) : _repository = repository,
        _clientEvaluated = FeatureHubConfig.isClientEvaluatedKeys([apiKey]),
        _url = '$url${url.endsWith('/') ? '' : '/'}features/$apiKey' {
+    if (headers.isNotEmpty) {
+      _log.warning(
+        'Browsers cannot send headers with an EventSource: they are not sent '
+        'when streaming. Use polling to send them.',
+      );
+    }
     if (doInit ?? true) {
       init();
     }

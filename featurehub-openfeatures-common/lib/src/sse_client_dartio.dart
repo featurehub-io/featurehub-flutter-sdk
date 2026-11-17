@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_sse_client/featurehub_sse_client.dart';
+import 'package:http/http.dart' as http;
 import 'package:logging/logging.dart';
 
 import '../featurehub_config.dart';
@@ -29,6 +30,12 @@ class EventSourceRepositoryListener {
   final ReconnectPolicy _reconnectPolicy;
   final Duration? _connectTimeout;
   final Duration? _requestTimeout;
+
+  /// Sent when connecting, for example for a proxy or gateway.
+  final Map<String, String> _headers;
+
+  /// Makes the connections (null: one is created).
+  final http.Client? _client;
   bool _initialized = false;
   bool _closed = false;
   String? _xFeaturehubHeader;
@@ -48,6 +55,8 @@ class EventSourceRepositoryListener {
     this._reconnectPolicy = const ReconnectPolicy(),
     this._connectTimeout,
     this._requestTimeout,
+    this._headers = const {},
+    this._client,
   }) : _repository = repository,
        _clientEvaluated = FeatureHubConfig.isClientEvaluatedKeys([apiKey]),
        _url = '$url${url.endsWith('/') ? '' : '/'}features/$apiKey' {
@@ -169,7 +178,7 @@ class EventSourceRepositoryListener {
   }
 
   Future<Stream<Event>> connect(String url) async {
-    var sourceHeaders = {'content-type': 'application/json'};
+    var sourceHeaders = {'content-type': 'application/json', ..._headers};
     if (_xFeaturehubHeader != null) {
       sourceHeaders['x-featurehub'] = _xFeaturehubHeader!;
     }
@@ -179,6 +188,7 @@ class EventSourceRepositoryListener {
     final generation = _generation;
     final es = await EventSource.connect(
       url,
+      client: _client,
       openOnlyOnFirstListener: true,
       closeOnLastListener: true,
       headers: sourceHeaders,

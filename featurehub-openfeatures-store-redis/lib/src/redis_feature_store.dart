@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:crypto/crypto.dart';
 import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_openfeatures_common/featurehub_openfeatures_common.dart';
 import 'package:logging/logging.dart';
@@ -155,6 +154,14 @@ class RedisFeatureStore implements FeatureStore {
 
   @override
   Future<void> attach(FeatureStoreTarget target) async {
+    if (target.apiKey == null) {
+      _log.severe(
+        'RedisFeatureStore: refusing to attach without an API key: the Redis '
+        'keys are named by the environment, and only features for a '
+        'client-evaluated key can be shared.',
+      );
+      return;
+    }
     if (!target.clientEvaluated) {
       _log.severe(
         'RedisFeatureStore: refusing to attach to a server-evaluated API key. '
@@ -242,14 +249,6 @@ class RedisFeatureStore implements FeatureStore {
 
   static int _version(FeatureState f) => f.version;
 
-  /// The SHA-256 of the features' `id:version`s sorted by id, as every
-  /// FeatureHub SDK computes it.
-  static String computeSha(List<FeatureState> features) {
-    final sorted = [...features]..sort((a, b) => a.id.compareTo(b.id));
-    final input = sorted.map((f) => '${f.id}:${_version(f)}').join('|');
-    return sha256.convert(utf8.encode(input)).toString();
-  }
-
   static bool _anyIncomingIsNewer(
     List<FeatureState> incoming,
     List<FeatureState> existing,
@@ -276,7 +275,7 @@ class RedisFeatureStore implements FeatureStore {
 
   Future<void> _storeFeatures(List<FeatureState> features) async {
     var toWrite = features;
-    var sha = computeSha(toWrite);
+    var sha = ClientFeatureRepository.computeSha(toWrite);
 
     for (var attempt = 0; attempt < retryUpdateCount; attempt++) {
       await _redis.watch(_shaKey);
@@ -297,7 +296,7 @@ class RedisFeatureStore implements FeatureStore {
             return; // ours are all stale
           }
           toWrite = _merge(toWrite, stored);
-          sha = computeSha(toWrite);
+          sha = ClientFeatureRepository.computeSha(toWrite);
         }
       }
 
@@ -321,7 +320,7 @@ class RedisFeatureStore implements FeatureStore {
   }
 
   Future<void> _processUpdates(List<FeatureState> features) async {
-    final sha = computeSha(features);
+    final sha = ClientFeatureRepository.computeSha(features);
     final stored = await _redis.get(_shaKey);
     if (sha == stored) return;
 

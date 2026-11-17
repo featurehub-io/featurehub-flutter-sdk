@@ -33,7 +33,12 @@ final enabled = await client.getBooleanFlag(
 [`example/main.dart`](example/main.dart) is a todo server built with
 [Shelf](https://pub.dev/packages/shelf): a Dart version of the
 [FeatureHub Python SDK example](https://github.com/featurehub-io/featurehub-python-sdk/tree/main/example),
-which evaluates features for the user in each request.
+which evaluates features for the user in each request. It also serves the
+features to its own clients from `GET /features`, evaluated for the context
+in the query parameters (for example `/features?targetingKey=fred&country=nz`)
+with `featureSnapshot`. The response's ETag is the features' SHA, so a client
+that sends it back in `If-None-Match` gets a `304 Not Modified` until the
+features change. A provider polls it with `featuresUrl`.
 
 ## Configuration from the environment
 
@@ -47,8 +52,25 @@ Anything not passed to `FeatureHubProvider` is read from the environment:
 | `FEATUREHUB_POLL_INTERVAL` | `pollInterval`, in seconds: if set, the provider polls at this interval instead of streaming |
 
 Arguments take precedence over the environment. The constructor throws an
-`ArgumentError` if there is no host or API key, or if
+`ArgumentError` if there is a host but no API key or the reverse, or if
 `FEATUREHUB_POLL_INTERVAL` is not a positive number of seconds.
+
+With a `featuresUrl` instead of a host and API key, the provider gets its
+features from another server's API rather than from FeatureHub (see the
+client provider's
+[README](../featurehub-openfeatures-client-sdk/README.md#features-from-your-own-server)
+for the API). It polls, or passively refreshes, every `pollInterval`, which is
+then required. FeatureHub settings in the environment are ignored.
+
+By default no context is sent, so the other server must serve the features
+with their strategies (`featureSnapshot()` without a context). Each
+resolution then evaluates them against its own context, as for a
+client-evaluated key. With `sendContext: true` the server evaluates the
+features for one context, as for a server-evaluated key, which suits a
+single-user process only.
+
+With no host, API key or `featuresUrl`, the provider gets its features from
+its `stores` alone (it needs at least one, or the constructor throws).
 
 ## API keys
 
@@ -89,7 +111,8 @@ those; anything else resolves with `INVALID_CONTEXT`.
 | Invalid JSON for an object flag | the default | `ERROR` | `PARSE_ERROR` |
 | Before initialization | the default | `ERROR` | `PROVIDER_NOT_READY` |
 
-Flag metadata carries `featureVersion` and `featureType`.
+Flag metadata carries `featureVersion` and `featureType`, plus the feature's
+properties (`FeatureState.fp`) when it has any.
 
 ## Options
 
@@ -106,6 +129,15 @@ Flag metadata carries `featureVersion` and `featureType`.
 | `interceptors` | none | value interceptors that supply feature values in place of FeatureHub's (see `ValueInterceptor`), overriding locked features too: e.g. `LocalYamlValueInterceptor` from `featurehub_openfeatures_yaml_interceptor`, for local overrides during development |
 | `catchAndReleaseMode` | false | hold feature updates back until `release()` is called; takes effect once the initial features have arrived, so it can be set at creation. Released changes are announced as configuration changed events |
 | `requestTimeout` | none | how long a polling request may take, or how long a streaming connection attempt waits for the stream to open (an attempt that times out is retried under `reconnectPolicy`) |
+| `headers` | none | sent with every request (FeatureHub streaming and polling, and `featuresUrl`): for a gateway, extra authentication or tracing |
+| `dio` | created | the `Dio` for polling, e.g. one configured with a proxy |
+| `httpClient` | created | the `http.Client` for streaming, e.g. one configured with a proxy |
+| `transportFactory` | none | your own transport (WebSockets, another SSE client, ...) in place of the built-in ones |
+| `featuresUrl`, `sendContext` | none, false | poll another server instead of FeatureHub (see above) |
+
+See the common package's README for
+[headers and proxies](../featurehub-openfeatures-common/README.md#headers-and-proxies)
+and [writing your own transport](../featurehub-openfeatures-common/README.md#writing-your-own-transport).
 
 ## Events
 

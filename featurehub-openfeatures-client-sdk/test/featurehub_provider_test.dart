@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:dio/dio.dart';
+
 import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_openfeatures_client_sdk/featurehub_openfeatures_client_sdk.dart';
 import 'package:featurehub_openfeatures_common/featurehub_openfeatures_common.dart'
@@ -46,6 +48,77 @@ void main() {
       () => FeatureHubProvider(host: 'http://x', apiKey: ''),
       throwsArgumentError,
     );
+    expect(() => FeatureHubProvider(apiKey: 'env/key'), throwsArgumentError);
+  });
+
+  test('without a host and api key, requires a featuresUrl or stores', () {
+    expect(() => FeatureHubProvider(), throwsArgumentError);
+    expect(
+      () => FeatureHubProvider(
+        featuresUrl: 'https://my.app/features',
+        host: 'http://x',
+        apiKey: 'env/key',
+      ),
+      throwsArgumentError,
+    );
+    expect(
+      () => FeatureHubProvider(
+        featuresUrl: 'https://my.app/features',
+        mode: FeatureHubUpdateMode.streaming,
+      ),
+      throwsArgumentError,
+    );
+    final fromServer = FeatureHubProvider(
+      featuresUrl: 'https://my.app/features',
+    );
+    expect(fromServer.mode, FeatureHubUpdateMode.polling);
+    expect(fromServer.clientEvaluated, false);
+    expect(
+      FeatureHubProvider(
+        featuresUrl: 'https://my.app/features',
+        sendContext: false,
+      ).clientEvaluated,
+      true,
+    );
+    final p = FeatureHubProvider(stores: [_RecordingStore([])]);
+    expect(p.connectsToFeatureHub, false);
+    expect(p.clientEvaluated, true);
+  });
+
+  test('a transport of your own, given the headers and clients', () async {
+    await api.setEvaluationContextAndWait(
+      EvaluationContext(targetingKey: 'fred'),
+    );
+    final dio = Dio();
+    fh.FeatureHubTransportTarget? given;
+    final p = FeatureHubProvider(
+      headers: {'proxy-authorization': 'Basic abc'},
+      dio: dio,
+      transportFactory: (target) {
+        given = target;
+        return _WhoTransport(target);
+      },
+    );
+    expect(p.clientEvaluated, false, reason: 'the context is sent');
+    await api.setProviderAndWait(p);
+    expect(given!.headers, {'proxy-authorization': 'Basic abc'});
+    expect(given!.dio, same(dio));
+    expect(given!.sendsContext, true);
+
+    final client = api.getClient();
+    expect(client.getStringValue('who', ''), 'fred');
+
+    final events = <ProviderEventType>[];
+    final sub = p.events.listen((e) => events.add(e.type));
+    await api.setEvaluationContextAndWait(
+      EvaluationContext(targetingKey: 'mary'),
+    );
+    expect(client.getStringValue('who', ''), 'mary');
+    expect(events, [
+      ProviderEventType.reconciling,
+      ProviderEventType.contextChanged,
+    ]);
+    await sub.cancel();
   });
 
   group('client-evaluated key', () {
@@ -344,4 +417,37 @@ class _FlagOff extends fh.ValueInterceptor {
 
   @override
   void close() => closed = true;
+}
+
+/// A transport of your own: gives a `who` feature whose value is the
+/// context's user key, again whenever the context changes.
+class _WhoTransport implements fh.FeatureHubTransport {
+  final fh.FeatureHubTransportTarget target;
+
+  _WhoTransport(this.target);
+
+  Future<void> _deliver() async {
+    await Future<void>.delayed(Duration.zero);
+    target.repository.notify(SSEResultState.features, [
+      FeatureState(
+        id: 'who',
+        key: 'who',
+        version: 1,
+        type: FeatureValueType.STRING,
+        value: target.contextAttributes['userkey']?.single,
+      ),
+    ]);
+  }
+
+  @override
+  Future<void> start() => _deliver();
+
+  @override
+  Future<void> contextChanged() => _deliver();
+
+  @override
+  Future<void> refreshIfStale() async {}
+
+  @override
+  Future<void> close() async {}
 }

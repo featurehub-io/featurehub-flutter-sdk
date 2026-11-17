@@ -170,6 +170,21 @@ void main() {
     );
   });
 
+  test('without a host and api key, requires stores', () {
+    expect(
+      () => FeatureHubProvider(environment: const {}),
+      throwsA(isA<ArgumentError>().having((e) => e.name, 'name', 'host')),
+    );
+    final p = FeatureHubProvider(
+      environment: const {},
+      stores: [_RecordingStore([])],
+    );
+    expect(p.connectsToFeatureHub, false);
+    expect(p.host, isNull);
+    expect(p.apiKey, isNull);
+    expect(p.clientEvaluated, true);
+  });
+
   group('configuration from the environment', () {
     const host = 'http://edge.example.com';
 

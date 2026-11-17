@@ -12,3 +12,11 @@
 - An `interceptors` option for value interceptors, e.g. local YAML overrides.
 - A failed initialization starts nothing for an invalid context, and closes the
   stores when FeatureHub does not become ready.
+- A `featuresUrl` option, instead of `host` and `apiKey`: the provider polls
+  (or passively refreshes) the features from your own server's API, which by
+  default evaluates them for the context sent as query parameters
+  (`sendContext`), with `If-None-Match`/`304` handling. With none of these the
+  features come from the `stores` alone.
+- `headers` sent with every request, `dio` and `httpClient` options to
+  replace the HTTP clients (e.g. for a proxy), and `transportFactory` for your
+  own transport (WebSockets, another SSE client, ...).

@@ -7,6 +7,7 @@ EvaluatedFeature _feature(
   dynamic value, {
   String? strategyId,
   bool intercepted = false,
+  Map<String, String>? fp,
 }) => EvaluatedFeature(
   key: 'f',
   featureState: FeatureState(
@@ -15,6 +16,7 @@ EvaluatedFeature _feature(
     version: 4,
     type: type,
     value: value,
+    fp: fp,
   ),
   value: value,
   strategyId: strategyId,
@@ -138,6 +140,26 @@ void main() {
       );
       expect(r.errorCode, ResolutionErrorCode.typeMismatch);
       expect(r.flagMetadata, {'featureVersion': 4, 'featureType': 'STRING'});
+    });
+
+    test('the feature properties are merged into the metadata', () {
+      final r = resolveFromEvaluation(
+        'f',
+        FeatureKind.string,
+        'd',
+        _feature(
+          FeatureValueType.STRING,
+          'x',
+          fp: {'owner': 'team-a', 'category': 'ui', 'featureVersion': '99'},
+        ),
+      );
+      expect(r.value, 'x');
+      expect(r.flagMetadata, {
+        'featureVersion': 4,
+        'featureType': 'STRING',
+        'owner': 'team-a',
+        'category': 'ui',
+      });
     });
 
     test('value-less features give the default', () {

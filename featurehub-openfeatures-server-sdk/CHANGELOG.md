@@ -15,3 +15,15 @@
 - An `interceptors` option for value interceptors, e.g. local YAML overrides.
 - A failed initialization starts nothing for an invalid context, and closes the
   stores when FeatureHub does not become ready.
+- Exports `FeatureSnapshot`. The example serves the features to its own
+  clients from `GET /features`, evaluated for the context in the query
+  parameters, with the features' SHA as the ETag (`304` on a matching
+  `If-None-Match`).
+- A `featuresUrl` option, instead of a host and API key: the provider polls
+  (or passively refreshes) the features from another server's API, by default
+  without a context, evaluating their strategies locally for each request
+  (`sendContext: true` has the server evaluate them). With none of these the
+  features come from the `stores` alone.
+- `headers` sent with every request, `dio` and `httpClient` options to
+  replace the HTTP clients (e.g. for a proxy), and `transportFactory` for your
+  own transport (WebSockets, another SSE client, ...).

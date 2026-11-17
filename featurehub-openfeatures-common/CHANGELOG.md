@@ -25,6 +25,31 @@ OpenFeature providers for Dart.
   `failure` was not broadcast
 * `ClientContext` implements `StrategyContext`; `MapStrategyContext` evaluates against a map of attributes
 * `FeatureHubConfig` rejects a mix of client- and server-evaluated keys, and `request` takes `force`
+* The OpenFeature flag metadata includes the feature's properties (`FeatureState.fp`), alongside `featureVersion`
+  and `featureType`
+* `FeatureHubConnection` takes a `featuresUrl` instead of a `host` and `apiKey`: it polls (or passively refreshes)
+  your own server's features API through the new `FeatureSnapshotClient`, sending the context as query parameters
+  (unless `sendContext` is false) and the last `ETag` as `If-None-Match`. With none of these it fetches nothing and
+  the repository is filled by feature stores. `FeatureStoreTarget.host` and `apiKey` are then null, and it has
+  `featuresUrl` and `connectsToFeatureHub`
+* `ClientContext.attributes` gives the context's attributes
+* `headers` on `FeatureHubConnection` (and `FeatureHubConfig`, the SSE listener and `FeatureSnapshotClient`) are sent
+  with every request, and `dio` / `httpClient` replace the HTTP clients, e.g. for a proxy. Browsers' `EventSource`
+  cannot send headers, which is logged
+* Your own transports: `FeatureHubTransport` is documented as a public contract, `transportFactory` creates one with a
+  `FeatureHubTransportTarget` (the repository, the connection's settings, and the context to fetch for), and
+  `FeatureHubUpdateMode` moves with it to `featurehub_transport.dart` (still exported)
+* Polling now polls at every interval: each poll was timed from the previous response rather than its request, so
+  the next one was taken as still fresh and skipped, and polling happened every other interval
+* `ClientFeatureRepository.featureSnapshot({context})` gives the features and their SHA (a `FeatureSnapshot`), for a
+  server to pass on to its own clients: with an OpenFeature context, each feature evaluated for it as for a
+  server-evaluated key (no strategies, `v` the matched strategy); without one, as delivered.
+  `FeatureHubConfig.loadFeatureSnapshot(data)` loads a snapshot (or its JSON, or a list of features) into the
+  repository as a full set of features
+* `ClientFeatureRepository.featuresSha`: a SHA-256 of the repository's features' sorted `id:version`s, computed
+  whenever features arrive, are updated or deleted, or are released. `FeatureHubConfig.featuresSha` gives it for
+  client-evaluated API keys (null for server-evaluated keys). `ClientFeatureRepository.computeSha`
+  is the same calculation, as every FeatureHub SDK does it (moved from the Redis store)
 * `FeatureHubConfig`: a 4xx response (FeatureHub rejecting the API key) marks the repository failed and the connection
   dead, so no further requests are made and polling stops, as streaming does. Previously only 400 and 404 were checked,
   and only when errors were returned as responses: by default the request threw and the repository was never marked

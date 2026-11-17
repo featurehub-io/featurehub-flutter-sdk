@@ -115,7 +115,11 @@ FeatureHubResolution<T> generalErrorResolution<T>(
   '$error',
 );
 
+/// The feature's properties (`FeatureState.fp`) if it has any, merged with
+/// its version and type; `featureVersion` and `featureType` replace any
+/// property of the same name.
 Map<String, Object> _flagMetadata(EvaluatedFeature evaluation) => {
+  ...?evaluation.featureState?.fp,
   if (evaluation.version != null && evaluation.version! >= 0)
     'featureVersion': evaluation.version!,
   if (evaluation.type != null) 'featureType': evaluation.type!.name!,

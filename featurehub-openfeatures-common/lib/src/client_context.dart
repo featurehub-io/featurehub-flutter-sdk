@@ -88,6 +88,9 @@ class ClientContext implements StrategyContext {
   @override
   Object? getAttr(String key) => _attributes[key];
 
+  /// The attributes, by key (read-only).
+  Map<String, List<String>> get attributes => Map.unmodifiable(_attributes);
+
   @override
   String? defaultPercentageKey() =>
       _attributes['session']?.join(',') ?? _attributes['userkey']?.join(',');
