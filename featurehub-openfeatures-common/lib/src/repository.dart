@@ -246,6 +246,30 @@ class ClientFeatureRepository {
 
   Stream<Readyness> get readynessStream => _readynessListeners.stream;
 
+  final _environmentStaleListeners = BehaviorSubject<bool>.seeded(false);
+
+  /// True once the source has said the environment is stale: FeatureHub
+  /// answered `236`, or sent `config` with `edge.stale`. The features held
+  /// are the last there will be: they stay usable (readiness is unchanged),
+  /// but are no longer kept up to date. Providers report this as stale.
+  bool get environmentStale => _environmentStaleListeners.value;
+
+  /// Emits false, then true if and when the environment becomes stale (see
+  /// [environmentStale]).
+  Stream<bool> get environmentStaleStream => _environmentStaleListeners.stream;
+
+  /// Called by a transport when the source says the environment is stale and
+  /// will send no further updates (after giving the last features). The
+  /// transport then stops.
+  void markEnvironmentStale() {
+    if (_environmentStaleListeners.isClosed || environmentStale) return;
+    _log.warning(
+      'featurehub: this environment has gone stale and will not receive '
+      'further updates.',
+    );
+    _environmentStaleListeners.add(true);
+  }
+
   /// Emits when new feature states are available: when they have been
   /// applied, or in catch and release mode, when they have been caught and are
   /// waiting for [release].
@@ -726,6 +750,7 @@ class ClientFeatureRepository {
   /// after this method is called, the repository is not usable, create a new one.
   void shutdown() {
     _readynessListeners.close();
+    _environmentStaleListeners.close();
     _newFeatureStateAvailableListeners.close();
     _featuresChangedListeners.close();
     _rawUpdates.close();

@@ -107,6 +107,8 @@ class EventSourceRepositoryListener {
 
   bool configEvent(Event event) {
     if (event.data != null && jsonDecode(event.data!)?['edge.stale'] == true) {
+      // the features already delivered are the last: stop, and report it
+      _repository.markEnvironmentStale();
       close();
       return true;
     }

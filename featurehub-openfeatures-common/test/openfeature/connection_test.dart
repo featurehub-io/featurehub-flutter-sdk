@@ -28,6 +28,9 @@ class _Edge {
   /// Reply to polling requests gzip-compressed.
   bool gzipped = false;
 
+  /// A Cache-Control header for polling responses.
+  String? cacheControl;
+
   String get host => 'http://127.0.0.1:${_server.port}';
 
   Future<void> start() async {
@@ -74,6 +77,9 @@ class _Edge {
 
     if (request.uri.path == '/features/') {
       response.headers.contentType = ContentType.json;
+      if (cacheControl != null) {
+        response.headers.set(HttpHeaders.cacheControlHeader, cacheControl!);
+      }
       final body = utf8.encode(
         jsonEncode([
           {'id': 'env', 'features': _features(header)},
@@ -294,6 +300,35 @@ void main() {
     await connection.close();
     // the first request, and one at each of the three intervals since
     expect(edge.requests, hasLength(4));
+  });
+
+  test('a Cache-Control max-age replaces the poll interval', () async {
+    edge.cacheControl = 'private, max-age=1';
+    final connection = FeatureHubConnection(
+      host: edge.host,
+      apiKey: 'a/b/c',
+      mode: FeatureHubUpdateMode.polling,
+      pollInterval: const Duration(seconds: 30),
+    );
+    await connection.start();
+    await Future<void>.delayed(const Duration(milliseconds: 2500));
+    await connection.close();
+    // the first request, then one a second (not after 30 seconds)
+    expect(edge.requests, hasLength(3));
+  });
+
+  test('a longer Cache-Control max-age slows polling down', () async {
+    edge.cacheControl = 'max-age=3';
+    final connection = FeatureHubConnection(
+      host: edge.host,
+      apiKey: 'a/b/c',
+      mode: FeatureHubUpdateMode.polling,
+      pollInterval: const Duration(seconds: 1),
+    );
+    await connection.start();
+    await Future<void>.delayed(const Duration(milliseconds: 2500));
+    await connection.close();
+    expect(edge.requests, hasLength(1));
   });
 
   test('polling accepts gzip-compressed responses', () async {

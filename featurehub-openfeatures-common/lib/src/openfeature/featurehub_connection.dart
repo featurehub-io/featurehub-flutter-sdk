@@ -397,8 +397,13 @@ class _PollingTransport implements FeatureHubTransport {
   /// previous one has finished, so none is skipped as still fresh.
   void _scheduleNext() {
     if (!_active || _closed || _isDead()) return;
-    var wait = _nextAllowed().difference(DateTime.now());
-    if (wait < _interval) wait = _interval;
+    // when the server allows the next request: the poll interval after the
+    // last one started, or the Cache-Control max-age the server gave, which
+    // replaces the interval (shorter or longer). If that has passed (the
+    // request failed or was slow), wait the interval rather than retry at once
+    final now = DateTime.now();
+    final next = _nextAllowed();
+    final wait = next.isAfter(now) ? next.difference(now) : _interval;
     _timer = Timer(wait, () async {
       _timer = null;
       await _request(force: true);

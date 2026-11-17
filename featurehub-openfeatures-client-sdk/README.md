@@ -96,6 +96,9 @@ These are the same as for the server provider: see its
 Events are `ready`, `configurationChanged` (with the changed flag keys),
 `stale` (and `ready` once the connection recovers), `reconciling` and
 `contextChanged`, and `error` (`providerFatal`) if FeatureHub rejects the key.
+A stale environment (`236` from FeatureHub or your own server, or
+`edge.stale`) is reported as `stale` for good; flags keep resolving from the
+last features.
 
 ## Options
 

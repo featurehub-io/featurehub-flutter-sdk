@@ -178,6 +178,8 @@ class EventSourceRepositoryListener {
     final data = _data(msg);
     _log.fine('Config event $data');
     if (data != null && jsonDecode(data)?['edge.stale'] == true) {
+      // the features already delivered are the last: stop, and report it
+      _repository.markEnvironmentStale();
       close();
     }
   }

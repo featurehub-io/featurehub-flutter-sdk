@@ -170,10 +170,12 @@ void main() {
       expect(stream.hasListener, true);
     });
 
-    test('a stale edge closes the connection', () async {
+    test('a stale edge closes the connection, reporting it', () async {
       stream.add(Event(event: 'config', data: '{"edge.stale": true}'));
       await pump();
 
+      verify(() => repo.markEnvironmentStale()).called(1);
+      verifyNever(() => repo.notify(SSEResultState.bye, any()));
       expect(listener.closed, true);
       expect(stream.hasListener, false);
     });

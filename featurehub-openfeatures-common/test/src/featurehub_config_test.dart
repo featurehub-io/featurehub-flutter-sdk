@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_openfeatures_common/featurehub.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:openapi_dart_common/openapi.dart';
@@ -52,6 +53,11 @@ void main() {
       true,
     );
     expect(config.isConnectionDead, true);
+    // the features are loaded, then the environment reported stale
+    verifyInOrder([
+      () => repository.notify(SSEResultState.features, any()),
+      () => repository.markEnvironmentStale(),
+    ]);
   });
 
   test('A 200 wont stop updating', () async {
@@ -61,5 +67,6 @@ void main() {
     }, data);
     await config.decodeResponse(response);
     expect(config.isConnectionDead, false);
+    verifyNever(() => repository.markEnvironmentStale());
   });
 }

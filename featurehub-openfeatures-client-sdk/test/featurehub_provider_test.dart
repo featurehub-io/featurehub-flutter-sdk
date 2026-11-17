@@ -85,6 +85,28 @@ void main() {
     expect(p.clientEvaluated, true);
   });
 
+  test(
+    'a stale environment is ready, then stale, and keeps resolving',
+    () async {
+      await api.setEvaluationContextAndWait(
+        EvaluationContext(targetingKey: 'lingling'),
+      );
+      final p = FeatureHubProvider(
+        transportFactory: (target) => _WhoTransport(target, stale: true),
+      );
+      final events = <ProviderEventType>[];
+      final sub = p.events.listen((e) => events.add(e.type));
+      await api.setProviderAndWait(p);
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(events, [ProviderEventType.ready, ProviderEventType.stale]);
+      final details = api.getClient().getStringDetails('who', '');
+      expect(details.value, 'lingling');
+      expect(details.errorCode, isNull);
+      await sub.cancel();
+    },
+  );
+
   test('a transport of your own, given the headers and clients', () async {
     await api.setEvaluationContextAndWait(
       EvaluationContext(targetingKey: 'fred'),
@@ -424,7 +446,10 @@ class _FlagOff extends fh.ValueInterceptor {
 class _WhoTransport implements fh.FeatureHubTransport {
   final fh.FeatureHubTransportTarget target;
 
-  _WhoTransport(this.target);
+  /// Report the environment stale after the first features.
+  final bool stale;
+
+  _WhoTransport(this.target, {this.stale = false});
 
   Future<void> _deliver() async {
     await Future<void>.delayed(Duration.zero);
@@ -437,6 +462,7 @@ class _WhoTransport implements fh.FeatureHubTransport {
         value: target.contextAttributes['userkey']?.single,
       ),
     ]);
+    if (stale) target.repository.markEnvironmentStale();
   }
 
   @override

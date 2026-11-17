@@ -167,10 +167,9 @@ class FeatureHubConfig {
       success(environments);
 
       if (response.statusCode == 236) {
-        _log.warning(
-          "featurehub: this environment has gone stale and will not receive further updates.",
-        );
+        // the last features: stop polling, and report the environment stale
         _deadConnection = true;
+        _repository.markEnvironmentStale();
       }
     } else if (_isRejection(response.statusCode)) {
       _rejected(response.statusCode);

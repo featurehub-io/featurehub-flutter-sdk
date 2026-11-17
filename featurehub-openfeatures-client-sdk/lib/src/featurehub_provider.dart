@@ -354,6 +354,12 @@ final class FeatureHubProvider
       },
       onFlagsChanged: (keys) =>
           _emit(ProviderEventType.configurationChanged, flagsChanged: keys),
+      onEnvironmentStale: () => _emit(
+        ProviderEventType.stale,
+        message:
+            'The FeatureHub environment is stale: features will not be '
+            'updated again',
+      ),
     );
     _emit(ProviderEventType.ready);
   }

@@ -42,6 +42,9 @@ class _FeatureServer {
   int? failWith;
   String? body;
   bool rawWithoutContext = false;
+
+  /// Answer as a server whose own environment is stale: 236, in full.
+  bool stale = false;
   Completer<void>? hold;
 
   String get url => 'http://127.0.0.1:${_server.port}/api/features';
@@ -74,7 +77,7 @@ class _FeatureServer {
 
     final etag = '"${repository.featuresSha}"';
     response.headers.set('etag', etag);
-    if (request.headers.value('if-none-match') == etag) {
+    if (!stale && request.headers.value('if-none-match') == etag) {
       response.statusCode = 304;
       await response.close();
       return;
@@ -89,6 +92,7 @@ class _FeatureServer {
                 key: value.length == 1 ? value.single : value,
             },
           );
+    if (stale) response.statusCode = 236;
     response.headers.contentType = ContentType.json;
     response.write(body ?? jsonEncode(snapshot));
     await response.close();
@@ -296,6 +300,23 @@ void main() {
     server.failWith = null;
     expect(await ready(c), Readyness.Ready);
   }, timeout: const Timeout(Duration(seconds: 15)));
+
+  test(
+    'a 236 loads the last features, reports stale and stops polling',
+    () async {
+      server.stale = true;
+      final c = connect(pollInterval: const Duration(milliseconds: 1000));
+      await c.start(context: mapEvaluationContext({'country': 'nz'}));
+      expect(await ready(c), Readyness.Ready);
+      expect(c.repository.evaluate('colour').value, 'green');
+      expect(c.repository.environmentStale, true);
+
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+      expect(server.requests, hasLength(1));
+      expect(c.repository.readyness, Readyness.Ready);
+    },
+    timeout: const Timeout(Duration(seconds: 15)),
+  );
 
   test('a rejection (4xx) fails the repository and stops polling', () async {
     server.failWith = 401;

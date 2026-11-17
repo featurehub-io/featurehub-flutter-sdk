@@ -274,6 +274,7 @@ void main() {
         onRecovered: () {},
         onFatal: () {},
         onFlagsChanged: changes.add,
+        onEnvironmentStale: () {},
       );
     });
 

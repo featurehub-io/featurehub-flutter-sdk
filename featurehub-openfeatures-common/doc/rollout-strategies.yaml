@@ -7,7 +7,7 @@
 #
 # NORMATIVE SOURCE: the golden fixture, not this prose. Every behaviour here is
 # what the FeatureHub TypeScript SDK does (packages/core src/strategy_matcher),
-# captured as 3,443 matcher cases, 349 strategy scenarios, 200 percentages and
+# captured as 5,940 matcher cases, 425 strategy scenarios, 400 percentages and
 # 15 hashes in featurehub-openfeatures-common/test/strategy/fixtures/
 # typescript_golden.json. Where this text and the fixture disagree, the
 # fixture wins. FeatureHub Edge evaluates server-evaluated keys with its own
@@ -53,7 +53,7 @@ algorithm:
     default_key := context.default_percentage_key()
 
     for rsi in strategies, in order:
-      p := rsi.percentage              # absent counts as 0
+      p := rsi.percentage              # absent counts as 0 (see known_typescript_bugs)
       has_attrs := rsi.attributes is not empty
 
       if p != 0 and (js_truthy(default_key) or rsi.percentageAttributes is not empty):
@@ -136,7 +136,7 @@ js_conversions:
   js_number: "the whole trimmed string must be numeric (also 0x, 0b, 0o prefixes); empty -> 0; otherwise NaN"
   nan: "every comparison with NaN is false (so NOT_EQUALS against a NaN supplied value is true)"
   string_compare: "plain string ordering by UTF-16 code unit (\"A\" < \"a\")"
-  regex: "ECMAScript regular expressions, searched (not anchored unless the pattern anchors); an invalid pattern never matches"
+  regex: "ECMAScript regular expressions, searched (not anchored unless the pattern anchors); lookahead, lookbehind, \\b, \\d and classes behave as in JavaScript; an invalid pattern never matches (TypeScript throws; implementations MUST NOT match and SHOULD NOT throw)"
 
 # ---------------------------------------------------------------------------
 # 4. Matchers, by field type
@@ -213,7 +213,7 @@ matchers:
     EQUALS / INCLUDES: any value's block contains supplied
     NOT_EQUALS / EXCLUDES: no value's block contains supplied
     others: never match
-    invalid: an invalid address or block never matches
+    invalid: "an invalid address or block, or an IPv6 address, never matches (TypeScript throws; implementations MUST NOT match and SHOULD NOT throw)"
 
   matcher_vectors:   # selected from the fixture's `matchers` section
     - {type: STRING, conditional: GREATER, values: [a, b], supplied: A, result: false, shows: "code-unit ordering"}
@@ -248,31 +248,38 @@ golden_fixture:
       case: {key: string, hash: "unsigned 32-bit int"}
       check: "murmur3_x86_32(utf8(key), 0) == hash"
     percentage:
-      count: 200
+      count: 400
       case: {key: string, id: string, value: int}
+      ids: "fv1 (200 users), a UUID and a non-ASCII id (100 users each)"
       check: "percentage_of(key, id) == value"
     matchers:
-      count: 3443
-      case: {type: field type, conditional: conditional, values: list, supplied: "string | number | boolean", result: bool}
-      check: "the matcher for `type`, with an attribute {conditional, type, values, fieldName: \"f\"}, applied to `supplied`, gives `result`"
+      count: 5940
+      case: {type: field type, conditional: conditional, values: list, supplied: "string | number | boolean", result: "bool, or \"throw\""}
+      check: "the matcher for `type`, with an attribute {conditional, type, values, fieldName: \"f\"}, applied to `supplied`, gives `result`; a result of \"throw\" (TypeScript threw: an invalid regex, an invalid or IPv6 address or block) means the implementation MUST NOT match"
       coverage: "all 7 field types x all 11 conditionals (77 combinations)"
     apply:
-      count: 349
+      count: 425
       case: {name: string, strategies: "list of rollout_strategy", featureValueId: string, context: "map of attributes", matched: bool, value: any, strategyId: "string or null"}
       check: "the algorithm, with a context whose default key is `session` if present else `userkey`, gives matched / value / strategyId"
-      scenarios: {"percentage only": 132, "percentage attributes": 104, "percentage with attributes": 100, "attributes only": 8, "number and ip": 5}
+      scenarios: {"percentage only": 132, "percentage attributes": 104, "percentage with attributes": 100, "attributes only": 8, "number and ip": 5, "now": 2, "now before": 1, "now date-time": 3, "absent non-date attribute": 3, "attribute lists": 4, "percentage with attributes does not stack": 40, "session list": 20, "empty strategy first": 3}
+      now: "the now scenarios compare an absent date with 2000-01-01, so their results do not depend on when they run"
   regenerate: >-
     From the TypeScript SDK with test/strategy/fixtures/generate.ts.txt: set
     its FEATUREHUB_JS_CORE path to featurehub-javascript-sdk/packages/core,
     bundle with esbuild (NODE_PATH=<packages/core>/node_modules esbuild
     generate.ts --bundle --platform=node --format=esm --outfile=generate.mjs),
-    then run TZ=UTC node generate.mjs typescript_golden.json.
+    then run TZ=UTC node generate.mjs typescript_golden.json. Cases are only
+    ever appended, so regenerating keeps every earlier case in place.
   reference_runner: featurehub-openfeatures-common/test/strategy/typescript_golden_test.dart
+  known_typescript_bugs:   # fixture results implementations MUST NOT reproduce
+    - scenario: "empty strategy first"
+      typescript: >-
+        A strategy with neither a percentage nor attributes, before percentage
+        strategies, adds its undefined percentage to the share, which becomes
+        NaN, so no later percentage strategy matches (even a 100% one).
+      correct: "the empty strategy is skipped (it never matches) and the share is unchanged: the 100% strategy matches anyone with a percentage key"
+      runner: the reference runner skips this scenario
   gaps:   # behaviour the fixture does NOT exercise; test these yourself
-    - "the `now` substitution for absent DATE / DATETIME attributes (time-dependent)"
     - "date-times without an offset (local time): the fixture is generated with TZ=UTC"
     - "native date-time values in the context (JSON has none; they are normalised to UTC like strings)"
-    - "regular expression features beyond simple anchors and wildcards (flavour differences between languages)"
-    - "percentages for more than one feature value id (all 200 use fv1)"
-    - "IPv6 addresses (unsupported: they never match)"
     - "the null-values EQUALS case described under algorithm.attributes_match.note"

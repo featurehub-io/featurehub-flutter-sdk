@@ -238,6 +238,7 @@ server:
         - strip a leading "W/" (weak comparison)
         - it matches if any tag is "*" or equals the current ETag exactly (quotes included)
       on_match: '304 Not Modified, empty body, headers ETag and Cache-Control: no-cache'
+      when_stale: "once the server's own environment is stale, it MUST NOT answer 304: every request gets the full 236 response, so each client learns of it"
       check_order: the If-None-Match check MAY happen before evaluating the context (the reference does it first)
     evaluation:
       with_context:
@@ -263,8 +264,15 @@ server:
         when: features served
         headers: {Content-Type: application/json, ETag: '"<sha>"', Cache-Control: no-cache}
         body: encoding.feature_snapshot
+      - status: 236
+        when: >-
+          the server's own environment is stale (its FeatureHub connection got
+          a 236 or edge.stale: repository.environmentStale). The features are
+          the last there will be.
+        headers: {Content-Type: application/json, ETag: '"<sha>"', Cache-Control: no-cache}
+        body: encoding.feature_snapshot
       - status: 304
-        when: If-None-Match matches
+        when: If-None-Match matches (never once stale)
         headers: {ETag: '"<sha>"', Cache-Control: no-cache}
       - status: 400
         when: invalid context (encoding.evaluation_context rules)
@@ -329,6 +337,10 @@ client:
         - "if the request URL (i.e. the context) changed while waiting, discard the response"
         - "store etag = response ETag header, or '\"' + snapshot.sha + '\"' if absent; remember the URL it belongs to"
         - "notify(features, snapshot.features) - a full set (transport.notifications)"
+    - status: 236
+      action:
+        - as 200 (decode, store the etag, notify the full set)
+        - "then mark dead (no further requests) and mark the environment stale (repository.environment_stale)"
     - status: 304
       action: no change; update next_allowed
     - status: "4xx except 408 and 429"
@@ -350,12 +362,15 @@ polling_transport:
     - "then, in polling mode, schedule the next poll"
   polling_mode:
     schedule: >-
-      After each poll finishes, wait max(interval, next_allowed - now)
-      (next_allowed may be later if the server's Cache-Control max-age asks
-      for it), then make a forced request, then schedule again. Stop when
-      closed or dead. A fixed periodic timer MUST NOT be used with an
-      unforced freshness check: the tick lands microseconds inside the window
-      and every other poll is skipped.
+      After each poll finishes, wait until next_allowed (the poll interval,
+      or a FeatureHub Cache-Control max-age that replaced it, after the
+      request started; see featurehub_edge.polling.cache_control), then make
+      a forced request, then schedule again. If next_allowed has already
+      passed (the request failed, or took longer than the interval), wait
+      the configured interval instead, so a failure never becomes a tight
+      retry loop. Stop when closed or dead. A fixed periodic timer MUST NOT
+      be used with an unforced freshness check: the tick lands microseconds
+      inside the window and every other poll is skipped.
   passive_mode:
     refresh_if_stale: >-
       Called as flags are resolved (the server provider awaits it before each
@@ -385,9 +400,20 @@ repository:
       payload: one feature_state (only key/id needed)
       semantics: remove it (and, where catch-and-release is supported, any update for it held back); recompute the SHA
     bye:
-      semantics: readiness NotReady (providers report STALE)
+      semantics: readiness NotReady (providers report STALE until features arrive)
     failure:
       semantics: readiness Failed (providers report a fatal error)
+  environment_stale:
+    call: markEnvironmentStale() (not a notify state)
+    semantics: >-
+      The source says the environment is stale and will send no further
+      updates (FeatureHub's 236 or edge.stale, or a snapshot server's 236),
+      after the last features. Sets environmentStale = true, once; readiness
+      is unchanged (it stays Ready), so initialisation is not delayed and
+      resolutions continue from the last features. Providers report STALE,
+      permanently. It is a separate signal from bye because bye makes the
+      repository NotReady, which would make a first-response 236 fail
+      initialisation.
   update_rule: >-
     Reject an incoming feature if the held one has a higher version, or the
     same version and the same value, v, id and type. Otherwise replace it.
@@ -438,6 +464,7 @@ transport:
     - {call: "notify(deleteFeature, one)", when: one feature deleted}
     - {call: "notify(bye, null)", when: "connection lost, being re-established (provider reports STALE until features arrive)"}
     - {call: "notify(failure, null)", when: "permanently rejected, e.g. invalid key (provider reports fatal); stop trying"}
+    - {call: "markEnvironmentStale()", when: "after the last features, the source says the environment is stale (236, edge.stale): provider reports STALE for good and keeps resolving; stop"}
   relaying_featurehub_events:
     description: >-
       FeatureHub Edge's SSE stream uses these event names with JSON `data:`;
@@ -450,7 +477,7 @@ transport:
       features: features
       feature: feature
       delete_feature: deleteFeature
-      config: 'not a repository event: data {"edge.stale": true} means the environment will never change again; stop'
+      config: 'not a repository event: data {"edge.stale": true} means the environment will never change again: markEnvironmentStale(), then stop (no reconnect, no bye)'
       error: ignore
   example_websocket_protocol:
     description: >-
@@ -497,6 +524,7 @@ providers:
     - {on: "not ready within waitForReady", event: "ERROR (GENERAL): '<source> did not become ready within <waitForReady>'"}
     - {on: "Failed", event: "ERROR (PROVIDER_FATAL)"}
     - {on: "bye after ready", event: STALE, then READY when features arrive}
+    - {on: "environment stale (236, edge.stale)", event: "STALE, after READY (even if it was stale from the first response), once; never followed by READY. Resolutions continue from the last features, with their usual reasons"}
     - {on: "applied changes that alter a feature's version, or remove/add one", event: "CONFIGURATION_CHANGED with the changed keys"}
   resolution: >-
     How a resolved feature becomes an OpenFeature result (reasons, variants,
@@ -508,6 +536,57 @@ providers:
       Supply HTTP clients configured with a proxy. Proxy credentials belong on
       the HTTP client (e.g. proxy credentials API), not in `headers`, which go
       to the origin server.
+
+# ---------------------------------------------------------------------------
+# 7b. The built-in FeatureHub Edge transports
+# ---------------------------------------------------------------------------
+featurehub_edge:
+  description: >-
+    How the built-in transports talk to FeatureHub Edge itself (not your own
+    server). Reference: featurehub_config.dart (polling),
+    sse_client_dartio.dart and sse_client_web.dart (streaming).
+  polling:
+    request: >-
+      GET <host>/features/?apiKey=<key>&contextSha=<sha256 of the
+      x-featurehub header, or 0>; with the x-featurehub header for a
+      server-evaluated key, and the configured headers.
+    responses:
+      - {status: 200, action: "load the features (an array of environments, each with its features): a full set"}
+      - status: 236
+        action: >-
+          load the features as for 200, then stop polling for good and
+          markEnvironmentStale(). Not a failure and not a lost connection:
+          readiness stays Ready and the provider reports STALE, permanently.
+      - {status: "4xx", action: "the key is rejected: notify(failure), stop polling"}
+      - {status: "other, or a network error / timeout", action: "an error; the next poll retries"}
+    cache_control:
+      rule: >-
+        If a 200 or 236 response has a Cache-Control header containing
+        max-age=<n> (the first `max-age=(\d+)` match) and n > 0, the polling
+        interval becomes n seconds, replacing the configured one, whether
+        shorter or longer. It applies to every later poll (and to passive
+        mode's freshness) until another max-age changes it; a response
+        without one leaves it as it is. A missing, zero or unparseable
+        max-age changes nothing.
+      typescript_reference: >-
+        parseCacheControl: cacheHeader.match(/max-age=(\d+)/); if the parsed
+        value > 0, frequency = value * 1000 ms.
+      dart_difference: the Dart SDK matches max-age case-insensitively; TypeScript is case-sensitive
+      snapshot_client: "not applied: the snapshot client (your own server) polls at its configured interval and uses ETags instead"
+  streaming:
+    request: >-
+      An SSE stream from <host>/features/<key>, sending the x-featurehub
+      header (dart:io) or the xfeaturehub query parameter (browsers, whose
+      EventSource cannot send headers), for a server-evaluated key.
+    events:
+      - "features / feature / delete_feature: as transport.relaying_featurehub_events"
+      - "failure: notify(failure), close; no reconnect"
+      - "bye, or the stream dropping: notify(bye) (provider STALE), and reconnect under the reconnect policy"
+      - >-
+        config {"edge.stale": true}: arrives after the features have been
+        delivered; markEnvironmentStale(), close the stream, and do not
+        reconnect or send bye. Readiness stays Ready; the provider reports
+        STALE, permanently.
 
 # ---------------------------------------------------------------------------
 # 8. Conformance checks (each is a test in the reference implementation)

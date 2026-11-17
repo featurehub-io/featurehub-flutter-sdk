@@ -144,5 +144,10 @@ and [writing your own transport](../featurehub-openfeatures-common/README.md#wri
 
 `PROVIDER_READY` once features have arrived, `PROVIDER_CONFIGURATION_CHANGED`
 (with the changed flag keys) when features change, `PROVIDER_STALE` when the
-connection is lost (and `PROVIDER_READY` once it recovers), and
+streaming connection is lost (and `PROVIDER_READY` once it recovers), and
 `PROVIDER_ERROR` (`PROVIDER_FATAL`) if FeatureHub rejects the API key.
+
+When the environment goes stale (FeatureHub answers `236`, or sends
+`edge.stale`), the provider stops fetching and reports `PROVIDER_STALE` for
+good, after `PROVIDER_READY` if it was stale from the start. Flags keep
+resolving from the last features, with their usual reasons.

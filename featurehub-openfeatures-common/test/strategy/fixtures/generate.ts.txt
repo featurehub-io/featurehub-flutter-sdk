@@ -139,5 +139,97 @@ apply("number and ip", [
   { age: 41 }, { age: "39" }, { age: ["10", "50"] }, { ip: "10.2.3.4" }, { ip: "11.0.0.1", age: 1 },
 ]);
 
+// ===========================================================================
+// Extended cases (appended, so the cases above keep their positions)
+// ===========================================================================
+
+// ---- percentages for other feature value ids (UUID-like and non-ASCII)
+for (const id of ["3f2a6c1e-8a4b-4c1e-9f0a-1b2c3d4e5f60", "ปาท่องโก๋"]) {
+  for (let i = 0; i < 100; i++) {
+    const key = `user${i}`;
+    out.percentage.push({ key, id, value: calc.determineClientPercentage(key, id) });
+  }
+}
+
+// ---- matchers: regular expressions (an invalid pattern throws in TypeScript)
+matchers(T.String,
+  [["\\d{3}"], ["^(nz|au)$"], ["a(?=b)"], ["[A-Z]"], ["\\bfoo\\b"], ["(?<=x)y"], ["("]],
+  ["123", "12", "nz", "au", "nzl", "ab", "ac", "Abc", "foo bar", "food", "xy", "y", "("]);
+
+// ---- matchers: string ordering beyond ASCII
+matchers(T.String, [["é"], ["Z", "a"]], ["e", "é", "f", "z", "Z", "ปาท่องโก๋"]);
+
+// ---- matchers: number formats
+matchers(T.Number, [[1000], ["1e3"], [-0.5], ["0x10"]],
+  ["1e3", "1000", 1000, "0x10", 16, "-.5", -0.5, "Infinity", "1,000"]);
+
+// ---- matchers: dates and date-times with offsets, and non-date values
+matchers(T.Date, [["2020-06-15"], ["2020-06-14", "2020-06-16"]],
+  ["2020-06-14T23:30:00-02:00", "2020-06-15T00:00:00.000+00:00", "2020-06-15T23:59:59.999Z",
+   "2020-06-16T09:00:00+10:00", 1592179200000, "15/06/2020"]);
+matchers(T.Datetime, [["2021-05-05T10:00:00Z"]],
+  ["2021-05-05T10:00:00.999Z", "2021-05-05T12:00:00+02:00", "2021-05-05T05:00:00-05:00",
+   "2021-05-05T10:00:01Z", "2021-05-05"]);
+
+// ---- matchers: semantic versions
+matchers(T.SemanticVersion, [["1.2.3"], ["1.2.3.4"], ["10.0.0"]],
+  ["1.2.3.4", "1.2.3.5", "01.2.3", "1.2.x", " 1.2.3", "9.9.9", "10.0", "v1.2.3"]);
+
+// ---- matchers: booleans
+matchers(T.Boolean, [["TRUE"], ["true", "false"], ["false", "true"]], ["TRUE", "true", 1, 0, ""]);
+
+// ---- matchers: IP addresses (IPv6 and an invalid block throw in TypeScript)
+matchers(T.IpAddress, [["10.0.0.0/8"], ["0.0.0.0/0"], ["10.0.0.1"], ["10.0.0.0/33"]],
+  ["167772161", "10.1", "10.0.1", "10.0.0.1", "::1", "2001:db8::1", "255.255.255.255", "10.0.0.256"]);
+
+// ---- apply: absent date attributes are compared with now
+apply("now", [
+  { id: "past", value: "after-2000", attributes: [
+    { conditional: C.Greater, type: T.Date, fieldName: "today", values: ["2000-01-01"] }] },
+], "fv-now", [{}, { today: "1999-12-31" }]);
+apply("now before", [
+  { id: "future", value: "before-2000", attributes: [
+    { conditional: C.Less, type: T.Date, fieldName: "today", values: ["2000-01-01"] }] },
+], "fv-now", [{}]);
+apply("now date-time", [
+  { id: "dt", value: "after-2000", attributes: [
+    { conditional: C.Greater, type: T.Datetime, fieldName: "now", values: ["2000-01-01T00:00:00Z"] }] },
+], "fv-now", [{}, { now: [] }, { now: ["1999-01-01T00:00:00Z"] }]);
+apply("absent non-date attribute", [
+  { id: "s", value: "string", attributes: [
+    { conditional: C.NotEquals, type: T.String, fieldName: "country", values: ["nz"] }] },
+], "fv-absent", [{}, { country: [] }, { country: "au" }]);
+
+// ---- apply: AND across attributes, ANY within a list
+apply("attribute lists", [
+  { id: "both", value: "both", attributes: [
+    { conditional: C.Equals, type: T.String, fieldName: "country", values: ["thailand"] },
+    { conditional: C.Includes, type: T.String, fieldName: "shop", values: ["omu"] }] },
+], "fv-lists", [
+  { country: ["nz", "thailand"], shop: ["omu&co", "kwong pastry"] },
+  { country: ["thailand"], shop: ["kwong pastry"] },
+  { country: "thailand", shop: "omu&co" },
+  { country: [], shop: ["omu&co"] },
+]);
+
+// ---- apply: an attribute strategy does not use up a percentage share
+apply("percentage with attributes does not stack", [
+  { id: "attr", percentage: 600000, value: "attr", attributes: [
+    { conditional: C.Equals, type: T.String, fieldName: "country", values: ["thailand"] }] },
+  { id: "rest", percentage: 500000, value: "rest", attributes: [] },
+], "3f2a6c1e-8a4b-4c1e-9f0a-1b2c3d4e5f60", users.slice(0, 40).map((u, i) => ({ ...u, country: i % 2 ? "thailand" : "nz" })));
+
+// ---- apply: session lists as the default percentage key
+apply("session list", [
+  { id: "half", percentage: 500000, value: "half", attributes: [] },
+], "fv-session", Array.from({ length: 20 }, (_, i) => ({ userkey: `u${i}`, session: [`s${i}`, "lingorm"] })));
+
+// ---- apply: a strategy with neither a percentage nor attributes
+// (TypeScript adds its undefined percentage to the share, which then never matches)
+apply("empty strategy first", [
+  { id: "empty", value: "never", attributes: [] },
+  { id: "all", percentage: 1000000, value: "everyone", attributes: [] },
+], "fv-empty", [{ userkey: "ling" }, { userkey: "orm" }, {}]);
+
 writeFileSync(process.argv[2], JSON.stringify(out));
 console.log(`murmur ${out.murmur.length}, percentage ${out.percentage.length}, matchers ${out.matchers.length}, apply ${out.apply.length}`);

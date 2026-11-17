@@ -486,6 +486,11 @@ class FeatureHubProvider
         'FeatureHub features changed',
         flagsChanged: keys,
       ),
+      onEnvironmentStale: () => _emit(
+        ProviderLifecycleEventType.PROVIDER_STALE,
+        'The FeatureHub environment is stale: features will not be updated '
+        'again',
+      ),
     );
   }
 

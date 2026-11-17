@@ -54,7 +54,10 @@ void main() {
       final actual = registry
           .findMatcher(attr)
           .match(c['supplied'] as Object, attr);
-      if (actual != c['result']) {
+      // where TypeScript throws (an invalid pattern, address or block), an
+      // implementation must not match (Dart does not throw)
+      final expected = c['result'] == 'throw' ? false : c['result'];
+      if (actual != expected) {
         failures.add(
           '${c['type']} ${c['conditional']} ${jsonEncode(c['values'])} '
           'supplied ${jsonEncode(c['supplied'])}: expected ${c['result']}, '
@@ -69,6 +72,10 @@ void main() {
     const apply = ApplyFeature();
     final failures = <String>[];
     for (final c in golden['apply'] as List) {
+      // a known TypeScript bug, not copied: a strategy with neither a
+      // percentage nor attributes adds its undefined percentage to the share
+      // (making it NaN), so no later percentage strategy ever matches
+      if (_knownTypeScriptBugs.contains(c['name'])) continue;
       final strategies = (c['strategies'] as List)
           .map(
             (s) => FeatureRolloutStrategy.fromJson(
@@ -98,3 +105,7 @@ void main() {
     expect(failures, isEmpty, reason: failures.take(20).join('\n'));
   });
 }
+
+/// Scenarios whose TypeScript results are bugs Dart deliberately does not
+/// reproduce (see doc/rollout-strategies.yaml golden_fixture.known_typescript_bugs).
+const _knownTypeScriptBugs = {'empty strategy first'};

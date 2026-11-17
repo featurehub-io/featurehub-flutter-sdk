@@ -41,13 +41,18 @@ enum FeatureHubUpdateMode {
 /// - `notify(SSEResultState.failure, null)`: the source rejected the
 ///   connection for good (for example, an invalid API key). Providers report
 ///   a fatal error; stop trying.
+/// - [ClientFeatureRepository.markEnvironmentStale]: the source says the
+///   environment is stale (FeatureHub's `236`, or `edge.stale`), after giving
+///   the last features. Providers report stale for good, and keep resolving
+///   from those features; stop.
 ///
 /// FeatureHub's own event stream sends exactly these, as `event:` names
 /// (`features`, `feature`, `delete_feature`, `bye`, `failure`) with JSON
 /// `data:`, so a transport carrying them can pass each on with
 /// `notify(SSEResultStateExtension.fromJson(name), jsonDecode(data))`. A
 /// `config` event with `{"edge.stale": true}` means the environment will
-/// not change again: stop.
+/// not change again: call [ClientFeatureRepository.markEnvironmentStale]
+/// and stop.
 ///
 /// [FeatureSnapshot.from] reads the snapshots your own server serves (see
 /// [ClientFeatureRepository.featureSnapshot]).

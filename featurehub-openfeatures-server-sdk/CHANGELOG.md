@@ -27,3 +27,5 @@
 - `headers` sent with every request, `dio` and `httpClient` options to
   replace the HTTP clients (e.g. for a proxy), and `transportFactory` for your
   own transport (WebSockets, another SSE client, ...).
+- A stale environment (`236` or `edge.stale`) is reported as stale, for good;
+  flags keep resolving from the last features.

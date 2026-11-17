@@ -39,6 +39,8 @@ OpenFeature providers for Dart.
 * Your own transports: `FeatureHubTransport` is documented as a public contract, `transportFactory` creates one with a
   `FeatureHubTransportTarget` (the repository, the connection's settings, and the context to fetch for), and
   `FeatureHubUpdateMode` moves with it to `featurehub_transport.dart` (still exported)
+* A `Cache-Control: max-age` on a FeatureHub polling response replaces the poll interval, shorter or longer (as the
+  TypeScript SDK does); previously it could only lengthen it
 * Polling now polls at every interval: each poll was timed from the previous response rather than its request, so
   the next one was taken as still fresh and skipped, and polling happened every other interval
 * `ClientFeatureRepository.featureSnapshot({context})` gives the features and their SHA (a `FeatureSnapshot`), for a
@@ -50,6 +52,10 @@ OpenFeature providers for Dart.
   matches stay `TARGETING_MATCH`, including strategies the server applied
 * A feature with no value set resolves to the code default with the reason `DISABLED` (as the Go SDK does), rather
   than `DEFAULT`; a matched strategy with no value keeps its id as the variant
+* A stale environment (FeatureHub's `236`, or `edge.stale`, or a `236` from your own server) is reported with
+  `ClientFeatureRepository.markEnvironmentStale` (`environmentStale`, `environmentStaleStream`): readiness is
+  unchanged, and the providers report STALE for good (`ProviderStateTracker.onEnvironmentStale`). The server
+  example answers `236` once its own environment is stale
 * `ClientFeatureRepository.featuresSha`: a SHA-256 of the repository's features' sorted `id:version`s, computed
   whenever features arrive, are updated or deleted, or are released. `FeatureHubConfig.featuresSha` gives it for
   client-evaluated API keys (null for server-evaluated keys). `ClientFeatureRepository.computeSha`

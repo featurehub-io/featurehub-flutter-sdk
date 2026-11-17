@@ -178,7 +178,9 @@ bool ifNoneMatch(Request request, String etag) {
 }
 
 /// Serves the features evaluated for the context in the query parameters,
-/// with their SHA as the ETag: 304 if the client already has them.
+/// with their SHA as the ETag: 304 if the client already has them. Once the
+/// environment is stale (FeatureHub sends no more updates), every answer is
+/// `236` with the features, so clients load them and stop polling too.
 Response features(Request request, FeatureHubProvider provider) {
   final repository = provider.repository;
   if (repository == null) return Response(503);
@@ -188,7 +190,9 @@ Response features(Request request, FeatureHubProvider provider) {
   // so the SHA validates each URL's response
   final etag = '"${repository.featuresSha}"';
   const caching = {'cache-control': 'no-cache'};
-  if (ifNoneMatch(request, etag)) {
+  final stale = repository.environmentStale;
+  // a stale environment is always answered in full, so clients learn of it
+  if (!stale && ifNoneMatch(request, etag)) {
     return Response.notModified(headers: {'etag': etag, ...caching});
   }
 
@@ -198,8 +202,9 @@ Response features(Request request, FeatureHubProvider provider) {
   } on InvalidContextException catch (e) {
     return Response.badRequest(body: e.message);
   }
-  return Response.ok(
-    jsonEncode(snapshot),
+  return Response(
+    stale ? 236 : 200,
+    body: jsonEncode(snapshot),
     headers: {'content-type': 'application/json', 'etag': etag, ...caching},
   );
 }

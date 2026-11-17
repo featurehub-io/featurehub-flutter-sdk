@@ -6,6 +6,7 @@ import 'package:featurehub_openfeatures_common/featurehub_openfeatures_common.da
 import 'package:featurehub_openfeatures_server_sdk/featurehub_openfeatures_server_sdk.dart';
 import 'package:openfeature_dart_server_sdk/evaluation_context.dart';
 import 'package:openfeature_dart_server_sdk/open_feature_api.dart';
+import 'package:openfeature_dart_server_sdk/provider_lifecycle.dart';
 import 'package:test/test.dart';
 
 final _colour = FeatureState(
@@ -129,6 +130,29 @@ void main() {
     expect(await colour(api, 'au'), 'blue');
   });
 
+  test(
+    'a stale environment is ready, then stale, and keeps resolving',
+    () async {
+      final p = FeatureHubProvider(
+        environment: const {},
+        transportFactory: (target) =>
+            _FixedTransport(target, [_colour], stale: true),
+      );
+      final events = <ProviderLifecycleEventType>[];
+      final sub = p.providerEvents.listen((e) => events.add(e.type));
+      final api = OpenFeatureAPI();
+      await api.setProviderAndWait(p);
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(events, [
+        ProviderLifecycleEventType.PROVIDER_READY,
+        ProviderLifecycleEventType.PROVIDER_STALE,
+      ]);
+      expect(await colour(api, 'nz'), 'green');
+      await sub.cancel();
+    },
+  );
+
   test('a featuresUrl needs a poll interval, and no host or key', () {
     expect(
       () => FeatureHubProvider(featuresUrl: url(), environment: const {}),
@@ -151,11 +175,16 @@ class _FixedTransport implements FeatureHubTransport {
   final FeatureHubTransportTarget target;
   final List<FeatureState> features;
 
-  _FixedTransport(this.target, this.features);
+  /// Report the environment stale after giving the features.
+  final bool stale;
+
+  _FixedTransport(this.target, this.features, {this.stale = false});
 
   @override
-  Future<void> start() async =>
-      target.repository.notify(SSEResultState.features, features);
+  Future<void> start() async {
+    target.repository.notify(SSEResultState.features, features);
+    if (stale) target.repository.markEnvironmentStale();
+  }
 
   @override
   Future<void> contextChanged() async {}
