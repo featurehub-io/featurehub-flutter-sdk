@@ -184,21 +184,24 @@ void main() {
   });
 
   group('client-evaluated API keys', () {
-    test('FeatureHubConfig accepts them and never sends the context', () async {
-      final repo = ClientFeatureRepository();
-      final config = FeatureHubConfig('http://localhost', [
-        'default/env/key*abc',
-      ], repo);
-      expect(config.clientEvaluated, true);
+    test(
+      'FeatureHubRestClient accepts them and never sends the context',
+      () async {
+        final repo = ClientFeatureRepository();
+        final config = FeatureHubRestClient('http://localhost', [
+          'default/env/key*abc',
+        ], repo);
+        expect(config.clientEvaluated, true);
 
-      repo.clientContext.userKey('fred').build();
-      await Future<void>.delayed(Duration.zero);
-      expect(config.xFeatureHubHeader, isNull);
-    });
+        repo.clientContext.userKey('fred').build();
+        await Future<void>.delayed(Duration.zero);
+        expect(config.xFeatureHubHeader, isNull);
+      },
+    );
 
     test('server-evaluated keys still send the context', () async {
       final repo = ClientFeatureRepository();
-      final config = FeatureHubConfig('http://localhost', [
+      final config = FeatureHubRestClient('http://localhost', [
         'default/env/key',
       ], repo);
       expect(config.clientEvaluated, false);
@@ -210,7 +213,7 @@ void main() {
 
     test('client- and server-evaluated keys cannot be mixed', () {
       expect(
-        () => FeatureHubConfig('http://localhost', [
+        () => FeatureHubRestClient('http://localhost', [
           'a/b/c*d',
           'a/b/c',
         ], ClientFeatureRepository()),

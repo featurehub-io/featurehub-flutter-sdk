@@ -7,16 +7,19 @@ import '../repository.dart';
 
 /// How a [FeatureHubConnection] keeps its repository up to date.
 enum FeatureHubUpdateMode {
-  /// Server-sent events: updates arrive as soon as they are made.
+  /// Server-sent events from FeatureHub Edge ([FeatureHubSseTransport]):
+  /// updates arrive as soon as they are made. FeatureHub only: your own
+  /// server's features API is polled.
   streaming,
 
-  /// Poll every [FeatureHubConnection.pollInterval].
-  polling,
-
-  /// Only fetch when the features are read (see
+  /// Fetch only when features are read (see
   /// [FeatureHubConnection.refreshIfStale]) and the previous fetch is older
-  /// than [FeatureHubConnection.pollInterval].
-  passive,
+  /// than [FeatureHubConnection.pollInterval]; no polls of its own.
+  passivePolling,
+
+  /// Poll every [FeatureHubConnection.pollInterval] (or a FeatureHub
+  /// Cache-Control max-age, which replaces it).
+  activePolling,
 }
 
 /// Moves features into a repository: the built-in transports stream or poll
@@ -71,10 +74,10 @@ abstract interface class FeatureHubTransport {
   /// set. The caller waits (up to its timeout) for that notification.
   Future<void> contextChanged();
 
-  /// Passive mode: fetch the features if they are older than
+  /// Passive polling: fetch the features if they are older than
   /// [FeatureHubTransportTarget.pollInterval]. Called as features are read
   /// (by the server provider before each resolution); do nothing if the
-  /// transport has no passive mode.
+  /// transport has no passive polling.
   Future<void> refreshIfStale();
 
   /// Stops, releasing any connections.
@@ -83,14 +86,29 @@ abstract interface class FeatureHubTransport {
 
 /// The reconnect policy FeatureHub's streaming connections use unless one is
 /// given: 3 seconds after a network error or a dropped stream, 30 seconds
-/// after a 5xx response, each doubling with every consecutive failure up to a
-/// 5 minute cap, retrying indefinitely; a 4xx response stops. Give your own
-/// [ReconnectPolicy] (its `delay`, `serverErrorDelay`, `backoffMultiplier`,
-/// `maxDelay`, `maxAttempts`, ...) to change any of these.
+/// after any other non-200 response but a 4xx (a 5xx, or an invalid 1xx or
+/// 3xx), each doubling with every consecutive failure up to a 5 minute cap,
+/// retrying indefinitely. A 4xx stops for good (see
+/// [featureHubShouldRetryStatus]). Give your own [ReconnectPolicy] (its
+/// `delay`, `serverErrorDelay`, `backoffMultiplier`, `maxDelay`,
+/// `maxAttempts`, ...) to change any of these.
+///
+/// Whenever the connection stops for good (a 4xx, a status the policy does
+/// not retry, or running out of `maxAttempts`), the repository is notified of
+/// a failure: before any features the provider fails to initialize, after
+/// them it reports stale.
 const defaultReconnectPolicy = ReconnectPolicy(
   backoffMultiplier: 2,
   maxDelay: Duration(minutes: 5),
+  shouldRetryStatus: featureHubShouldRetryStatus,
 );
+
+/// Which non-200 statuses a FeatureHub streaming connection retries: every
+/// one but a 4xx. A 4xx is a rejection (the API key or environment), so it is
+/// permanent; a 5xx is a temporary failure; and a 1xx or 3xx is not a valid
+/// response, treated as temporary too.
+bool featureHubShouldRetryStatus(int statusCode) =>
+    statusCode < 400 || statusCode >= 500;
 
 /// Creates a transport for a connection (see [FeatureHubTransport]).
 typedef FeatureHubTransportFactory =
@@ -113,7 +131,7 @@ class FeatureHubTransportTarget {
 
   final FeatureHubUpdateMode mode;
 
-  /// How often to poll, or in passive mode how old features may get.
+  /// How often to poll, or with passive polling how old features may get.
   final Duration pollInterval;
 
   /// Headers to send with every request, for example for a proxy, gateway or

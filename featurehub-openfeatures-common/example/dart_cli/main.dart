@@ -44,7 +44,7 @@ void main() async {
     });
   });
 
-  final es = FeatureHubConfig(hostUrl, [apiKey], repo);
+  final es = FeatureHubRestClient(hostUrl, [apiKey], repo);
 
   // ignore: unawaited_futures
   es.request();

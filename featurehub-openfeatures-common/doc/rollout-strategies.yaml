@@ -25,14 +25,14 @@ spec:
   version: 1.0.0
   status: implemented-in-dart; conforms to the TypeScript SDK via the golden fixture
   related:
-    encoding: feature-snapshot-protocol.yaml (rollout_strategy JSON; context mapping)
+    encoding: featurehub-protocol.yaml (rollout_strategy JSON; context mapping)
     resolution: openfeature-resolution.yaml (SPLIT vs TARGETING_MATCH, DISABLED)
 
 # ---------------------------------------------------------------------------
 # 1. Inputs
 # ---------------------------------------------------------------------------
 inputs:
-  strategies: the feature's `strategies`, in order (feature-snapshot-protocol.yaml rollout_strategy)
+  strategies: the feature's `strategies`, in order (featurehub-protocol.yaml rollout_strategy)
   nullable_fields: "a strategy's attributes and percentageAttributes, and an attribute's values, may be null or absent: treat as empty lists"
   feature_value_id: the feature's `id` (FeatureState.id), part of the hash
   context:

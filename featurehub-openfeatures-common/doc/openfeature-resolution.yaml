@@ -2,7 +2,7 @@
 # specification, so providers in every language give the same results.
 #
 # It covers what happens once the features are in the repository, however they
-# got there (see feature-snapshot-protocol.yaml for transports): the order of
+# got there (see featurehub-protocol.yaml for transports): the order of
 # checks, interceptors, strategy evaluation, type conversion, reasons,
 # variants, error codes and flag metadata.
 #
@@ -20,7 +20,7 @@ spec:
   version: 1.0.0
   status: implemented-in-dart
   related:
-    transports: feature-snapshot-protocol.yaml (encoding of FeatureState, the context mapping, providers)
+    transports: featurehub-protocol.yaml (encoding of FeatureState, the context mapping, providers)
     stores: feature-store.yaml (how flags come to exist without FeatureHub, and the YAML store/interceptor pair)
     strategy_evaluation: >-
       rollout-strategies.yaml (the algorithm, the matchers, and the golden
@@ -47,7 +47,7 @@ evaluation:
     context: >-
       For local evaluation (a client-evaluated key, or features with
       strategies): the OpenFeature context mapped to FeatureHub attributes
-      (feature-snapshot-protocol.yaml encoding.evaluation_context). An
+      (featurehub-protocol.yaml encoding.evaluation_context). An
       invalid context is an INVALID_CONTEXT error.
   steps:
     - step: interceptors

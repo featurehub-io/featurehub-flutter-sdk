@@ -3,6 +3,21 @@ featurehub_openfeatures_common 1.0.0
 This package replaces `featurehub_client_sdk` (whose history follows) as the common basis of the FeatureHub
 OpenFeature providers for Dart.
 
+* `FeatureHubConfig` is renamed `FeatureHubRestClient`, and the transports are split out (`lib/src/transport/`):
+  `FeatureHubSseTransport` and `FeatureHubPollingTransport` (FeatureHub, with a host and API key) and
+  `FeatureSnapshotTransport` (your own server, with a `featuresUrl` and no API key), sharing `PollingTransport`.
+  `isClientEvaluatedKeys` is a top-level function. `FeatureHubUpdateMode` is `streaming`, `passivePolling` and
+  `activePolling` (previously `streaming`, `passive` and `polling`)
+* Streaming: the default reconnect policy retries every status but a 4xx (`featureHubShouldRetryStatus`): a 5xx, or
+  an invalid 1xx or 3xx, is retried with the 5xx backoff; every 4xx, 429 included, stops for good. Whenever the event
+  source stops for good (also a status a custom policy does not retry, or running out of `maxAttempts`) the
+  repository is notified of a failure, not a `bye`, so the provider goes stale after features (or fails to
+  initialize before them) rather than waiting for a reconnection that never comes
+* `FeatureHubConnection`'s `mode` defaults to `activePolling` with a `featuresUrl` (as the providers do), and to
+  `streaming` otherwise
+* `ClientFeatureRepository.loadFeatureSnapshot` replaces `FeatureHubRestClient.loadFeatureSnapshot`, for custom
+  transports too; `FeatureHubRestClient.featuresSha` is removed (use `ClientFeatureRepository.featuresSha`)
+* `environmentIdFromApiKey` accepts a null key (giving the placeholder id)
 * Requires Dart 3.12.2 or later
 * Removed analytics: `logAnalyticsEvent`, the `analyticsEvent` stream, `AnalyticsEvent` and the Google Analytics
   listener (`GoogleAnalyticsListener`, `GoogleAnalyticsApiClient`, `insertGoogleAnalyticsEvValue`)
@@ -24,7 +39,7 @@ OpenFeature providers for Dart.
   is broadcast as normal. Previously a single feature update arriving first was held back, and an initial `bye` or
   `failure` was not broadcast
 * `ClientContext` implements `StrategyContext`; `MapStrategyContext` evaluates against a map of attributes
-* `FeatureHubConfig` rejects a mix of client- and server-evaluated keys, and `request` takes `force`
+* `FeatureHubRestClient` rejects a mix of client- and server-evaluated keys, and `request` takes `force`
 * The OpenFeature flag metadata includes the feature's properties (`FeatureState.fp`), alongside `featureVersion`
   and `featureType`
 * `FeatureHubConnection` takes a `featuresUrl` instead of a `host` and `apiKey`: it polls (or passively refreshes)
@@ -33,7 +48,7 @@ OpenFeature providers for Dart.
   the repository is filled by feature stores. `FeatureStoreTarget.host` and `apiKey` are then null, and it has
   `featuresUrl` and `connectsToFeatureHub`
 * `ClientContext.attributes` gives the context's attributes
-* `headers` on `FeatureHubConnection` (and `FeatureHubConfig`, the SSE listener and `FeatureSnapshotClient`) are sent
+* `headers` on `FeatureHubConnection` (and `FeatureHubRestClient`, the SSE listener and `FeatureSnapshotClient`) are sent
   with every request, and `dio` / `httpClient` replace the HTTP clients, e.g. for a proxy. Browsers' `EventSource`
   cannot send headers, which is logged
 * Your own transports: `FeatureHubTransport` is documented as a public contract, `transportFactory` creates one with a
@@ -51,10 +66,12 @@ OpenFeature providers for Dart.
   TypeScript SDK does); previously it could only lengthen it
 * Polling now polls at every interval: each poll was timed from the previous response rather than its request, so
   the next one was taken as still fresh and skipped, and polling happened every other interval
-* `ClientFeatureRepository.featureSnapshot({context})` gives the features and their SHA (a `FeatureSnapshot`), for a
-  server to pass on to its own clients: with an OpenFeature context, each feature evaluated for it as for a
-  server-evaluated key (no strategies, `v` the matched strategy); without one, as delivered.
-  `FeatureHubConfig.loadFeatureSnapshot(data)` loads a snapshot (or its JSON, or a list of features) into the
+* `ClientFeatureRepository.featureSnapshot({context, includeStrategies})` gives the features and their SHA (a
+  `FeatureSnapshot`), for a server to pass on to its own clients: with an OpenFeature context, each feature evaluated
+  for it as for a server-evaluated key (no strategies, `v` the matched strategy). Without one (none, or empty), the
+  caller chooses: evaluated as for an empty context (the default), or with `includeStrategies: true` as delivered,
+  strategies included, for clients that evaluate locally.
+  `ClientFeatureRepository.loadFeatureSnapshot(data)` loads a snapshot (or its JSON, or a list of features) into the
   repository as a full set of features
 * A percentage rollout strategy matched locally resolves with the reason `SPLIT` (as the Go SDK does); other
   matches stay `TARGETING_MATCH`, including strategies the server applied
@@ -64,18 +81,20 @@ OpenFeature providers for Dart.
   `ClientFeatureRepository.markEnvironmentStale` (`environmentStale`, `environmentStaleStream`): readiness is
   unchanged, and the providers report STALE for good. Your own
   server's features API is not required to send `236`
+* The well-known context keys are taken from the Edge API's `StrategyAttributeWellKnownNames` (device, country,
+  platform, userkey, session, version); `email` is no longer treated as one, so it keeps the case it is given
 * `ClientFeatureRepository.featuresSha`: a SHA-256 of the repository's features' sorted `id:version`s, computed
-  whenever features arrive, are updated or deleted, or are released. `FeatureHubConfig.featuresSha` gives it for
-  client-evaluated API keys (null for server-evaluated keys). `ClientFeatureRepository.computeSha`
+  whenever features arrive, are updated or deleted, or are released; it identifies the features for client-evaluated
+  API keys. `ClientFeatureRepository.computeSha`
   is the same calculation, as every FeatureHub SDK does it (moved from the Redis store)
-* `FeatureHubConfig`: a 4xx response (FeatureHub rejecting the API key) marks the repository failed and the connection
+* `FeatureHubRestClient`: a 4xx response (FeatureHub rejecting the API key) marks the repository failed and the connection
   dead, so no further requests are made and polling stops, as streaming does. Previously only 400 and 404 were checked,
   and only when errors were returned as responses: by default the request threw and the repository was never marked
   failed. `request` no longer throws for a 4xx; other errors (network, 5xx, timeouts) are still thrown
 * The browser SSE listener uses the native `EventSource` through `package:web` (replacing `dart:html`). It also
   fixes two bugs: `failure` events were never handled (it listened for `failed`), and the first context callback
   threw because it closed a connection that did not exist yet
-* Optional HTTP `connectTimeout` and `requestTimeout` for `FeatureHubConfig` (dio), the SSE listeners and
+* Optional HTTP `connectTimeout` and `requestTimeout` for `FeatureHubRestClient` (dio), the SSE listeners and
   `FeatureHubConnection`. In browsers `EventSource` connections are controlled by the browser, so only the request
   timeout (how long the stream may take to open) applies to streaming
 * Raw feature updates for stores (the TypeScript SDK's `RawUpdateFeatureListener`, as a Dart stream):
@@ -87,7 +106,7 @@ OpenFeature providers for Dart.
   the key and the feature's state and may supply typed values; `ValueMatch.value` is now an `Object?`. Interceptors
   are closed when the repository shuts down. The feature holders' `booleanValue`, `numberValue` and `jsonValue` now
   convert intercepted strings rather than failing
-* OpenFeature support shared by the providers: `FeatureHubConnection` (streaming, polling or passive refresh, with
+* OpenFeature support shared by the providers: `FeatureHubConnection` (streaming, active polling or passive polling, with
   readiness and server-evaluated context changes), `mapEvaluationContext`, `resolveFromEvaluation` and
   `ProviderStateTracker`
 * Catch and release mode starts only after FeatureHub's own first features: features loaded from a store no longer

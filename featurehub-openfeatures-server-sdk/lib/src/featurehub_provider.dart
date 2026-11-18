@@ -85,8 +85,8 @@ class FeatureHubProvider
 
   final FeatureHubUpdateMode mode;
 
-  /// For [FeatureHubUpdateMode.polling], how often to poll; for
-  /// [FeatureHubUpdateMode.passive], how old the features may get before a
+  /// For [FeatureHubUpdateMode.activePolling], how often to poll; for
+  /// [FeatureHubUpdateMode.passivePolling], how old the features may get before a
   /// resolution refreshes them. Null when streaming.
   final Duration? pollInterval;
 
@@ -262,13 +262,13 @@ class FeatureHubProvider
         mode ??
         (interval == null && resolvedUrl == null
             ? FeatureHubUpdateMode.streaming
-            : FeatureHubUpdateMode.polling);
+            : FeatureHubUpdateMode.activePolling);
     if (resolvedUrl != null &&
         transportFactory == null &&
         resolvedMode == FeatureHubUpdateMode.streaming) {
       throw ArgumentError(
-        'Features from a featuresUrl are polled: use the polling or passive '
-            'mode',
+        'Features from a featuresUrl are polled: use activePolling or '
+            'passivePolling',
         'mode',
       );
     }
@@ -324,7 +324,7 @@ class FeatureHubProvider
     required this.interceptors,
     required this._connectionFactory,
   }) : clientEvaluated = apiKey != null
-           ? FeatureHubConfig.isClientEvaluatedKeys([apiKey])
+           ? isClientEvaluatedKeys([apiKey])
            : featuresUrl != null || transportFactory != null
            ? !sendContext
            : true;

@@ -4,18 +4,14 @@ import 'package:dio/dio.dart';
 import 'package:featurehub_sse_client/featurehub_sse_client.dart'
     show ReconnectPolicy;
 import 'package:http/http.dart' as http;
-import 'package:logging/logging.dart';
 
-import '../../featurehub_config.dart';
 import '../repository.dart';
-import 'feature_snapshot_client.dart';
-import 'featurehub_transport.dart';
-import '../sse_client.dart'
-    if (dart.library.io) '../sse_client_dartio.dart'
-    if (dart.library.js_interop) '../sse_client_web.dart';
+import '../transport/api_keys.dart';
+import '../transport/featurehub_polling_transport.dart';
+import '../transport/featurehub_sse_transport.dart';
+import '../transport/featurehub_transport.dart';
+import '../transport/snapshot_transport.dart';
 import 'context_mapper.dart';
-
-final _log = Logger('featurehub_connection');
 
 /// A connection that keeps a [ClientFeatureRepository] up to date, through a
 /// [FeatureHubTransport]:
@@ -51,6 +47,10 @@ class FeatureHubConnection {
   /// to send the context, so the source evaluates the features for it.
   final bool sendContext;
   final ClientFeatureRepository repository;
+
+  /// How the features are fetched. By default [FeatureHubUpdateMode.streaming]
+  /// from FeatureHub, and [FeatureHubUpdateMode.activePolling] from a
+  /// [featuresUrl] (which is only polled), as the providers do.
   final FeatureHubUpdateMode mode;
   final Duration pollInterval;
 
@@ -94,7 +94,7 @@ class FeatureHubConnection {
     this.sendContext = true,
     this.headers = const {},
     ClientFeatureRepository? repository,
-    this.mode = FeatureHubUpdateMode.streaming,
+    FeatureHubUpdateMode? mode,
     this.pollInterval = const Duration(seconds: 30),
     ReconnectPolicy reconnectPolicy = defaultReconnectPolicy,
     Duration? connectTimeout,
@@ -104,9 +104,14 @@ class FeatureHubConnection {
     FeatureHubTransportFactory? transportFactory,
     FeatureHubTransport? transport,
   }) : repository = repository ?? ClientFeatureRepository(),
+       mode =
+           mode ??
+           (featuresUrl == null
+               ? FeatureHubUpdateMode.streaming
+               : FeatureHubUpdateMode.activePolling),
        customTransport = transportFactory != null || transport != null,
        clientEvaluated = apiKey != null
-           ? FeatureHubConfig.isClientEvaluatedKeys([apiKey])
+           ? isClientEvaluatedKeys([apiKey])
            : featuresUrl != null ||
                  transportFactory != null ||
                  transport != null
@@ -123,10 +128,10 @@ class FeatureHubConnection {
           'featuresUrl',
         );
       }
-      if (mode == FeatureHubUpdateMode.streaming && builtIn) {
+      if (this.mode == FeatureHubUpdateMode.streaming && builtIn) {
         throw ArgumentError(
-          'Features from a featuresUrl are polled: use the polling or passive '
-              'mode',
+          'Features from a featuresUrl are polled: use activePolling or '
+              'passivePolling',
           'mode',
         );
       }
@@ -137,7 +142,7 @@ class FeatureHubConnection {
       host: host,
       apiKey: apiKey,
       featuresUrl: featuresUrl,
-      mode: mode,
+      mode: this.mode,
       pollInterval: pollInterval,
       headers: headers,
       reconnectPolicy: reconnectPolicy,
@@ -151,34 +156,22 @@ class FeatureHubConnection {
         transport ?? transportFactory?.call(target) ?? _builtIn(target);
   }
 
+  /// The built-in transport for [target]:
+  ///
+  /// - a host and an API key: FeatureHub, by [FeatureHubSseTransport] when
+  ///   streaming, or [FeatureHubPollingTransport] for active or passive
+  ///   polling;
+  /// - no API key, and a features URL: your own server, by
+  ///   [FeatureSnapshotTransport] (active or passive polling only);
+  /// - neither: none (the repository is filled by stores).
   static FeatureHubTransport _builtIn(FeatureHubTransportTarget target) {
-    final host = target.host;
-    final apiKey = target.apiKey;
-    final featuresUrl = target.featuresUrl;
-    final active = target.mode == FeatureHubUpdateMode.polling;
-
-    if (featuresUrl != null) {
-      return _PollingTransport.snapshots(
-        FeatureSnapshotClient(
-          featuresUrl,
-          target.repository,
-          sendContext: target.sendsContext,
-          headers: target.headers,
-          interval: target.pollInterval,
-          connectTimeout: target.connectTimeout,
-          requestTimeout: target.requestTimeout,
-          dio: target.dio,
-        ),
-        target.repository,
-        target.pollInterval,
-        active: active,
-      );
+    if (target.host != null && target.apiKey != null) {
+      return target.mode == FeatureHubUpdateMode.streaming
+          ? FeatureHubSseTransport(target)
+          : FeatureHubPollingTransport(target);
     }
-    if (host == null || apiKey == null) return const _NoTransport();
-    if (target.mode == FeatureHubUpdateMode.streaming) {
-      return _StreamingTransport(target, host, apiKey);
-    }
-    return _PollingTransport(target, host, apiKey, active: active);
+    if (target.featuresUrl != null) return FeatureSnapshotTransport(target);
+    return const _NoTransport();
   }
 
   /// True if this connects to FeatureHub (it has a [host] and an [apiKey]).
@@ -240,7 +233,7 @@ class FeatureHubConnection {
     return refreshed;
   }
 
-  /// Passive mode: fetches the features if they are older than
+  /// Passive polling: fetches the features if they are older than
   /// [pollInterval]. Does nothing in the other modes.
   Future<void> refreshIfStale() => _transport.refreshIfStale();
 
@@ -264,163 +257,4 @@ class _NoTransport implements FeatureHubTransport {
 
   @override
   Future<void> close() async {}
-}
-
-class _StreamingTransport implements FeatureHubTransport {
-  final EventSourceRepositoryListener _listener;
-
-  _StreamingTransport(
-    FeatureHubTransportTarget target,
-    String host,
-    String apiKey,
-  ) : _listener = EventSourceRepositoryListener(
-        host,
-        apiKey,
-        target.repository,
-        doInit: false,
-        reconnectPolicy: target.reconnectPolicy,
-        connectTimeout: target.connectTimeout,
-        requestTimeout: target.requestTimeout,
-        headers: target.headers,
-        client: target.httpClient,
-      );
-
-  @override
-  Future<void> start() => _listener.init();
-
-  // the listener reconnects with the new context itself
-  @override
-  Future<void> contextChanged() async {}
-
-  @override
-  Future<void> refreshIfStale() async {}
-
-  @override
-  Future<void> close() async => _listener.close();
-}
-
-class _PollingTransport implements FeatureHubTransport {
-  final Future<void> Function({bool force}) _fetch;
-  final bool Function() _isDead;
-
-  /// When the server allows the next request (after a cache-control max-age).
-  final DateTime Function() _nextAllowed;
-  final ClientFeatureRepository _repository;
-  bool _closed = false;
-  final Duration _interval;
-  final bool _active;
-  Timer? _timer;
-  Future<void>? _inFlight;
-
-  /// In passive mode, after a failed request: no further (unforced) request
-  /// is made before this, so an outage does not cost a request per
-  /// evaluation.
-  DateTime? _retryAfter;
-
-  _PollingTransport(
-    FeatureHubTransportTarget target,
-    String host,
-    String apiKey, {
-    required bool active,
-  }) : this._(
-         FeatureHubConfig(
-           host,
-           [apiKey],
-           target.repository,
-           timeout: target.pollInterval.inSeconds,
-           connectTimeout: target.connectTimeout,
-           requestTimeout: target.requestTimeout,
-           headers: target.headers,
-           dio: target.dio,
-         ),
-         target.repository,
-         target.pollInterval,
-         active,
-       );
-
-  _PollingTransport._(
-    FeatureHubConfig config,
-    this._repository,
-    this._interval,
-    this._active,
-  ) : _fetch = config.request,
-      _isDead = (() => config.isConnectionDead),
-      _nextAllowed = (() => config.whenNextPollAllowed);
-
-  /// Polls your own server through [client].
-  _PollingTransport.snapshots(
-    FeatureSnapshotClient client,
-    this._repository,
-    this._interval, {
-    required this._active,
-  }) : _fetch = client.request,
-       _isDead = (() => client.isConnectionDead),
-       _nextAllowed = (() => client.nextRequestAllowed);
-
-  Future<void> _request({bool force = false}) {
-    // one request at a time; a forced request waits for the current one
-    final previous = _inFlight ?? Future<void>.value();
-    final next = previous.then((_) async {
-      final retryAfter = _retryAfter;
-      if (!force && retryAfter != null && DateTime.now().isBefore(retryAfter)) {
-        return;
-      }
-      // a rejected key (4xx) marks the repository failed and the config
-      // dead, which stops polling; other errors are retried next time
-      try {
-        await _fetch(force: force);
-        _retryAfter = null;
-      } catch (e) {
-        _log.fine('FeatureHub request failed: $e');
-        if (!_active) _retryAfter = DateTime.now().add(_interval);
-      }
-    });
-    _inFlight = next;
-    return next.whenComplete(() {
-      if (identical(_inFlight, next)) _inFlight = null;
-    });
-  }
-
-  @override
-  Future<void> start() async {
-    if (_repository.readyness == Readyness.Ready) {
-      // already ready (e.g. from a store's features): fetch in the background
-      unawaited(_request().then((_) => _scheduleNext()));
-    } else {
-      await _request();
-      _scheduleNext();
-    }
-  }
-
-  /// Polling mode: the next poll, the interval after this one (or later, if
-  /// the server's cache-control asks for it). Each poll is scheduled once the
-  /// previous one has finished, so none is skipped as still fresh.
-  void _scheduleNext() {
-    if (!_active || _closed || _isDead()) return;
-    // when the server allows the next request: the poll interval after the
-    // last one started, or the Cache-Control max-age the server gave, which
-    // replaces the interval (shorter or longer). If that has passed (the
-    // request failed or was slow), wait the interval rather than retry at once
-    final now = DateTime.now();
-    final next = _nextAllowed();
-    final wait = next.isAfter(now) ? next.difference(now) : _interval;
-    _timer = Timer(wait, () async {
-      _timer = null;
-      await _request(force: true);
-      _scheduleNext();
-    });
-  }
-
-  @override
-  Future<void> contextChanged() => _request(force: true);
-
-  @override
-  Future<void> refreshIfStale() => _active ? Future.value() : _request();
-
-  @override
-  Future<void> close() async {
-    _closed = true;
-    _timer?.cancel();
-    _timer = null;
-  }
 }

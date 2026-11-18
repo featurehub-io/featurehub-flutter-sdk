@@ -50,8 +50,40 @@ void main() {
   tearDown(() => repo.shutdown());
 
   group('featureSnapshot', () {
-    test('without a context, gives the features as they are', () {
-      final s = repo.featureSnapshot();
+    test('without a context, evaluates as for an empty one by default', () {
+      for (final s in [
+        repo.featureSnapshot(),
+        repo.featureSnapshot(context: {}),
+      ]) {
+        expect(s.sha, repo.featuresSha);
+        final colour = _byKey(s, 'colour');
+        expect(colour.value, 'blue');
+        expect(colour.v, isNull);
+        expect(colour.strategies, isNull);
+      }
+    });
+
+    test('a context is evaluated even when strategies are asked for', () {
+      final colour = _byKey(
+        repo.featureSnapshot(
+          context: {'country': 'nz'},
+          includeStrategies: true,
+        ),
+        'colour',
+      );
+      expect(colour.value, 'green');
+      expect(colour.strategies, isNull);
+    });
+
+    test('without a context, gives the features as they are if asked', () {
+      final s = repo.featureSnapshot(includeStrategies: true);
+      expect(
+        repo
+            .featureSnapshot(context: {}, includeStrategies: true)
+            .features
+            .map((f) => f.toJson()),
+        s.features.map((f) => f.toJson()),
+      );
       expect(s.sha, repo.featuresSha);
       expect(s.features.map((f) => f.toJson()), [
         _colour().toJson(),
@@ -106,14 +138,10 @@ void main() {
     });
   });
 
-  group('FeatureHubConfig.loadFeatureSnapshot', () {
+  group('loadFeatureSnapshot', () {
     late ClientFeatureRepository client;
-    late FeatureHubConfig config;
 
-    setUp(() {
-      client = ClientFeatureRepository();
-      config = FeatureHubConfig('http://localhost', ['a/b/c'], client);
-    });
+    setUp(() => client = ClientFeatureRepository());
     tearDown(() => client.shutdown());
 
     test('loads a snapshot, as it would arrive from a server API', () {
@@ -121,7 +149,7 @@ void main() {
         repo.featureSnapshot(context: {'country': 'nz'}),
       );
 
-      final loaded = config.loadFeatureSnapshot(served);
+      final loaded = client.loadFeatureSnapshot(served);
       expect(loaded.sha, repo.featuresSha);
       expect(client.readyness, Readyness.Ready);
       expect(client.feature('colour').stringValue, 'green');
@@ -129,10 +157,11 @@ void main() {
       expect(client.feature('flag').booleanValue, true);
       // the same features, so the same SHA
       expect(client.featuresSha, repo.featuresSha);
+      expect(client.featuresSha, loaded.sha);
     });
 
     test('accepts the snapshot, its JSON map, or a list of features', () {
-      final snapshot = repo.featureSnapshot();
+      final snapshot = repo.featureSnapshot(includeStrategies: true);
       for (final data in [
         snapshot,
         snapshot.toJson(),
@@ -140,14 +169,16 @@ void main() {
         snapshot.features,
         jsonDecode(jsonEncode(snapshot.features)),
       ]) {
-        final loaded = config.loadFeatureSnapshot(data);
+        final loaded = client.loadFeatureSnapshot(data);
         expect(loaded.sha, repo.featuresSha, reason: '$data');
         expect(client.featuresSha, repo.featuresSha, reason: '$data');
       }
     });
 
     test('a client-evaluated repository evaluates loaded strategies', () {
-      config.loadFeatureSnapshot(repo.featureSnapshot().toJson());
+      client.loadFeatureSnapshot(
+        repo.featureSnapshot(includeStrategies: true).toJson(),
+      );
       expect(
         client
             .evaluate('colour', context: MapStrategyContext({'country': 'nz'}))
@@ -157,14 +188,14 @@ void main() {
     });
 
     test('a full set: features not in it are removed', () {
-      config.loadFeatureSnapshot(repo.featureSnapshot());
-      config.loadFeatureSnapshot([_flag()]);
+      client.loadFeatureSnapshot(repo.featureSnapshot(includeStrategies: true));
+      client.loadFeatureSnapshot([_flag()]);
       expect(client.feature('colour').exists, false);
       expect(client.feature('flag').exists, true);
     });
 
     test('rejects anything else, leaving the repository as it was', () {
-      config.loadFeatureSnapshot([_flag()]);
+      client.loadFeatureSnapshot([_flag()]);
       for (final data in [
         42,
         'not json',
@@ -174,13 +205,52 @@ void main() {
         ],
       ]) {
         expect(
-          () => config.loadFeatureSnapshot(data),
+          () => client.loadFeatureSnapshot(data),
           throwsFormatException,
           reason: '$data',
         );
       }
       expect(client.feature('flag').exists, true);
     });
+  });
+
+  test('nullable strategy fields decode, and mean empty lists', () {
+    final snapshot = FeatureSnapshot.from(
+      jsonEncode({
+        'features': [
+          {
+            'id': 'fv-orm',
+            'key': 'orm',
+            'version': 1,
+            'type': 'STRING',
+            'value': 'kornaphat',
+            'strategies': [
+              // a pure percentage strategy written by an SDK that sends null
+              {
+                'id': 'all',
+                'value': 'everyone',
+                'percentage': 1000000,
+                'attributes': null,
+                'percentageAttributes': null,
+              },
+              {'id': 'absent', 'value': 'never'},
+            ],
+          },
+        ],
+      }),
+    );
+    final strategies = snapshot.features.single.strategies!;
+    expect(strategies.map((s) => s.attributes), [isEmpty, isEmpty]);
+
+    final repo = ClientFeatureRepository()
+      ..notify(SSEResultState.features, snapshot.features);
+    final evaluated = repo.evaluate(
+      'orm',
+      context: MapStrategyContext({'userkey': 'ling'}),
+    );
+    expect(evaluated.value, 'everyone');
+    expect(evaluated.strategyId, 'all');
+    repo.shutdown();
   });
 }
 

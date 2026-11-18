@@ -67,7 +67,7 @@ void main() {
     test('accepts gzip-compressed responses', () async {
       final host = 'http://127.0.0.1:${await messages.next}';
       final repo = ClientFeatureRepository();
-      await FeatureHubConfig(host, ['a/b/c'], repo).request();
+      await FeatureHubRestClient(host, ['a/b/c'], repo).request();
 
       // the browser negotiates (and decompresses) the encoding itself
       Map request;

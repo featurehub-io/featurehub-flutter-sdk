@@ -1,7 +1,6 @@
 import 'featurehub.dart';
-import 'featurehub_config.dart';
 
-/// will be deprecated, please use FeatureHubConfig instead
-class FeatureHubSimpleApi extends FeatureHubConfig {
+/// will be deprecated, please use FeatureHubRestClient instead
+class FeatureHubSimpleApi extends FeatureHubRestClient {
   FeatureHubSimpleApi(super.host, super.apiKeys, super.repository);
 }

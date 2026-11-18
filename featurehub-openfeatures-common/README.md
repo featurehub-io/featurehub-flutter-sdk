@@ -105,23 +105,34 @@ return Response.ok(jsonEncode(snapshot), headers: {'content-type': 'application/
 With a context (an OpenFeature evaluation context, as a map), each feature is
 evaluated for it as FeatureHub does for a server-evaluated key: the features
 have that context's values, no strategies, and `v` the id of the strategy
-that matched. The client only ever sees its own values. Without a context the
-features are given as they are, strategies included, so only do that for
-trusted clients. Value interceptors are not applied.
+that matched. The client only ever sees its own values. Without a context
+(none, or an empty one) your code chooses with `includeStrategies`: by
+default the features are evaluated as for an empty context; with
+`includeStrategies: true` they are given as they are, strategies included,
+for clients that evaluate them locally, so only do that for trusted clients.
+Value interceptors are not applied.
+
+Each API key can give different features, so a server may serve its clients
+features from one key and use another for its own flags: one connection (or
+provider) per key, each with its own repository. The server SDK's README
+shows how, under "Several connections, with different API keys".
 
 On the client, give the provider a `featuresUrl` instead of a host and API
-key. A `FeatureHubConnection` with one polls, or passively refreshes, the
-features through a `FeatureSnapshotClient`. It sends the context as query
+key. A `FeatureHubConnection` with one (and no API key) uses the
+`FeatureSnapshotTransport`, which polls actively or passively through a
+`FeatureSnapshotClient`. It sends the context as query
 parameters and the last `ETag` as `If-None-Match`, and loads each snapshot
 as a full set of features.
 
-To load a snapshot yourself, `FeatureHubConfig.loadFeatureSnapshot` takes
-what the server returned: the snapshot, its JSON as a map or a string, or
-just a list of features.
+To load a snapshot yourself, for example in a transport of your own (see
+`transportFactory`), `repository.loadFeatureSnapshot` takes what the server
+returned: the snapshot, its JSON as a map or a string, or just a list of
+features. It loads them as a full set, and `repository.featuresSha` then
+identifies them (for example as an `ETag`).
 
 ```dart
 final response = await http.get(Uri.parse('https://my.app/api/features'));
-config.loadFeatureSnapshot(response.body);
+repository.loadFeatureSnapshot(response.body);
 ```
 
 Read detailed documentation on FeatureHub [here](https://docs.featurehub.io)
@@ -176,9 +187,24 @@ Proxy credentials belong on the `HttpClient`, as above, because headers go
 to the server rather than to the proxy. `connectTimeout` only applies to
 clients the SDK creates, so set it on your own clients if you need it.
 
+## Transports
+
+A `FeatureHubConnection` fills its repository through one of three built-in
+transports, chosen by what it is given (or through your own; see below):
+
+| Given | Transport | Modes |
+|---|---|---|
+| a `host` and an `apiKey` | `FeatureHubSseTransport`, streaming from FeatureHub Edge | `streaming` |
+| a `host` and an `apiKey` | `FeatureHubPollingTransport`, polling FeatureHub Edge through a `FeatureHubRestClient` | `activePolling`, `passivePolling` |
+| a `featuresUrl`, and no `apiKey` | `FeatureSnapshotTransport`, polling your own server through a `FeatureSnapshotClient` | `activePolling`, `passivePolling` |
+
+`activePolling` polls every `pollInterval`; `passivePolling` fetches only
+when a flag is read and the features are older than `pollInterval`. Both
+polling transports share their scheduling (`PollingTransport`).
+
 ## Writing your own transport
 
-[`doc/feature-snapshot-protocol.yaml`](doc/feature-snapshot-protocol.yaml)
+[`doc/featurehub-protocol.yaml`](doc/featurehub-protocol.yaml)
 is a machine-readable specification of the snapshot encoding, server, client
 and transport contract, with test vectors, for implementing them in other
 languages.
@@ -322,7 +348,7 @@ Create FeatureHub Repository that holds feature states by providing your Feature
 ```dart
 repository = ClientFeatureRepository();
 
-fhConfig = FeatureHubConfig(
+fhConfig = FeatureHubRestClient(
 'http://localhost:8903',
 [
 'default/806d0fe8-2842-4d17-9e1f-1c33eedc5f31/tnZHPUIKV9GPM4u0koKPk1yZ3aqZgKNI7b6CT76q'

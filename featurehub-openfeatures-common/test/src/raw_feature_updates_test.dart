@@ -94,6 +94,11 @@ void main() {
         environmentIdFromApiKey('junk'),
         '3ea0f571-c153-48bf-9543-df76c6f9ca50',
       );
+      // no key: a provider using a featuresUrl, or stores alone
+      expect(
+        environmentIdFromApiKey(null),
+        '3ea0f571-c153-48bf-9543-df76c6f9ca50',
+      );
     });
 
     test('describes the key and feature URL', () {

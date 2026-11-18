@@ -30,3 +30,5 @@
   environment) is reported as stale, for good, and flags keep resolving from
   the last features; a rejection before any features still fails
   initialization.
+- `mode` is `streaming`, `activePolling` or `passivePolling` (previously
+  `streaming`, `polling` or `passive`).

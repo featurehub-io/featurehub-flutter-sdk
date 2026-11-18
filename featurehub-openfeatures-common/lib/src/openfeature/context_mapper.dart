@@ -1,3 +1,6 @@
+import 'package:featurehub_client_api/api.dart'
+    show StrategyAttributeWellKnownNamesExtension;
+
 import '../client_context.dart';
 import '../strategy/js_compat.dart';
 import '../strategy/strategy_context.dart';
@@ -18,16 +21,11 @@ class InvalidContextException implements Exception {
   String toString() => 'InvalidContextException: $message';
 }
 
-/// Attribute keys FeatureHub treats specially (recognised case-insensitively).
-const _featureHubKeys = {
-  'userkey',
-  'email',
-  'device',
-  'platform',
-  'version',
-  'country',
-  'session',
-};
+/// Attribute keys FeatureHub treats specially (recognised case-insensitively):
+/// the `StrategyAttributeWellKnownNames` of the FeatureHub Edge API
+/// definition (device, country, platform, userkey, session, version).
+final _featureHubKeys = StrategyAttributeWellKnownNamesExtension.fromMap.keys
+    .toSet();
 
 /// An OpenFeature evaluation context mapped onto FeatureHub's context model.
 class MappedContext {
@@ -81,8 +79,9 @@ bool _isPrimitive(Object? v) =>
 ///
 /// - `targetingKey` (or `userkey`) becomes FeatureHub's `userkey`, the
 ///   default percentage rollout key.
-/// - FeatureHub's well-known keys (`email`, `device`, `platform`, `version`,
-///   `country`, `session`) are recognised case-insensitively.
+/// - FeatureHub's well-known keys, the `StrategyAttributeWellKnownNames` of
+///   the Edge API definition (`device`, `country`, `platform`, `session`,
+///   `version`), are recognised case-insensitively and written lowercase.
 /// - Everything else passes through as a custom attribute; null values are
 ///   skipped.
 ///

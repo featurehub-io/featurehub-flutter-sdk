@@ -25,6 +25,9 @@ class _Edge {
   /// The number of requests to leave unanswered.
   int hang = 0;
 
+  /// How long to take over each polling response.
+  Duration delay = Duration.zero;
+
   /// Reply to polling requests gzip-compressed.
   bool gzipped = false;
 
@@ -64,6 +67,7 @@ class _Edge {
       hang--;
       return; // never respond
     }
+    if (delay > Duration.zero) await Future<void>.delayed(delay);
     final header =
         request.headers.value('x-featurehub') ??
         request.uri.queryParameters['xfeaturehub'];
@@ -116,7 +120,7 @@ void main() {
 
   for (final mode in [
     FeatureHubUpdateMode.streaming,
-    FeatureHubUpdateMode.polling,
+    FeatureHubUpdateMode.activePolling,
   ]) {
     group(mode.name, () {
       test('becomes ready with features', () async {
@@ -231,7 +235,7 @@ void main() {
       final connection = FeatureHubConnection(
         host: edge.host,
         apiKey: 'a/b/c',
-        mode: FeatureHubUpdateMode.passive,
+        mode: FeatureHubUpdateMode.passivePolling,
         pollInterval: Duration.zero,
         requestTimeout: const Duration(milliseconds: 200),
       );
@@ -273,7 +277,7 @@ void main() {
       // a closed local port refuses at once; checks the option is wired
       // through to working polling and streaming clients
       for (final mode in [
-        FeatureHubUpdateMode.polling,
+        FeatureHubUpdateMode.activePolling,
         FeatureHubUpdateMode.streaming,
       ]) {
         final connection = FeatureHubConnection(
@@ -297,7 +301,7 @@ void main() {
     final connection = FeatureHubConnection(
       host: edge.host,
       apiKey: 'a/b/c',
-      mode: FeatureHubUpdateMode.polling,
+      mode: FeatureHubUpdateMode.activePolling,
       pollInterval: const Duration(seconds: 1),
     );
     await connection.start();
@@ -307,12 +311,30 @@ void main() {
     expect(edge.requests, hasLength(4));
   });
 
+  test('polling waits the full interval after each poll finishes', () async {
+    edge.delay = const Duration(milliseconds: 600);
+    final connection = FeatureHubConnection(
+      host: edge.host,
+      apiKey: 'a/b/c',
+      mode: FeatureHubUpdateMode.activePolling,
+      pollInterval: const Duration(seconds: 1),
+    );
+    await connection.start();
+    await Future<void>.delayed(const Duration(milliseconds: 3000));
+    await connection.close();
+    // start() returns after the first 0.6s response, so this covers 3.6s:
+    // requests at 0s, 1.6s and 3.2s, each 1s after the previous response,
+    // so a slow server is never polled faster than the interval (timed from
+    // the start of each request there would be four, at 0s, 1s, 2s and 3s)
+    expect(edge.requests, hasLength(3));
+  });
+
   test('a Cache-Control max-age replaces the poll interval', () async {
     edge.cacheControl = 'private, max-age=1';
     final connection = FeatureHubConnection(
       host: edge.host,
       apiKey: 'a/b/c',
-      mode: FeatureHubUpdateMode.polling,
+      mode: FeatureHubUpdateMode.activePolling,
       pollInterval: const Duration(seconds: 30),
     );
     await connection.start();
@@ -327,7 +349,7 @@ void main() {
     final connection = FeatureHubConnection(
       host: edge.host,
       apiKey: 'a/b/c',
-      mode: FeatureHubUpdateMode.polling,
+      mode: FeatureHubUpdateMode.activePolling,
       pollInterval: const Duration(seconds: 1),
     );
     await connection.start();
@@ -341,7 +363,7 @@ void main() {
     final connection = FeatureHubConnection(
       host: edge.host,
       apiKey: 'a/b/c',
-      mode: FeatureHubUpdateMode.polling,
+      mode: FeatureHubUpdateMode.activePolling,
     );
     await connection.start();
     expect(
@@ -372,7 +394,7 @@ void main() {
       host: edge.host,
       apiKey: 'a/b/c',
       repository: repository,
-      mode: FeatureHubUpdateMode.polling,
+      mode: FeatureHubUpdateMode.activePolling,
     );
     await connection.start().timeout(const Duration(seconds: 2));
     expect(repository.evaluate('colour').value, 'stored');
@@ -385,7 +407,7 @@ void main() {
       final connection = FeatureHubConnection(
         host: edge.host,
         apiKey: 'a/b/c',
-        mode: FeatureHubUpdateMode.polling,
+        mode: FeatureHubUpdateMode.activePolling,
         pollInterval: const Duration(milliseconds: 50),
       );
       await connection.start();
@@ -401,7 +423,7 @@ void main() {
       final connection = FeatureHubConnection(
         host: edge.host,
         apiKey: 'a/b/c',
-        mode: FeatureHubUpdateMode.passive,
+        mode: FeatureHubUpdateMode.passivePolling,
         pollInterval: Duration.zero,
       );
       await connection.start();
@@ -421,7 +443,7 @@ void main() {
       final connection = FeatureHubConnection(
         host: edge.host,
         apiKey: 'a/b/c',
-        mode: FeatureHubUpdateMode.polling,
+        mode: FeatureHubUpdateMode.activePolling,
         pollInterval: const Duration(milliseconds: 50),
       );
       await connection.start();
@@ -431,23 +453,26 @@ void main() {
       await connection.close();
     });
 
-    test('FeatureHubConfig marks the repository failed and stops', () async {
-      edge.status = 403;
-      final repo = ClientFeatureRepository();
-      final config = FeatureHubConfig(edge.host, ['a/b/c'], repo);
+    test(
+      'FeatureHubRestClient marks the repository failed and stops',
+      () async {
+        edge.status = 403;
+        final repo = ClientFeatureRepository();
+        final config = FeatureHubRestClient(edge.host, ['a/b/c'], repo);
 
-      await config.request(); // does not throw
-      expect(repo.readyness, Readyness.Failed);
-      expect(config.isConnectionDead, true);
+        await config.request(); // does not throw
+        expect(repo.readyness, Readyness.Failed);
+        expect(config.isConnectionDead, true);
 
-      await config.request(force: true);
-      expect(edge.requests, hasLength(1));
-    });
+        await config.request(force: true);
+        expect(edge.requests, hasLength(1));
+      },
+    );
 
-    test('FeatureHubConfig still throws for other errors', () async {
+    test('FeatureHubRestClient still throws for other errors', () async {
       edge.status = 500;
       final repo = ClientFeatureRepository();
-      final config = FeatureHubConfig(edge.host, ['a/b/c'], repo);
+      final config = FeatureHubRestClient(edge.host, ['a/b/c'], repo);
 
       await expectLater(config.request(), throwsA(isA<Exception>()));
       expect(repo.readyness, Readyness.NotReady);
@@ -460,7 +485,7 @@ void main() {
     final connection = FeatureHubConnection(
       host: edge.host,
       apiKey: 'a/b/c',
-      mode: FeatureHubUpdateMode.polling,
+      mode: FeatureHubUpdateMode.activePolling,
     );
     await connection.start();
     expect(
@@ -474,7 +499,7 @@ void main() {
     final connection = FeatureHubConnection(
       host: edge.host,
       apiKey: 'a/b/c',
-      mode: FeatureHubUpdateMode.passive,
+      mode: FeatureHubUpdateMode.passivePolling,
       pollInterval: const Duration(seconds: 30),
     );
     await connection.start();
@@ -489,7 +514,7 @@ void main() {
     final connection = FeatureHubConnection(
       host: edge.host,
       apiKey: 'a/b/c',
-      mode: FeatureHubUpdateMode.passive,
+      mode: FeatureHubUpdateMode.passivePolling,
       pollInterval: const Duration(milliseconds: 300),
     );
     await connection.start();

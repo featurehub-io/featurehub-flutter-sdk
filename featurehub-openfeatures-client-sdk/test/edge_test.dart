@@ -44,7 +44,7 @@ void main() {
 
   for (final mode in [
     FeatureHubUpdateMode.streaming,
-    FeatureHubUpdateMode.polling,
+    FeatureHubUpdateMode.activePolling,
   ]) {
     test('client-evaluated key (${mode.name})', () async {
       await api.setEvaluationContextAndWait(
@@ -85,8 +85,8 @@ void main() {
     }
 
     for (final mode in [
-      FeatureHubUpdateMode.polling,
-      FeatureHubUpdateMode.passive,
+      FeatureHubUpdateMode.activePolling,
+      FeatureHubUpdateMode.passivePolling,
     ]) {
       test('gets the features for each context (${mode.name})', () async {
         await api.setEvaluationContextAndWait(

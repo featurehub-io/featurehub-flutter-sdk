@@ -80,35 +80,4 @@ void main() {
       expect(repo.featuresSha, _sha([_f('a', 2), _f('b', 1)]));
     });
   });
-
-  group('FeatureHubConfig', () {
-    test('exposes the SHA for client-evaluated keys', () {
-      final repo = ClientFeatureRepository();
-      final config = FeatureHubConfig('http://localhost', [
-        'default/env/key*abc',
-      ], repo);
-
-      config.success([
-        FeatureEnvironmentCollection(id: 'env', features: [_f('a', 4)]),
-      ]);
-      expect(config.featuresSha, _sha([_f('a', 4)]));
-
-      repo.notify(SSEResultState.feature, _f('a', 5, value: false));
-      expect(config.featuresSha, _sha([_f('a', 5)]));
-      repo.shutdown();
-    });
-
-    test('gives no SHA for server-evaluated keys', () {
-      final repo = ClientFeatureRepository();
-      final config = FeatureHubConfig('http://localhost', [
-        'default/env/key',
-      ], repo);
-
-      config.success([
-        FeatureEnvironmentCollection(id: 'env', features: [_f('a', 4)]),
-      ]);
-      expect(config.featuresSha, isNull);
-      repo.shutdown();
-    });
-  });
 }

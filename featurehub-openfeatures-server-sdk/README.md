@@ -36,7 +36,13 @@ final enabled = await client.getBooleanFlag(
 which evaluates features for the user in each request. It also serves the
 features to its own clients from `GET /features`, evaluated for the context
 in the query parameters (for example `/features?targetingKey=fred&country=nz`)
-with `featureSnapshot`. The response's ETag is the features' SHA, so a client
+with `featureSnapshot`. With no query parameters, what it serves is the
+server's choice, set by `serveStrategiesWithoutContext` in the example (the
+`includeStrategies` option of `featureSnapshot`): by default the features
+evaluated as for an empty context, or, if set, the features as they are,
+rollout strategies included, for clients that evaluate them locally (a
+provider with `sendContext: false`). That exposes every strategy, so set it
+only for trusted clients. The response's ETag is the features' SHA, so a client
 that sends it back in `If-None-Match` gets a `304 Not Modified` until the
 features change. A provider polls it with `featuresUrl`. Serving features
 this way needs a client-evaluated key, so the example refuses to start with a
@@ -65,7 +71,10 @@ for the API). It polls, or passively refreshes, every `pollInterval`, which is
 then required. FeatureHub settings in the environment are ignored.
 
 By default no context is sent, so the other server must serve the features
-with their strategies (`featureSnapshot()` without a context). Each
+with their strategies when there is no context
+(`featureSnapshot(context: ..., includeStrategies: true)`). A server that
+evaluates them for an empty context instead (the default) gives this
+provider every feature's default value, whatever the context. Each
 resolution then evaluates them against its own context, as for a
 client-evaluated key. With `sendContext: true` the server evaluates the
 features for one context, as for a server-evaluated key, which suits a
@@ -92,12 +101,58 @@ its `stores` alone (it needs at least one, or the constructor throws).
   (after `waitForReady`), resolutions are answered from the previous
   context's bundle.
 
+## Several connections, with different API keys
+
+One process can hold several providers, each with its own API key. Each
+provider has its own connection, repository and transport: separate
+streams or polls, separate readiness and stale state. Nothing is shared
+between them.
+
+Each API key can give different features, which is a reason to use more
+than one. A server that
+serves features to its own clients (see
+[`example/main.dart`](example/main.dart)) can serve them from one key,
+and use another for its own flags. Its clients then see only the features
+that key gives, and none of the features the server uses itself.
+
+Bind each provider to its own OpenFeature domain:
+
+```dart
+final api = OpenFeatureAPI();
+
+// the server's own flags
+final own = FeatureHubProvider(host: edgeUrl, apiKey: serverKey);
+await api.setProviderForDomainAndWait('vanilla', own, providerId: 'featurehub-vanilla');
+
+// the features served to the server's clients (GET /features)
+final served = FeatureHubProvider(host: edgeUrl, apiKey: browserKey);
+await api.setProviderForDomainAndWait('pistachio', served, providerId: 'featurehub-pistachio');
+
+final client = api.getClient('todo-server', domain: 'vanilla');
+
+// in the GET /features handler, snapshot the served provider's repository
+final snapshot = served.repository!.featureSnapshot(context: queryContext(request));
+```
+
+- **Give each provider a distinct `providerId`.** The OpenFeature SDK
+  registers a provider under its metadata name unless told otherwise, and
+  every FeatureHub provider is named `featurehub`, so a second one would
+  collide with the first.
+- **Pass `host` and `apiKey` explicitly.** Anything not passed is read from
+  the environment (see above), so two providers left to it get the same key.
+- **`setProviderAndWait` sets the default provider:** use it for at most
+  one of them. A client with no domain resolves from the default.
+- A key whose features are served to other clients must be client-evaluated
+  (see [API keys](#api-keys)). The server's own key can be either kind, with
+  the restrictions above.
+
 ## Evaluation context
 
 The OpenFeature `targetingKey` is FeatureHub's `userkey`, the default key for
 percentage rollouts (a `session` attribute takes precedence). FeatureHub's
-well-known attributes (`country`, `device`, `platform`, `version`, `email`,
-`session`) are recognised case-insensitively; anything else is a custom
+well-known attributes (`StrategyAttributeWellKnownNames` in the Edge API:
+`country`, `device`, `platform`, `version`, `session`) are recognised
+case-insensitively; anything else is a custom
 attribute. Values may be strings, numbers, booleans, `DateTime`s or lists of
 those; anything else resolves with `INVALID_CONTEXT`.
 
@@ -123,10 +178,10 @@ properties (`FeatureState.fp`) when it has any.
 |---|---|---|
 | `host` | `FEATUREHUB_EDGE_URL` | |
 | `apiKey` | `FEATUREHUB_CLIENT_API_KEY`, then `FEATUREHUB_SERVER_API_KEY` | |
-| `mode` | `polling` if there is a poll interval, otherwise `streaming` | `streaming`, `polling` (every `pollInterval`) or `passive` (fetch on resolution once older than `pollInterval`) |
-| `pollInterval` | `FEATUREHUB_POLL_INTERVAL` (seconds), otherwise none | required for `polling` and `passive` |
+| `mode` | `activePolling` if there is a poll interval (or a `featuresUrl`), otherwise `streaming` | `streaming` (FeatureHub only), `activePolling` (every `pollInterval`) or `passivePolling` (fetch on resolution once older than `pollInterval`) |
+| `pollInterval` | `FEATUREHUB_POLL_INTERVAL` (seconds), otherwise none | required for `activePolling` and `passivePolling` |
 | `waitForReady` | 10s | how long initialization, and a server-evaluated context change, wait for features |
-| `reconnectPolicy` | `defaultReconnectPolicy`: 3s after a network error, 30s after a 5xx, doubling with each consecutive failure up to 5 minutes; stop on a 4xx | streaming reconnection; set any value with your own `ReconnectPolicy(delay:, serverErrorDelay:, backoffMultiplier:, maxDelay:, maxAttempts:)` (see `featurehub_sse_client`) |
+| `reconnectPolicy` | `defaultReconnectPolicy`: 3s after a network error, 30s after a 5xx (or an invalid 1xx or 3xx), doubling with each consecutive failure up to 5 minutes; a 4xx, 429 included, stops for good. Any stop for good (also an unretried status, or running out of `maxAttempts`) is a failure: before any features the provider fails to initialize, after them it goes `stale` | streaming reconnection; set any value with your own `ReconnectPolicy(delay:, serverErrorDelay:, backoffMultiplier:, maxDelay:, maxAttempts:)` (see `featurehub_sse_client`) |
 | `connectTimeout` | none | how long establishing an HTTP connection may take |
 | `stores` | none | stores that keep a copy of the features, attached before connecting (see `FeatureStore`): e.g. `featurehub_openfeatures_store_redis`, to share features between processes |
 | `interceptors` | none | value interceptors that supply feature values in place of FeatureHub's (see `ValueInterceptor`), overriding locked features too: e.g. `LocalYamlValueInterceptor` from `featurehub_openfeatures_yaml_interceptor`, for local overrides during development |

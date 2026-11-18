@@ -7,7 +7,7 @@ import 'repository.dart';
 /// The features a repository holds, with their SHA (see
 /// [ClientFeatureRepository.featureSnapshot]): for a server, such as a web
 /// application's own API, to pass the features on to its clients, which load
-/// them with [FeatureHubConfig.loadFeatureSnapshot].
+/// them with [ClientFeatureRepository.loadFeatureSnapshot].
 ///
 /// Its JSON form is `{"sha": "...", "features": [<FeatureState>, ...]}`.
 class FeatureSnapshot {

@@ -18,9 +18,14 @@
 //
 // GET /features serves every feature to the server's own clients (such as a
 // browser), evaluated for the context in the query parameters, for example
-// /features?targetingKey=fred&country=nz. Its ETag is the features' SHA, so
-// a client sending it back in If-None-Match gets a 304 until the features
-// change. A client provider polls it with
+// /features?targetingKey=fred&country=nz. With no query parameters the
+// features are evaluated as for an empty context, unless
+// serveStrategiesWithoutContext (below) is set: then they are served as they
+// are, rollout strategies included, for clients that evaluate them locally (a
+// provider with sendContext: false). That exposes every strategy, so only
+// set it for trusted clients. Its ETag is the
+// features' SHA, so a client sending it back in If-None-Match gets a 304
+// until the features change. A client provider polls it with
 // FeatureHubProvider(featuresUrl: '<this server>/features'). It needs a
 // client-evaluated key (FEATUREHUB_CLIENT_API_KEY): with a server-evaluated
 // one FeatureHub evaluates the features for this server's single context, so
@@ -178,9 +183,23 @@ bool ifNoneMatch(Request request, String etag) {
       .any((tag) => tag == '*' || tag == etag);
 }
 
-/// Serves the features evaluated for the context in the query parameters,
-/// with their SHA as the ETag: 304 if the client already has them.
-Response features(Request request, FeatureHubProvider provider) {
+/// Whether `GET /features` with no query parameters serves the features as
+/// they are, rollout strategies included (true), or evaluated as for an empty
+/// context (false). Your choice: true suits trusted clients that evaluate the
+/// features locally (a provider with `sendContext: false`); false never
+/// exposes a strategy.
+const serveStrategiesWithoutContext = false;
+
+/// Serves the features evaluated for the context in the query parameters.
+/// With none, [includeStrategies] decides: the features as they are,
+/// strategies included, or evaluated as for an empty context (see
+/// [ClientFeatureRepository.featureSnapshot]). Their SHA is the ETag: 304 if
+/// the client already has them.
+Response features(
+  Request request,
+  FeatureHubProvider provider, {
+  bool includeStrategies = serveStrategiesWithoutContext,
+}) {
   final repository = provider.repository;
   if (repository == null) return Response(503);
 
@@ -195,7 +214,10 @@ Response features(Request request, FeatureHubProvider provider) {
 
   final FeatureSnapshot snapshot;
   try {
-    snapshot = repository.featureSnapshot(context: queryContext(request));
+    snapshot = repository.featureSnapshot(
+      context: queryContext(request),
+      includeStrategies: includeStrategies,
+    );
   } on InvalidContextException catch (e) {
     return Response.badRequest(body: e.message);
   }

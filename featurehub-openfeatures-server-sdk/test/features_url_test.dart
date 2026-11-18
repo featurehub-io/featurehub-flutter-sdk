@@ -48,9 +48,11 @@ void main() {
     server.listen((request) async {
       queries.add(request.uri.query);
       final params = request.uri.queryParameters;
-      final snapshot = params.isEmpty
-          ? features.featureSnapshot()
-          : features.featureSnapshot(context: params);
+      // with no context, the strategies, for local evaluation
+      final snapshot = features.featureSnapshot(
+        context: params,
+        includeStrategies: true,
+      );
       request.response
         ..headers.contentType = ContentType.json
         ..write(jsonEncode(snapshot));
@@ -84,7 +86,7 @@ void main() {
     );
     expect(p.connectsToFeatureHub, false);
     expect(p.host, isNull);
-    expect(p.mode, FeatureHubUpdateMode.polling);
+    expect(p.mode, FeatureHubUpdateMode.activePolling);
     expect(p.clientEvaluated, true);
 
     final api = OpenFeatureAPI();
@@ -98,7 +100,7 @@ void main() {
     final p = FeatureHubProvider(
       featuresUrl: url(),
       sendContext: true,
-      mode: FeatureHubUpdateMode.passive,
+      mode: FeatureHubUpdateMode.passivePolling,
       pollInterval: const Duration(minutes: 1),
       environment: const {},
     );

@@ -85,8 +85,8 @@ final class FeatureHubProvider
   /// Streaming by default, or polling with a [featuresUrl].
   final fh.FeatureHubUpdateMode mode;
 
-  /// For [fh.FeatureHubUpdateMode.polling], how often to poll; for
-  /// [fh.FeatureHubUpdateMode.passive], how old the features may get before a
+  /// For [fh.FeatureHubUpdateMode.activePolling], how often to poll; for
+  /// [fh.FeatureHubUpdateMode.passivePolling], how old the features may get before a
   /// resolution refreshes them (in the background).
   final Duration pollInterval;
 
@@ -171,9 +171,9 @@ final class FeatureHubProvider
            mode ??
            (_nonEmpty(featuresUrl) == null
                ? fh.FeatureHubUpdateMode.streaming
-               : fh.FeatureHubUpdateMode.polling),
+               : fh.FeatureHubUpdateMode.activePolling),
        clientEvaluated = _nonEmpty(apiKey) != null
-           ? fh.FeatureHubConfig.isClientEvaluatedKeys([apiKey!.trim()])
+           ? fh.isClientEvaluatedKeys([apiKey!.trim()])
            : _nonEmpty(featuresUrl) != null || transportFactory != null
            ? !sendContext
            : true {
@@ -194,8 +194,8 @@ final class FeatureHubProvider
       if (this.mode == fh.FeatureHubUpdateMode.streaming &&
           transportFactory == null) {
         throw ArgumentError(
-          'Features from a featuresUrl are polled: use the polling or passive '
-              'mode',
+          'Features from a featuresUrl are polled: use activePolling or '
+              'passivePolling',
           'mode',
         );
       }
@@ -477,7 +477,7 @@ final class FeatureHubProvider
           : fh.notReadyResolution(defaultValue);
     } else {
       try {
-        if (mode == fh.FeatureHubUpdateMode.passive) {
+        if (mode == fh.FeatureHubUpdateMode.passivePolling) {
           // resolution is synchronous: refresh for the next one
           unawaited(connection.refreshIfStale());
         }

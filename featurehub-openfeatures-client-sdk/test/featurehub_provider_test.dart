@@ -71,7 +71,7 @@ void main() {
     final fromServer = FeatureHubProvider(
       featuresUrl: 'https://my.app/features',
     );
-    expect(fromServer.mode, FeatureHubUpdateMode.polling);
+    expect(fromServer.mode, FeatureHubUpdateMode.activePolling);
     expect(fromServer.clientEvaluated, false);
     expect(
       FeatureHubProvider(

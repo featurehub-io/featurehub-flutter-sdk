@@ -9,8 +9,8 @@ import 'package:http/http.dart' as http;
 import 'package:logging/logging.dart';
 import 'package:web/web.dart' as web;
 
-import '../featurehub_config.dart';
-import 'openfeature/featurehub_transport.dart' show defaultReconnectPolicy;
+import 'transport/api_keys.dart';
+import 'transport/featurehub_transport.dart' show defaultReconnectPolicy;
 import 'repository.dart';
 
 final _log = Logger('featurehub_web_eventsource');
@@ -69,7 +69,7 @@ class EventSourceRepositoryListener {
     Map<String, String> headers = const {},
     http.Client? client,
   }) : _repository = repository,
-       _clientEvaluated = FeatureHubConfig.isClientEvaluatedKeys([apiKey]),
+       _clientEvaluated = isClientEvaluatedKeys([apiKey]),
        _url = '$url${url.endsWith('/') ? '' : '/'}features/$apiKey' {
     if (headers.isNotEmpty) {
       _log.warning(

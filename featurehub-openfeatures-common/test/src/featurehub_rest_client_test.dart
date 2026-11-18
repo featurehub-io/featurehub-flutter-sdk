@@ -12,12 +12,12 @@ class _MockFeatureRepository extends Mock implements ClientFeatureRepository {
 }
 
 void main() {
-  late FeatureHubConfig config;
+  late FeatureHubRestClient config;
   late _MockFeatureRepository repository;
 
   setUp(() {
     repository = _MockFeatureRepository();
-    config = FeatureHubConfig(
+    config = FeatureHubRestClient(
       'http://localhost',
       ['123'],
       repository,

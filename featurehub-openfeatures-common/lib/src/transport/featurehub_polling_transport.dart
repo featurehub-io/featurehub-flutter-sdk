@@ -1,15 +1,36 @@
-import 'package:dio/dio.dart';
-import 'package:featurehub_client_api/api.dart';
-import 'package:featurehub_openfeatures_common/featurehub.dart';
-import 'package:logging/logging.dart';
-import 'package:openapi_dart_common/openapi.dart';
 import 'dart:async';
 import 'dart:convert';
+
 import 'package:crypto/crypto.dart';
+import 'package:dio/dio.dart';
+import 'package:featurehub_client_api/api.dart';
+import 'package:logging/logging.dart';
+import 'package:openapi_dart_common/openapi.dart';
+
+import '../repository.dart';
+import 'api_keys.dart';
+import 'featurehub_transport.dart';
+import 'polling_transport.dart';
 
 final _log = Logger('FeatureHub');
 
-class FeatureHubConfig {
+/// Polls FeatureHub Edge for an environment's features
+/// (`GET <host>/features?apiKey=...`), and loads them into a repository: the
+/// HTTP client behind [FeatureHubPollingTransport].
+///
+/// - `200`: the features, as a full set.
+/// - `236`: the last features: the environment is stale
+///   ([ClientFeatureRepository.markEnvironmentStale]), and no further
+///   requests are made.
+/// - Any 4xx: the API key is rejected; the repository is marked failed and
+///   no further requests are made.
+/// - Anything else (5xx, network errors, timeouts) is thrown, and a later
+///   request may succeed.
+///
+/// A `Cache-Control: max-age` replaces the poll interval. For a
+/// server-evaluated key the repository's client context is sent as the
+/// `x-featurehub` header.
+class FeatureHubRestClient {
   final List<String> _apiKeys;
   final bool _clientEvaluated;
   final FeatureServiceApi _api;
@@ -34,7 +55,7 @@ class FeatureHubConfig {
   /// [dio] makes the requests, for example one configured with a proxy; by
   /// default one is created with [connectTimeout] (which does not apply to a
   /// [dio] given).
-  FeatureHubConfig(
+  FeatureHubRestClient(
     String host,
     this._apiKeys,
     this._repository, {
@@ -75,41 +96,11 @@ class FeatureHubConfig {
   /// each feature's rollout strategies and they are evaluated locally.
   bool get clientEvaluated => _clientEvaluated;
 
-  /// For client-evaluated API keys, the repository's
-  /// [ClientFeatureRepository.featuresSha]: the SHA-256 of its features,
-  /// computed again on every update. Null for server-evaluated keys, whose
-  /// features differ by context.
-  String? get featuresSha => _clientEvaluated ? _repository.featuresSha : null;
+  Duration? _maxAge;
 
-  /// True if [apiKeys] are client-evaluated keys. Throws an [ArgumentError] if
-  /// client- and server-evaluated keys are mixed.
-  static bool isClientEvaluatedKeys(List<String> apiKeys) {
-    final clientEvaluated = apiKeys.where((key) => key.contains('*')).length;
-    if (clientEvaluated != 0 && clientEvaluated != apiKeys.length) {
-      throw ArgumentError.value(
-        apiKeys,
-        'apiKeys',
-        'Client-evaluated (containing *) and server-evaluated API keys cannot be mixed',
-      );
-    }
-    return clientEvaluated != 0;
-  }
-
-  /// Loads the features in [data] into the repository, as a full set from
-  /// FeatureHub (features not in it are removed): for a client that gets its
-  /// features from its own server rather than from FeatureHub, for example a
-  /// browser calling a web application's API that returns
-  /// [ClientFeatureRepository.featureSnapshot].
-  ///
-  /// [data] is a [FeatureSnapshot], its JSON form (a map or a JSON string),
-  /// or a list of features (as [FeatureState]s or their JSON). Returns the
-  /// snapshot loaded. Throws a [FormatException] if [data] is none of these,
-  /// leaving the repository unchanged.
-  FeatureSnapshot loadFeatureSnapshot(dynamic data) {
-    final snapshot = FeatureSnapshot.from(data);
-    _repository.notify(SSEResultState.features, snapshot.features);
-    return snapshot;
-  }
+  /// The last `Cache-Control: max-age` FeatureHub gave, which replaces the
+  /// poll interval; null if it has given none.
+  Duration? get maxAge => _maxAge;
 
   bool get isConnectionDead => _deadConnection;
   int get timeoutInSeconds => _timeoutInSeconds;
@@ -137,6 +128,7 @@ class FeatureHubConfig {
           var cacheAge = int.parse(match.group(0).toString().substring(8));
           if (cacheAge > 0) {
             _timeoutInSeconds = cacheAge;
+            _maxAge = Duration(seconds: cacheAge);
           }
         } catch (e) {
           // ignore an unparseable max-age, keep the existing timeout
@@ -240,4 +232,50 @@ class FeatureHubConfig {
 
     return _repository;
   }
+}
+
+/// Polls FeatureHub Edge, actively or passively (see [PollingTransport]),
+/// through a [FeatureHubRestClient]: the transport a connection with a
+/// host and an API key uses for [FeatureHubUpdateMode.activePolling] and
+/// [FeatureHubUpdateMode.passivePolling].
+class FeatureHubPollingTransport extends PollingTransport {
+  /// The client making the requests.
+  final FeatureHubRestClient client;
+
+  /// Polls [FeatureHubTransportTarget.host] with
+  /// [FeatureHubTransportTarget.apiKey], which must both be set; passively for
+  /// [FeatureHubUpdateMode.passivePolling], otherwise actively.
+  FeatureHubPollingTransport(FeatureHubTransportTarget target)
+    : client = FeatureHubRestClient(
+        _required(target.host, 'host'),
+        [_required(target.apiKey, 'apiKey')],
+        target.repository,
+        timeout: target.pollInterval.inSeconds,
+        connectTimeout: target.connectTimeout,
+        requestTimeout: target.requestTimeout,
+        headers: target.headers,
+        dio: target.dio,
+      ),
+      super(
+        target.repository,
+        target.pollInterval,
+        active: target.mode != FeatureHubUpdateMode.passivePolling,
+      );
+
+  static String _required(String? value, String name) {
+    if (value == null) {
+      throw ArgumentError('Polling FeatureHub requires a $name', name);
+    }
+    return value;
+  }
+
+  @override
+  Future<void> fetch({bool force = false}) => client.request(force: force);
+
+  @override
+  bool get isDead => client.isConnectionDead;
+
+  /// FeatureHub's Cache-Control max-age, if it gave one, else the interval.
+  @override
+  Duration get currentInterval => client.maxAge ?? interval;
 }

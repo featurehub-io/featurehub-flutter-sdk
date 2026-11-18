@@ -291,8 +291,11 @@ class ClientFeatureRepository {
   /// deleted, and when caught features are released, however they arrive
   /// (streaming, polling or a store). In catch and release mode it describes
   /// the features applied, not those held back. It identifies the features
-  /// only for client-evaluated API keys, which every client receives alike;
-  /// [FeatureHubConfig.featuresSha] gives it only for those.
+  /// only for client-evaluated API keys, which every client receives alike
+  /// (with a server-evaluated key, the features differ by context).
+  ///
+  /// A transport can send it as an `ETag`, or compare it with a snapshot's
+  /// [FeatureSnapshot.sha] to see whether the features have changed.
   String get featuresSha => _featuresSha;
 
   void _updateFeaturesSha() => _featuresSha = computeSha(featureStates);
@@ -513,24 +516,38 @@ class ClientFeatureRepository {
 
   /// The features the repository holds, with their [featuresSha], for a
   /// server to pass on to its own clients (which load them with
-  /// [FeatureHubConfig.loadFeatureSnapshot]).
+  /// [loadFeatureSnapshot]).
   ///
-  /// With no [context], the features are as delivered by FeatureHub
-  /// (copies, including any rollout strategies). With a [context] (an
-  /// OpenFeature evaluation context, in map form, see
+  /// With a [context] (an OpenFeature evaluation context, in map form, see
   /// [mapEvaluationContext]), each feature's strategies are applied to it, as
   /// FeatureHub does for a server-evaluated API key: the features have the
   /// value for that context, no strategies, and `v` the id of the strategy
   /// that matched (null if none did). Features without strategies are as
-  /// delivered. Value interceptors are not applied: they override values
-  /// locally, so they are not passed on.
+  /// delivered.
+  ///
+  /// With no context (null or empty), the caller decides with
+  /// [includeStrategies]:
+  ///
+  /// - false (the default): the features are evaluated as for an empty
+  ///   context, so no strategy is exposed.
+  /// - true: the features are as delivered by FeatureHub (copies, rollout
+  ///   strategies included), for clients that evaluate them locally. That
+  ///   exposes every strategy and its values, so only do it for trusted
+  ///   clients.
+  ///
+  /// Value interceptors are not applied: they override values locally, so
+  /// they are not passed on.
   ///
   /// Throws an [InvalidContextException] if [context] holds a value
   /// FeatureHub cannot represent.
-  FeatureSnapshot featureSnapshot({Map<String, Object?>? context}) {
-    final strategyContext = context == null
+  FeatureSnapshot featureSnapshot({
+    Map<String, Object?>? context,
+    bool includeStrategies = false,
+  }) {
+    final noContext = context == null || context.isEmpty;
+    final strategyContext = noContext && includeStrategies
         ? null
-        : mapEvaluationContext(context).strategyContext;
+        : mapEvaluationContext(context ?? const {}).strategyContext;
     final features = [
       for (final fs in featureStates)
         strategyContext == null
@@ -538,6 +555,21 @@ class ClientFeatureRepository {
             : _evaluatedFor(fs, strategyContext),
     ];
     return FeatureSnapshot(_featuresSha, features);
+  }
+
+  /// Loads the features in [data] as a full set (features not in it are
+  /// removed), as if FeatureHub had sent them: for a transport of your own,
+  /// for example one fetching the features from your own server's API, which
+  /// returns [featureSnapshot].
+  ///
+  /// [data] is a [FeatureSnapshot], its JSON form (a map or a JSON string),
+  /// or a list of features (as [FeatureState]s or their JSON). Returns the
+  /// snapshot loaded. Throws a [FormatException] if [data] is none of these,
+  /// leaving the repository unchanged.
+  FeatureSnapshot loadFeatureSnapshot(dynamic data) {
+    final snapshot = FeatureSnapshot.from(data);
+    notify(SSEResultState.features, snapshot.features);
+    return snapshot;
   }
 
   FeatureState _evaluatedFor(FeatureState fs, StrategyContext context) {

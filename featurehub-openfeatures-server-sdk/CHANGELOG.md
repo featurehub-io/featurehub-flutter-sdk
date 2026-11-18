@@ -17,8 +17,11 @@
   stores when FeatureHub does not become ready.
 - Exports `FeatureSnapshot`. The example serves the features to its own
   clients from `GET /features`, evaluated for the context in the query
-  parameters, with the features' SHA as the ETag (`304` on a matching
-  `If-None-Match`).
+  parameters (with none, as for an empty context, or, if
+  `serveStrategiesWithoutContext` is set, as they are, rollout strategies
+  included, for clients that evaluate them locally), with the features' SHA
+  as the ETag
+  (`304` on a matching `If-None-Match`).
 - A `featuresUrl` option, instead of a host and API key: the provider polls
   (or passively refreshes) the features from another server's API, by default
   without a context, evaluating their strategies locally for each request
@@ -35,3 +38,5 @@
   features have arrived (a rejection, a stale environment) is reported as
   stale, for good, and flags keep resolving from the last features; a
   rejection before any features still fails initialization.
+- `mode` is `streaming`, `activePolling` or `passivePolling` (previously
+  `streaming`, `polling` or `passive`).

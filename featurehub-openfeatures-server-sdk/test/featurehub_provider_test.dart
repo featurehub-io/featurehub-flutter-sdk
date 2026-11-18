@@ -255,7 +255,7 @@ void main() {
           'FEATUREHUB_POLL_INTERVAL': '15',
         },
       );
-      expect(polling.mode, FeatureHubUpdateMode.polling);
+      expect(polling.mode, FeatureHubUpdateMode.activePolling);
       expect(polling.pollInterval, const Duration(seconds: 15));
 
       final explicit = FeatureHubProvider(
@@ -264,7 +264,7 @@ void main() {
         pollInterval: const Duration(seconds: 5),
         environment: const {},
       );
-      expect(explicit.mode, FeatureHubUpdateMode.polling);
+      expect(explicit.mode, FeatureHubUpdateMode.activePolling);
     });
 
     test('an explicit mode wins', () {
@@ -285,7 +285,7 @@ void main() {
         () => FeatureHubProvider(
           host: host,
           apiKey: 'env/key*client',
-          mode: FeatureHubUpdateMode.polling,
+          mode: FeatureHubUpdateMode.activePolling,
           environment: const {},
         ),
         throwsArgumentError,

@@ -6,14 +6,15 @@ import 'package:logging/logging.dart';
 
 import '../feature_snapshot.dart';
 import '../repository.dart';
+import 'featurehub_transport.dart';
+import 'polling_transport.dart';
 
 final _log = Logger('featurehub_snapshot_client');
 
 /// Fetches the features from your own server rather than from FeatureHub:
 /// from an API that serves a [FeatureSnapshot], such as the server SDK
 /// example's `GET /features` (see [ClientFeatureRepository.featureSnapshot]).
-/// A [FeatureHubConnection] with a `featuresUrl` polls (or passively
-/// refreshes) through it.
+/// [FeatureSnapshotTransport] polls (or passively refreshes) through it.
 ///
 /// - With [sendContext], the repository's client context is sent as query
 ///   parameters (`userkey`, and the other attributes; a list is a repeated
@@ -25,7 +26,7 @@ final _log = Logger('featurehub_snapshot_client');
 ///   the list of features), loaded as a full set of features.
 /// - Its `ETag` is sent back as `If-None-Match` (for the same URL), so the
 ///   server can answer `304 Not Modified` while the features are unchanged.
-/// - A 4xx response (other than 408 and 429) means the server has rejected
+/// - A 4xx response (other than 429) means the server has rejected
 ///   the request: the repository is marked failed and no further requests
 ///   are made. Other errors are thrown, and a later request may succeed.
 class FeatureSnapshotClient {
@@ -126,14 +127,15 @@ class FeatureSnapshotClient {
       return;
     }
     if (status == 200) {
-      final snapshot = FeatureSnapshot.from(response.data);
+      final snapshot = repository.loadFeatureSnapshot(response.data);
       _etag = response.headers.value('etag') ?? '"${snapshot.sha}"';
       _etagUrl = uri;
       _nextRequest = started.add(interval);
-      repository.notify(SSEResultState.features, snapshot.features);
       return;
     }
-    if (status >= 400 && status < 500 && status != 408 && status != 429) {
+    // every 4xx but 429 (rate limiting, which your server or a gateway may
+    // do) is permanent
+    if (status >= 400 && status < 500 && status != 429) {
       _log.warning(
         'featurehub: $uri rejected the request ($status); no further '
         'requests will be made.',
@@ -144,4 +146,61 @@ class FeatureSnapshotClient {
     }
     throw StateError('Fetching features from $uri gave $status');
   }
+}
+
+/// Polls your own server's features API (see [FeatureSnapshotClient]),
+/// actively or passively (see [PollingTransport]): the transport a
+/// connection with a `featuresUrl` and no API key uses. It never connects to
+/// FeatureHub, and does not stream: only [FeatureHubUpdateMode.activePolling]
+/// and [FeatureHubUpdateMode.passivePolling] are supported.
+class FeatureSnapshotTransport extends PollingTransport {
+  /// The client making the requests.
+  final FeatureSnapshotClient client;
+
+  /// Polls [FeatureHubTransportTarget.featuresUrl], which must be set,
+  /// sending the context if [FeatureHubTransportTarget.sendsContext]. Throws an
+  /// [ArgumentError] for [FeatureHubUpdateMode.streaming].
+  FeatureSnapshotTransport(FeatureHubTransportTarget target)
+    : client = FeatureSnapshotClient(
+        _url(target),
+        target.repository,
+        sendContext: target.sendsContext,
+        headers: target.headers,
+        interval: target.pollInterval,
+        connectTimeout: target.connectTimeout,
+        requestTimeout: target.requestTimeout,
+        dio: target.dio,
+      ),
+      super(
+        target.repository,
+        target.pollInterval,
+        active: target.mode == FeatureHubUpdateMode.activePolling,
+      );
+
+  static String _url(FeatureHubTransportTarget target) {
+    final url = target.featuresUrl;
+    if (url == null) {
+      throw ArgumentError(
+        'The snapshot transport requires a featuresUrl',
+        'featuresUrl',
+      );
+    }
+    if (target.mode == FeatureHubUpdateMode.streaming) {
+      throw ArgumentError(
+        'Features from a featuresUrl are polled: use activePolling or '
+            'passivePolling',
+        'mode',
+      );
+    }
+    return url;
+  }
+
+  @override
+  Future<void> fetch({bool force = false}) => client.request(force: force);
+
+  @override
+  bool get isDead => client.isConnectionDead;
+
+  @override
+  Duration get currentInterval => interval;
 }

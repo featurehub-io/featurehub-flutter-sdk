@@ -59,6 +59,26 @@ void main() {
       ]);
     });
 
+    test('the well-known keys are the Edge API\'s, so email is not one', () {
+      expect(StrategyAttributeWellKnownNamesExtension.fromMap.keys.toSet(), {
+        'device',
+        'country',
+        'platform',
+        'userkey',
+        'session',
+        'version',
+      });
+      final mapped = mapEvaluationContext({
+        'Version': '2.0.0',
+        'Email': 'lingling@kwong.example',
+      });
+      // a custom attribute keeps its case
+      expect(mapped.attributes, {
+        'version': '2.0.0',
+        'Email': 'lingling@kwong.example',
+      });
+    });
+
     test('nested objects are rejected', () {
       expect(
         () => mapEvaluationContext({

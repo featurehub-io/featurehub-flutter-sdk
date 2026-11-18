@@ -61,11 +61,11 @@ void main() {
   });
 
   test('A failure is reported to the repository', () {
-    rep.r = Readyness.Failed;
     es.listen(
       (value) {},
       onError: expectAsync1((dynamic _) {
-        verify(() => rep.notify(SSEResultState.bye, any()));
+        // the event source only errors once it has stopped for good
+        verify(() => rep.notify(SSEResultState.failure, any()));
       }),
     );
     es.addError('blah');
@@ -194,11 +194,28 @@ void main() {
       verify(() => repo.notify(SSEResultState.failure, null)).called(1);
     });
 
-    test('giving up on anything else is reported as bye', () async {
+    // the event source only gives up for good: nothing reconnects after it,
+    // so whatever the cause it is a permanent failure (the provider goes stale
+    // after features, or fails to initialize before them)
+    test('giving up for any other reason is a failure too', () async {
+      // e.g. a status a custom policy does not retry, or no attempts left
       stream.addError(EventSourceSubscriptionException(503, 'unavailable'));
       await pump();
 
-      verify(() => repo.notify(SSEResultState.bye, null)).called(1);
+      verify(() => repo.notify(SSEResultState.failure, null)).called(1);
+      verifyNever(() => repo.notify(SSEResultState.bye, any()));
+    });
+
+    test('running out of attempts is a failure', () async {
+      stream.addError(
+        EventSourceSubscriptionException(
+          0,
+          'connection closed and reconnection attempts exhausted',
+        ),
+      );
+      await pump();
+
+      verify(() => repo.notify(SSEResultState.failure, null)).called(1);
     });
   });
 

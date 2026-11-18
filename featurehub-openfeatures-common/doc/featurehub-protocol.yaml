@@ -1,16 +1,20 @@
-# FeatureHub feature snapshots and transports: a machine-readable specification.
+# The FeatureHub protocol, as the SDKs use it: a machine-readable
+# specification.
 #
 # Describes, precisely enough to reimplement in another language:
 #   1. the encoding (FeatureState, FeatureSnapshot, the SHA, the ETag);
 #   2. the snapshot server (your own server re-serving FeatureHub features);
 #   3. the snapshot client (polling / passive refresh with If-None-Match);
-#   4. the transport contract (how any source fills a feature repository);
-#   5. how providers choose and wire a transport.
+#   4. polling and passive scheduling, shared by FeatureHub and snapshots;
+#   5. what the repository does with each notification;
+#   6. the transport contract (how any source fills a feature repository);
+#   7. how providers choose and wire a transport, and how the built-in
+#      transports talk to FeatureHub Edge (polling and streaming).
 #
 # Reference implementation: the Dart SDK in this repository,
 #   featurehub-openfeatures-common (lib/src/feature_snapshot.dart,
-#   lib/src/repository.dart, lib/src/openfeature/feature_snapshot_client.dart,
-#   lib/src/openfeature/featurehub_transport.dart,
+#   lib/src/repository.dart, lib/src/transport/ (the transport contract, and
+#   the FeatureHub SSE, FeatureHub polling and snapshot transports),
 #   lib/src/openfeature/featurehub_connection.dart,
 #   lib/src/openfeature/context_mapper.dart), and the server example
 #   featurehub-openfeatures-server-sdk/example/main.dart (GET /features).
@@ -21,7 +25,7 @@
 # it so clients and servers in different languages interoperate.
 
 spec:
-  name: featurehub-feature-snapshot
+  name: featurehub-protocol
   version: 1.0.0
   status: implemented-in-dart
   related:
@@ -64,8 +68,8 @@ encoding:
         fp: {type: object, additionalProperties: {type: string}, description: "Feature properties (string to string). Optional."}
         environmentId: {type: string, description: "Optional."}
         strategies:
-          type: array
-          description: "Rollout strategies, in evaluation order. Present only when the receiver is to evaluate locally (client-evaluated keys, or a raw snapshot)."
+          type: [array, "null"]
+          description: "Rollout strategies, in evaluation order. Present only when the receiver is to evaluate locally (client-evaluated keys, or a raw snapshot); absent, null and empty all mean none."
           items: {$ref: "featurehub/rollout-strategy"}
       additionalProperties: true
     encoding_rules:
@@ -101,11 +105,11 @@ encoding:
       - "attributes, percentageAttributes, an attribute's values and percentage are nullable, and may be absent: decoders MUST accept null and absence (other SDKs keep them as null; the Dart one decodes the lists as empty lists)"
       - "the meaning is the same either way: evaluation (rollout-strategies.yaml) treats a null or absent list exactly like an empty one, and a null percentage as none"
     dart_status: >-
-      Dart only: the Dart decoder (featurehub_client_api
-      FeatureRolloutStrategy) treats a null or absent values or
-      percentageAttributes as an empty list, but throws a DeserialisationError
-      for a null or absent attributes, which fails the whole feature. That is a
-      known gap against this rule, in the Dart SDK alone.
+      The Dart decoder (featurehub_client_api FeatureRolloutStrategy) decodes a
+      null or absent attributes, percentageAttributes or values as an empty
+      list. (It used to throw for a null attributes, failing the whole
+      feature; fixed by a hand edit to the generated code, which must be kept
+      if the client is regenerated.)
     other_languages: >-
       Every other language (Go, TypeScript, Java, ...) decodes a null or absent
       attributes, percentageAttributes or values as null, and evaluates it as
@@ -201,7 +205,15 @@ encoding:
     rules:
       - entries with a null value are skipped
       - "`targetingKey` or `userkey` (case-insensitive) becomes `userkey`; its value is stringified (see wire_value)"
-      - "the well-known keys device, platform, version, country, session are recognised case-insensitively and written lowercase"
+      - >-
+        the well-known keys are exactly the StrategyAttributeWellKnownNames
+        schema of the FeatureHub Edge OpenAPI definition
+        (http://api.dev.featurehub.io/edge/1.1.8.yaml, from which
+        featurehub_client_api is generated; currently device, country, platform, userkey,
+        session, version). They are recognised case-insensitively and
+        written lowercase; userkey is handled by the rule above. Nothing else
+        (email, for example) is well-known: implementations SHOULD take the
+        list from the generated model rather than keep their own copy.
       - any other key passes through unchanged (case preserved)
       - "allowed values: string, number, boolean, date-time, or a list of those"
       - "any other value (an object, or a list containing one) is an invalid context: server -> 400; client provider -> INVALID_CONTEXT error"
@@ -232,7 +244,7 @@ server:
     Your own server, connected to FeatureHub with a client-evaluated API key
     (see api_key_requirement), re-serving features to its own clients. Reference: GET /features in
     featurehub-openfeatures-server-sdk/example/main.dart, using
-    ClientFeatureRepository.featureSnapshot.
+    ClientFeatureRepository.featureSnapshot (snapshot_api).
   endpoint:
     method: GET
     path: /features   # any path; clients are configured with the full URL
@@ -258,20 +270,38 @@ server:
       on_match: '304 Not Modified, empty body, headers ETag and Cache-Control: no-cache'
       check_order: the If-None-Match check MAY happen before evaluating the context (the reference does it first)
     evaluation:
+      selection: >-
+        A request with query parameters is evaluated for that context
+        (with_context). For a request with none, the server's own code
+        chooses, not the request: the protocol has no parameter or header
+        for it. Either it evaluates as for an empty context (with_context,
+        the context being empty; the default), or it serves the features as
+        delivered, rollout strategies included (without_context). Every SDK
+        MUST offer that choice to the server's code: see snapshot_api.
+      consequences: >-
+        A client that evaluates locally (sendContext false, the server
+        provider's default) sends no query, so it needs a server that serves
+        strategies without a context: from one that evaluates instead, it
+        gets every feature's default value, whatever its own context. A
+        client sending its context whose context is empty also sends no
+        query; it resolves either form to the same values (strategies are
+        evaluated locally, spec.related.strategy_evaluation).
       with_context:
         description: >-
-          Used whenever the server evaluates for the request (the reference
-          does so for every request, an empty query being an empty context).
-          The result is exactly what FeatureHub Edge would send for a
-          server-evaluated key.
+          Used when the request has query parameters, and, unless the server
+          serves strategies without a context, when it has none (an empty
+          context). The result is exactly what FeatureHub Edge would send for
+          a server-evaluated key.
         per_feature:
           - "if the feature has no strategies (absent or empty): output a copy as is, keeping its `v`"
           - "otherwise apply the strategies, in order, to the context (spec.related.strategy_evaluation)"
           - "output: id, key, l, version, type, fp (copy), environmentId unchanged; value = matched strategy's value, else the feature's value; v = matched strategy's id, else null; strategies omitted"
       without_context:
         description: >-
-          "As delivered": deep copies with strategies, for clients that
-          evaluate locally (e.g. a server provider using sendContext=false).
+          Used when the request has no query parameters and the server has
+          chosen to serve strategies without a context. "As delivered": deep
+          copies with strategies, for clients that evaluate locally (e.g. a
+          provider using sendContext=false, the server provider's default).
           Exposes every strategy and its values: only serve this to trusted
           clients.
       value_interceptors: not applied (local overrides stay local)
@@ -303,6 +333,44 @@ server:
         - "Access-Control-Allow-Origin: * (or the origin)"
         - "Access-Control-Allow-Headers: *, or at least if-none-match plus any custom headers"
         - "Access-Control-Expose-Headers: ETag (so script can read it)"
+  snapshot_api:
+    description: >-
+      What every SDK that can act as a snapshot server MUST provide to the
+      server's own code, wherever the SDK turns a request's context into a
+      feature_snapshot: a function on the repository (or its equivalent),
+      and, if the SDK ships one, its ready-made HTTP handler. The choice
+      below MUST be offered, with the same default, at whichever of these
+      the server's code calls.
+    dart: "ClientFeatureRepository.featureSnapshot({Map<String, Object?>? context, bool includeStrategies = false}); no built-in handler (the example has its own)"
+    go: >-
+      snapshot.NewHandler(source, snapshot.WithStrategiesWithoutContext()):
+      the choice is a handler option, off by default (evaluate), as these
+      rules require.
+    parameters:
+      context: >-
+        An OpenFeature evaluation context in map form (encoding.evaluation_context),
+        optional. Null and empty mean the same: no context.
+      includeStrategies: >-
+        A boolean, or an equivalent the language favours (an option, an enum
+        such as {evaluate, includeStrategies}, a separate function). It MUST
+        exist, and it MUST be the caller's to set: the SDK MUST NOT decide it
+        from the request.
+    rules:
+      - "with a non-empty context: MUST evaluate for it (server.evaluation.with_context), whatever includeStrategies says"
+      - "with no context and includeStrategies false: MUST evaluate as for an empty context (with_context): no strategies in the output"
+      - "with no context and includeStrategies true: MUST give the features as delivered (server.evaluation.without_context): copies, strategies included"
+      - "the default, when the caller does not say, MUST be false (evaluate): exposing every strategy and its values has to be asked for"
+      - "an invalid context is an error (Dart: InvalidContextException), so the server can answer 400"
+      - "value interceptors are not applied; the sha is the repository SHA, whichever form is given"
+    documentation: >-
+      An SDK MUST document the choice where it documents the snapshot
+      function, including server.evaluation.consequences: a server that
+      leaves the default cannot serve clients that evaluate locally (they
+      send no context, and would get every feature's default value).
+    example_handlers: >-
+      An SDK's example snapshot server SHOULD make the choice visible as a
+      setting (Dart: the example's serveStrategiesWithoutContext constant,
+      default false) rather than hard-code either form.
   api_key_requirement:
     rule: >-
       A snapshot server MUST connect to FeatureHub with a client-evaluated
@@ -324,11 +392,6 @@ server:
       A server whose provider has no FeatureHub key (its features come from
       stores, or from another server with sendContext false) is fine as long
       as its features keep their strategies.
-  open_question: >-
-    The reference example always evaluates (no query = empty context = default
-    values). Clients that evaluate locally (sendContext=false, the server
-    provider's default) need the without_context form. Undecided whether that
-    should be served when the query is empty, or from a separate endpoint.
 
 # ---------------------------------------------------------------------------
 # 3. Snapshot client
@@ -336,8 +399,9 @@ server:
 client:
   description: >-
     Fetches snapshots from the server and loads them into a repository.
-    Reference: FeatureSnapshotClient, driven by the polling transport in
-    featurehub_connection.dart.
+    Reference: FeatureSnapshotClient and FeatureSnapshotTransport in
+    lib/src/transport/snapshot_transport.dart (scheduling shared with
+    FeatureHub polling: lib/src/transport/polling_transport.dart).
   configuration:
     url: {required: true, description: "Full URL of the endpoint; may already have query parameters."}
     send_context: {default: "true for app/browser (client) providers, false for server providers", description: "Send the repository's context as query parameters."}
@@ -358,10 +422,16 @@ client:
       Accept: application/json
       "<custom headers>": from configuration.headers
       If-None-Match: 'the stored ETag, only if it was stored for exactly this request URL; otherwise omitted'
+      precedence: "when the client sends an If-None-Match (it has an ETag for this URL), it replaces a custom header of the same name"
     freshness:
-      - "record started = now before sending"
-      - "an unforced request is skipped while now < next_allowed"
-      - "after a 200 or 304: next_allowed = started + interval (from the request start, not the response, so a poll every interval is never skipped as fresh)"
+      description: >-
+        Only for passivePolling, whose requests are unforced (activePolling
+        forces each poll and schedules them itself; see
+        polling_transport.active_polling).
+      rules:
+        - "record started = now before sending"
+        - "an unforced request is skipped while now < next_allowed"
+        - "after a 200 or 304: next_allowed = started + interval"
   responses:
     - status: 200
       action:
@@ -392,19 +462,19 @@ polling_transport:
   serialisation: one request at a time; a forced request waits for the one in flight
   start:
     - "if the repository is already ready (e.g. loaded from a store): request in the background; else await the first request"
-    - "then, in polling mode, schedule the next poll"
-  polling_mode:
+    - "then, with activePolling, schedule the next poll"
+  active_polling:
     schedule: >-
-      After each poll finishes, wait until next_allowed (the poll interval,
-      or a FeatureHub Cache-Control max-age that replaced it, after the
-      request started; see featurehub_edge.polling.cache_control), then make
-      a forced request, then schedule again. If next_allowed has already
-      passed (the request failed, or took longer than the interval), wait
-      the configured interval instead, so a failure never becomes a tight
-      retry loop. Stop when closed or dead. A fixed periodic timer MUST NOT
-      be used with an unforced freshness check: the tick lands microseconds
-      inside the window and every other poll is skipped.
-  passive_mode:
+      After each poll finishes, whether it succeeded or failed, wait the full
+      poll interval (or a FeatureHub Cache-Control max-age that replaced it;
+      see featurehub_edge.polling.cache_control) from when it finished, then
+      make a forced request, then schedule again. The wait is measured from
+      the end of the poll, not its start, so a slow or failing server is
+      never polled faster than the interval and a failure never becomes a
+      tight retry loop. Stop when closed or dead. A fixed periodic timer MUST
+      NOT be used with an unforced freshness check: the tick lands
+      microseconds inside the window and every other poll is skipped.
+  passive_polling:
     refresh_if_stale: >-
       Called as flags are resolved (the server provider awaits it before each
       resolution; the app provider fires it without waiting, resolution being
@@ -469,7 +539,7 @@ transport:
     host: FeatureHub Edge URL, if configured
     apiKey: FeatureHub API key, if configured
     featuresUrl: your own server's URL, if configured
-    mode: "streaming | polling | passive"
+    mode: "streaming | activePolling | passivePolling"
     pollInterval: duration
     headers: map to send with every request
     reconnectPolicy: reconnection delays (FeatureHub SSE semantics)
@@ -488,16 +558,45 @@ transport:
       called: only when sendsContext, after the repository's context has been replaced
       must: fetch for the new context and notify a full set; the caller waits (up to its timeout) for the next readiness notification
     refreshIfStale:
-      called: passive mode, on resolution
+      called: passivePolling, on resolution
       must: fetch if older than pollInterval; otherwise do nothing (a no-op is fine for push transports)
     close:
       must: stop and release connections
+  permanent_failure:
+    rule: >-
+      The same for every transport, built-in or custom. A permanent failure
+      is never retried: the transport notifies failure and stops. Before the
+      first features the provider's initialisation fails (ERROR,
+      PROVIDER_FATAL); after them the provider reports STALE, for good, and
+      keeps resolving from the last features.
+    what_is_permanent:
+      - "FeatureHub Edge, polling or streaming: any 4xx, 429 included"
+      - "your own server (snapshot client): any 4xx except 429"
+      - "a streaming connection that stops for good for any other reason: a status the reconnect policy does not retry, or running out of its attempts (nothing reconnects after it, so it is not a bye)"
+      - "a browser EventSource closing (readyState CLOSED), which hides the status"
+    not_permanent: >-
+      Everything else is temporary and retried: a 5xx, a network error or
+      timeout, and (when streaming) an invalid 1xx or 3xx response. A stale
+      environment (236, edge.stale) is not a failure either: the provider
+      reports STALE but readiness stays Ready (repository.environment_stale).
+  helpers:
+    loadFeatureSnapshot: >-
+      repository.loadFeatureSnapshot(data): loads a feature_snapshot, its JSON
+      (a map or a string) or a bare array of features as a full set (the same
+      as notify(features)), decoding as encoding.feature_snapshot.decoding,
+      and returns the snapshot. A format error leaves the repository
+      unchanged. The snapshot client uses it; a custom transport receiving
+      snapshots can too.
+    featuresSha: >-
+      repository.featuresSha: encoding.sha of the features held, recomputed
+      on every applied change. A transport can send it as an ETag, or compare
+      it with a snapshot's sha to see whether anything changed.
   notifications:   # the only calls a transport needs to make
     - {call: "notify(features, list)", when: "a full set; the first makes the provider ready"}
     - {call: "notify(feature, one)", when: one feature added or updated}
     - {call: "notify(deleteFeature, one)", when: one feature deleted}
     - {call: "notify(bye, null)", when: "connection lost, being re-established (the provider stays ready; it is not reported as stale)"}
-    - {call: "notify(failure, null)", when: "permanently rejected, e.g. invalid key (provider reports fatal); stop trying"}
+    - {call: "notify(failure, null)", when: "permanently rejected, e.g. an invalid key; stop trying. Before any features the provider fails to initialise (PROVIDER_FATAL); after them it reports STALE for good and keeps resolving from the last features"}
     - {call: "markEnvironmentStale()", when: "after the last features, FeatureHub says the environment is stale (polling 236, streaming edge.stale): provider reports STALE for good and keeps resolving; stop"}
   relaying_featurehub_events:
     description: >-
@@ -528,8 +627,8 @@ transport:
 # ---------------------------------------------------------------------------
 providers:
   source_selection:
-    - {given: "host + apiKey", transport: "FeatureHub streaming (default) or polling/passive"}
-    - {given: "featuresUrl", transport: "snapshot client, polling (default) or passive; streaming is an error unless a transportFactory is given"}
+    - {given: "host + apiKey", transport: "FeatureHub: FeatureHubSseTransport for streaming (the default), FeatureHubPollingTransport for activePolling or passivePolling"}
+    - {given: "featuresUrl, and no apiKey", transport: "your own server: FeatureSnapshotTransport, activePolling (the default, for the providers and FeatureHubConnection alike) or passivePolling; streaming is an error unless a transportFactory is given"}
     - {given: "transportFactory", transport: "the custom transport (it may use any of host, apiKey, featuresUrl)"}
     - {given: "only stores", transport: "none; features come from stores"}
   validation_errors:
@@ -537,7 +636,7 @@ providers:
     - featuresUrl together with host or apiKey
     - featuresUrl with streaming and no transportFactory
     - "nothing to get features from (no host+apiKey, featuresUrl, transportFactory or stores)"
-    - "server provider: polling/passive without a pollInterval"
+    - "server provider: activePolling or passivePolling without a pollInterval"
   local_evaluation_rule:
     description: Whether resolutions evaluate strategies locally (clientEvaluated) or the source is sent the context (sendsContext = !clientEvaluated).
     rules:
@@ -584,8 +683,10 @@ providers:
 featurehub_edge:
   description: >-
     How the built-in transports talk to FeatureHub Edge itself (not your own
-    server). Reference: featurehub_config.dart (polling),
-    sse_client_dartio.dart and sse_client_web.dart (streaming).
+    server). Reference: lib/src/transport/featurehub_polling_transport.dart
+    (FeatureHubRestClient, FeatureHubPollingTransport) and
+    lib/src/transport/featurehub_sse_transport.dart (FeatureHubSseTransport,
+    over sse_client_dartio.dart and sse_client_web.dart).
   extra_headers:
     rule: >-
       Both FeatureHub transports, polling and streaming, MUST let the
@@ -594,17 +695,16 @@ featurehub_edge:
       send them with every request: each poll, and each streaming connection
       and reconnection.
     precedence: >-
-      The SDK's own protocol headers win over an extra header of the same
-      name: x-featurehub (the context, for a server-evaluated key) on both,
-      and If-None-Match where it is used. Other extra headers are sent as
-      given.
+      The SDK's own protocol header wins over an extra header of the same
+      name: x-featurehub (the context, for a server-evaluated key), on both.
+      Other extra headers are sent as given.
     browsers: >-
       A browser's EventSource cannot send headers, so in a browser extra
       headers are only sent when polling; a client SHOULD warn if they are
       configured for streaming (the Dart client logs a warning).
     dart: >-
       The providers' and FeatureHubConnection's `headers` option, passed to
-      FeatureHubConfig (polling) and the SSE listener (streaming); custom
+      FeatureHubRestClient (polling) and the SSE listener (streaming); custom
       transports get them as FeatureHubTransportTarget.headers.
   polling:
     request: >-
@@ -664,29 +764,37 @@ featurehub_edge:
       classification:
         - status: 4xx
           meaning: "permanent: the API key or environment is rejected. Every 4xx, 429 included (unlike the snapshot client, which retries 429)"
-          action: "notify(failure) and stop: no further attempts (before any features the provider fails to initialise; after them it goes STALE for good)"
+          action: "notify(failure) and stop: no further attempts (transport.permanent_failure)"
         - status: 5xx
           meaning: "temporary: Edge, or something in front of it, is failing"
           action: "notify(bye) (the provider stays ready) and keep trying, with a backoff"
+        - status: "1xx or 3xx"
+          meaning: "not a valid response to an SSE request: temporary, as for a 5xx"
+          action: "notify(bye) and keep trying, with the same backoff as a 5xx"
         - status: "no status: a network error, a timeout, or the stream ending"
           meaning: temporary
           action: "notify(bye) and keep trying, with a backoff"
-        - status: "any other non-200 (1xx, 3xx)"
-          meaning: unexpected
-          action: stop, as for a permanent failure (the reference treats only 5xx as retryable)
+      stopping_for_good: >-
+        If the client stops retrying for any other reason (an application's
+        reconnect policy that does not retry some status, or running out of
+        its maximum number of attempts), nothing will reconnect: that is a
+        permanent failure, so it MUST notify(failure), not bye
+        (transport.permanent_failure).
       backoff: >-
         Retries SHOULD wait longer after a 5xx than after a network error, and
         SHOULD grow with each consecutive failure up to a cap, so a failing Edge
         is not hammered. The count resets once a connection opens. A
         configurable maximum number of attempts MAY stop retrying; running out
-        of attempts is still a temporary failure (bye), not a rejection.
+        of attempts is then a permanent failure (stopping_for_good).
       reference_defaults: >-
         Dart (defaultReconnectPolicy, a featurehub_sse_client ReconnectPolicy):
         3s after a network error or a dropped stream (a server retry: field
-        may replace it), 30s after a 5xx; delay = base *
-        backoffMultiplier^(attempt - 1), capped at maxDelay, with
-        backoffMultiplier 2 and maxDelay 5 minutes; unlimited attempts;
-        shouldRetryStatus 5xx only.
+        may replace it), 30s after a retried status (a 5xx, 1xx or 3xx);
+        delay = base * backoffMultiplier^(attempt - 1), capped at maxDelay,
+        with backoffMultiplier 2 and maxDelay 5 minutes; unlimited attempts;
+        shouldRetryStatus every status but a 4xx
+        (featureHubShouldRetryStatus). The listener notifies failure whenever
+        the event source stops for good.
       configuration: >-
         Every value MUST be configurable by the application: the network-error
         delay, the 5xx delay, the multiplier, the cap, the maximum number of
@@ -724,11 +832,35 @@ conformance:
   - id: client-discards-stale-context
     check: "a response that arrives after the context changed is not loaded"
   - id: client-rejection
-    check: "401 marks the client dead, notifies failure, and stops polling"
+    check: "401, and 408, mark the client dead, notify failure, and stop polling"
   - id: client-retry
-    check: "500 leaves the repository not ready; the next poll succeeds"
+    check: "500, and 429, leave the repository not ready; the next poll succeeds"
+  - id: snapshot-api-choice
+    check: "featureSnapshot (or its equivalent) with no context and no choice made evaluates as for an empty context; with includeStrategies true it gives the strategies; with a non-empty context it evaluates for it either way; an empty context is treated as no context"
+  - id: server-empty-query
+    check: "a request with no query parameters gets the features evaluated as for an empty context by default, or with their strategies if the server chose that; with parameters, always evaluated for them"
   - id: polling-every-interval
-    check: "with a 1s interval, 4 requests are made in 3.5s (initial + 3)"
+    check: "with a 1s interval and an immediate server, 4 requests are made in 3.5s (initial + 3)"
+  - id: polling-from-end-of-poll
+    check: "with a 1s interval and a server taking 0.6s, requests start 1.6s apart: 3 in 3s after the first response"
+  - id: polling-max-age
+    check: "a Cache-Control max-age replaces the poll interval, shorter or longer"
+  - id: edge-polling-rejection
+    check: "polling FeatureHub: any 4xx fails the repository and stops polling; a 5xx keeps polling"
+  - id: edge-stale
+    check: "a 236 (polling) or edge.stale (streaming) after features: the repository stays Ready, environmentStale is true, nothing more is requested, the provider reports STALE once"
+  - id: bye-not-stale
+    check: "a bye makes the repository NotReady, but the provider reports no event"
+  - id: streaming-statuses
+    check: "the default reconnect policy retries 1xx, 3xx and 5xx, and not any 4xx (429 included)"
+  - id: streaming-stops-for-good
+    check: "the event source stopping for good (a 4xx, an unretried status, no attempts left) notifies failure, never bye"
+  - id: permanent-failure
+    check: "a permanent failure before features fails initialisation (PROVIDER_FATAL); after them the provider reports STALE once and keeps resolving"
+  - id: nullable-strategy-fields
+    check: "strategies whose attributes, percentageAttributes or values are null or absent decode, and evaluate as empty lists"
+  - id: connection-default-mode
+    check: "a FeatureHubConnection with a featuresUrl and no mode polls actively; with a host and key it streams"
   - id: passive
     check: "refreshIfStale fetches only after the interval; no requests of its own otherwise"
   - id: custom-transport

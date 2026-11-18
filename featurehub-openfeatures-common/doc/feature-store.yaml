@@ -24,7 +24,7 @@ spec:
   version: 1.0.0
   status: implemented-in-dart
   related:
-    encoding: feature-snapshot-protocol.yaml encoding (FeatureState JSON, the SHA)
+    encoding: featurehub-protocol.yaml encoding (FeatureState JSON, the SHA)
     resolution: openfeature-resolution.yaml (interceptors never create flags)
 
 # ---------------------------------------------------------------------------
@@ -71,9 +71,12 @@ store:
       clientEvaluated: "apiKey is set and contains '*'; false without an API key"
       environmentId: >-
         From the API key: the middle part of "portfolio/environment/key", or
-        the first part of "environment/key"; otherwise (including no key) the
-        placeholder 3ea0f571-c153-48bf-9543-df76c6f9ca50 (the TypeScript
-        SDK's placeholder).
+        the first part of "environment/key"; otherwise, including no key
+        (apiKey null), the placeholder 3ea0f571-c153-48bf-9543-df76c6f9ca50
+        (the TypeScript SDK's placeholder). Every provider without an API key
+        therefore has the same environmentId: a store that several such
+        providers share must keep them apart some other way (for example a
+        prefix of its own); choosing that is left to the user.
       featureUrl: >-
         "<host without a trailing slash>/features/<apiKey>" with a FeatureHub
         connection; else featuresUrl; else null. Unique to the environment
@@ -82,6 +85,7 @@ store:
       - {apiKey: "default/a1b2c3/key*secret", environmentId: a1b2c3}
       - {apiKey: "a1b2c3/key", environmentId: a1b2c3}
       - {apiKey: "nonsense", environmentId: 3ea0f571-c153-48bf-9543-df76c6f9ca50}
+      - {apiKey: null, environmentId: 3ea0f571-c153-48bf-9543-df76c6f9ca50}
   provider_lifecycle:
     - "the provider attaches its stores, in order, after registering its interceptors and before starting its connection, so stored features are available at once"
     - "a store's full set makes the repository ready; the provider's wait for readiness then returns at once, and a polling connection makes its first request in the background"
@@ -132,7 +136,7 @@ repository_rules:
   - id: same-version-replacement
     rule: >-
       An incoming feature replaces a held one at the same version if its
-      value, v, id or type differs (see feature-snapshot-protocol.yaml
+      value, v, id or type differs (see featurehub-protocol.yaml
       repository.update_rule), so FeatureHub's feature replaces a store's
       even when the store gave it the same version.
   - id: deletes-clear-held-updates
@@ -179,7 +183,7 @@ redis_store:
     own FeatureHub connection fails.
   keys:
     features: "<prefix>_<environmentId>: a JSON array of FeatureState JSON"
-    sha: "<prefix>_<environmentId>_sha: the SHA of those features (feature-snapshot-protocol.yaml encoding.sha)"
+    sha: "<prefix>_<environmentId>_sha: the SHA of those features (featurehub-protocol.yaml encoding.sha)"
     prefix_default: featurehub
     example: {features: featurehub_a1b2c3, sha: featurehub_a1b2c3_sha}
   options:

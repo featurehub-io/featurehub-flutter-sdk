@@ -1,4 +1,4 @@
-import '../../featurehub_config.dart';
+import '../transport/api_keys.dart';
 import '../repository.dart';
 
 /// What a [FeatureStore] is attached to: a repository, and the FeatureHub
@@ -36,11 +36,11 @@ class FeatureStoreTarget {
   /// True if [apiKey] is client-evaluated (contains `*`). False if there is no
   /// API key.
   bool get clientEvaluated =>
-      apiKey != null && FeatureHubConfig.isClientEvaluatedKeys([apiKey!]);
+      apiKey != null && isClientEvaluatedKeys([apiKey!]);
 
   /// The environment id from [apiKey] (see [environmentIdFromApiKey]); with
   /// no API key, the placeholder id.
-  String get environmentId => environmentIdFromApiKey(apiKey ?? '');
+  String get environmentId => environmentIdFromApiKey(apiKey);
 
   /// The streaming feature URL, `<host>/features/<apiKey>`, unique to the
   /// environment and key, so suitable as a storage key; or, without a
@@ -55,14 +55,23 @@ class FeatureStoreTarget {
 
 /// The environment id from an API key, as every FeatureHub SDK derives it:
 /// the middle part of `portfolio/environment/key`, or the first part of
-/// `environment/key`. Other forms give a fixed placeholder id.
-String environmentIdFromApiKey(String apiKey) {
+/// `environment/key`. No key (null), or any other form, gives a fixed
+/// placeholder id.
+///
+/// Every provider without an API key (one using a `featuresUrl`, or stores
+/// alone) therefore has the same id: stores that several such providers
+/// share must be kept apart some other way, for example by giving each its
+/// own prefix.
+String environmentIdFromApiKey(String? apiKey) {
+  if (apiKey == null) return _placeholderEnvironmentId;
   final parts = apiKey.split('/');
   if (parts.length >= 3) return parts[1];
   if (parts.length == 2) return parts[0];
-  // the TypeScript SDK's placeholder for an unrecognised key
-  return '3ea0f571-c153-48bf-9543-df76c6f9ca50';
+  return _placeholderEnvironmentId;
 }
+
+/// The TypeScript SDK's placeholder for an unrecognised key.
+const _placeholderEnvironmentId = '3ea0f571-c153-48bf-9543-df76c6f9ca50';
 
 /// Keeps a copy of a repository's features outside it: for example in
 /// browser storage, so an application starts with the features it last had,

@@ -1,7 +1,7 @@
 import 'package:featurehub_sse_client/featurehub_sse_client.dart';
 import 'package:http/http.dart' as http;
 
-import 'openfeature/featurehub_transport.dart' show defaultReconnectPolicy;
+import 'transport/featurehub_transport.dart' show defaultReconnectPolicy;
 import 'repository.dart';
 
 /// The platform-independent API of the SSE listener. The implementation is

@@ -23,8 +23,13 @@ void main() {
       [30, 60, 120, 240, 300],
     );
 
-    // only a 5xx is retried; a 4xx stops
-    expect(p.shouldRetryStatus(503), true);
-    expect(p.shouldRetryStatus(401), false);
+    // every 4xx stops, 429 included; a 5xx, or an invalid 1xx or 3xx, is
+    // retried
+    for (final status in [400, 401, 403, 404, 408, 429, 499]) {
+      expect(p.shouldRetryStatus(status), false, reason: '$status');
+    }
+    for (final status in [100, 101, 301, 302, 304, 500, 502, 503, 599]) {
+      expect(p.shouldRetryStatus(status), true, reason: '$status');
+    }
   });
 }

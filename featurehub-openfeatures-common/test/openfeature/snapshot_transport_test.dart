@@ -82,14 +82,13 @@ class _FeatureServer {
     }
 
     final params = request.uri.queryParametersAll;
-    final snapshot = rawWithoutContext && params.isEmpty
-        ? repository.featureSnapshot()
-        : repository.featureSnapshot(
-            context: {
-              for (final MapEntry(:key, :value) in params.entries)
-                key: value.length == 1 ? value.single : value,
-            },
-          );
+    final snapshot = repository.featureSnapshot(
+      context: {
+        for (final MapEntry(:key, :value) in params.entries)
+          key: value.length == 1 ? value.single : value,
+      },
+      includeStrategies: rawWithoutContext,
+    );
     response.headers.contentType = ContentType.json;
     response.write(body ?? jsonEncode(snapshot));
     await response.close();
@@ -102,7 +101,7 @@ void main() {
 
   FeatureHubConnection connect({
     String? url,
-    FeatureHubUpdateMode mode = FeatureHubUpdateMode.polling,
+    FeatureHubUpdateMode mode = FeatureHubUpdateMode.activePolling,
     Duration pollInterval = const Duration(seconds: 1),
     bool sendContext = true,
     Map<String, String> headers = const {},
@@ -218,7 +217,7 @@ void main() {
 
   test('a response for an earlier context is discarded', () async {
     final c = connect(
-      mode: FeatureHubUpdateMode.passive,
+      mode: FeatureHubUpdateMode.passivePolling,
       pollInterval: Duration.zero,
     );
     await c.start(context: mapEvaluationContext({'country': 'nz'}));
@@ -246,10 +245,10 @@ void main() {
   });
 
   test(
-    'passive mode fetches when read, once the interval has passed',
+    'passive polling fetches when read, once the interval has passed',
     () async {
       final c = connect(
-        mode: FeatureHubUpdateMode.passive,
+        mode: FeatureHubUpdateMode.passivePolling,
         pollInterval: const Duration(milliseconds: 300),
       );
       await c.start();
@@ -298,6 +297,24 @@ void main() {
     expect(await ready(c), Readyness.Ready);
   }, timeout: const Timeout(Duration(seconds: 15)));
 
+  test('a 408 is a rejection too; only a 429 is retried', () async {
+    server.failWith = 408;
+    final c = connect(pollInterval: const Duration(milliseconds: 1000));
+    await c.start();
+    expect(await ready(c), Readyness.Failed);
+    await Future<void>.delayed(const Duration(milliseconds: 1200));
+    expect(server.requests, hasLength(1));
+  }, timeout: const Timeout(Duration(seconds: 15)));
+
+  test('a 429 is retried at the next poll', () async {
+    server.failWith = 429;
+    final c = connect(pollInterval: const Duration(milliseconds: 1000));
+    await c.start();
+    expect(c.repository.readyness, Readyness.NotReady);
+    server.failWith = null;
+    expect(await ready(c), Readyness.Ready);
+  }, timeout: const Timeout(Duration(seconds: 15)));
+
   test('a rejection (4xx) fails the repository and stops polling', () async {
     server.failWith = 401;
     final c = connect(pollInterval: const Duration(milliseconds: 1000));
@@ -328,9 +345,24 @@ void main() {
         featuresUrl: 'http://x/features',
         host: 'http://edge',
         apiKey: 'a/b',
-        mode: FeatureHubUpdateMode.polling,
+        mode: FeatureHubUpdateMode.activePolling,
       ),
       throwsArgumentError,
     );
+  });
+
+  test('a featuresUrl is actively polled unless a mode is given', () async {
+    final repository = ClientFeatureRepository();
+    final polled = FeatureHubConnection(
+      featuresUrl: 'http://x/features',
+      repository: repository,
+    );
+    expect(polled.mode, FeatureHubUpdateMode.activePolling);
+    expect(
+      FeatureHubConnection(host: 'http://edge', apiKey: 'a/b*c').mode,
+      FeatureHubUpdateMode.streaming,
+    );
+    await polled.close();
+    repository.shutdown();
   });
 }

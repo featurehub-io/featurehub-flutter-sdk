@@ -6,8 +6,8 @@ import 'package:featurehub_sse_client/featurehub_sse_client.dart';
 import 'package:http/http.dart' as http;
 import 'package:logging/logging.dart';
 
-import '../featurehub_config.dart';
-import 'openfeature/featurehub_transport.dart' show defaultReconnectPolicy;
+import 'transport/api_keys.dart';
+import 'transport/featurehub_transport.dart' show defaultReconnectPolicy;
 import 'repository.dart';
 
 final _log = Logger('featurehub_io_eventsource');
@@ -15,10 +15,12 @@ final _log = Logger('featurehub_io_eventsource');
 /// Listens to the FeatureHub event stream and feeds the repository.
 ///
 /// Reconnection is handled by the underlying [EventSource] (see
-/// [ReconnectPolicy]): it reconnects when the server closes the stream, on
-/// network errors and on 5xx responses, and stops on 4xx responses. This
-/// listener only closes the connection when the server reports a failure or
-/// the edge is stale, and opens a new one when the client context changes.
+/// [ReconnectPolicy] and [defaultReconnectPolicy]): by default it reconnects
+/// when the server closes the stream, on network errors and on any non-200
+/// response but a 4xx, which stops it. Whenever the event source stops for
+/// good, the repository is notified of a failure. This listener only closes
+/// the connection when the server reports a failure or the edge is stale, and
+/// opens a new one when the client context changes.
 ///
 /// With a client-evaluated API key (containing `*`) the server sends every
 /// feature's rollout strategies, which the repository applies locally, so the
@@ -59,7 +61,7 @@ class EventSourceRepositoryListener {
     this._headers = const {},
     this._client,
   }) : _repository = repository,
-       _clientEvaluated = FeatureHubConfig.isClientEvaluatedKeys([apiKey]),
+       _clientEvaluated = isClientEvaluatedKeys([apiKey]),
        _url = '$url${url.endsWith('/') ? '' : '/'}features/$apiKey' {
     if (doInit ?? true) {
       init();
@@ -162,15 +164,11 @@ class EventSourceRepositoryListener {
         }
       },
       onError: (e) {
-        // the event source has given up reconnecting
+        // the event source has stopped for good (a 4xx, a status the policy
+        // does not retry, or no attempts left): nothing will reconnect, so
+        // it is a permanent failure, not a lost connection
         _log.fine('error $e');
-        if (e is EventSourceSubscriptionException &&
-            e.statusCode >= 400 &&
-            e.statusCode < 500) {
-          _repository.notify(SSEResultState.failure, null);
-        } else {
-          _repository.notify(SSEResultState.bye, null);
-        }
+        _repository.notify(SSEResultState.failure, null);
       },
       onDone: () {
         if (_repository.readyness != Readyness.Failed && !_closed) {
