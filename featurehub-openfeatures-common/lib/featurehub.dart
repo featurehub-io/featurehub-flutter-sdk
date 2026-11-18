@@ -16,6 +16,7 @@ export 'src/transport/featurehub_polling_transport.dart';
 export 'src/transport/featurehub_sse_transport.dart';
 export 'src/transport/featurehub_transport.dart';
 export 'src/transport/polling_transport.dart';
+export 'src/transport/polling_limits.dart' show validatePollInterval;
 export 'src/transport/snapshot_transport.dart';
 export 'src/openfeature/resolution.dart';
 export 'src/openfeature/provider_state_tracker.dart';

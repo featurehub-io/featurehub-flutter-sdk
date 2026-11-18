@@ -1,5 +1,12 @@
 # Changelog
 * 1.5.0
+- a 200 response that is not `text/event-stream` (for example a proxy's or captive portal's HTML page) is a failed
+  connection, retried as a network error (status `0`), rather than a stream that opened
+- every wait before a reconnection is at least 100ms, whatever the policy says, and a server's `retry:` field is
+  raised to at least 1 second
+- `EventSource.connect` takes an optional `resetAttemptsOn`, choosing the events that reset the count of failed
+  attempts (checked as the stream is read, before its end counts as the next failure); by default a connection
+  opening resets it, as before
 - requires Dart SDK 3.12.2 or later, to match the FeatureHub OpenFeature packages
 - `EventSource.connect` takes an optional `connectTimeout` (for the client it creates when none is supplied;
   `dart:io` only) and `requestTimeout` (how long each connection attempt waits for the server to respond). An attempt

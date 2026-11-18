@@ -7,7 +7,8 @@ import 'package:http/http.dart' as http;
 import 'package:logging/logging.dart';
 
 import 'transport/api_keys.dart';
-import 'transport/featurehub_transport.dart' show defaultReconnectPolicy;
+import 'transport/featurehub_transport.dart'
+    show defaultReconnectPolicy, featureHubEventShowsConnectionWorks;
 import 'repository.dart';
 
 final _log = Logger('featurehub_io_eventsource');
@@ -196,6 +197,10 @@ class EventSourceRepositoryListener {
       reconnectPolicy: _reconnectPolicy,
       connectTimeout: _connectTimeout,
       requestTimeout: _requestTimeout,
+      // the failed attempts start again only once FeatureHub has sent
+      // something, not when a connection merely opens
+      resetAttemptsOn: (event) =>
+          featureHubEventShowsConnectionWorks(event.event),
     );
     // only keep it if it has not been dropped while connecting
     if (generation == _generation) _es = es;

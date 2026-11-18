@@ -10,6 +10,7 @@ import 'package:openapi_dart_common/openapi.dart';
 import '../repository.dart';
 import 'api_keys.dart';
 import 'featurehub_transport.dart';
+import 'polling_limits.dart';
 import 'polling_transport.dart';
 
 final _log = Logger('FeatureHub');
@@ -27,7 +28,9 @@ final _log = Logger('FeatureHub');
 /// - Anything else (5xx, network errors, timeouts) is thrown, and a later
 ///   request may succeed.
 ///
-/// A `Cache-Control: max-age` replaces the poll interval. For a
+/// A `Cache-Control: max-age` on a `200` or `236` replaces the poll interval
+/// (raised to 5 seconds if it is shorter); one on any other response is
+/// ignored, so a failing gateway cannot make clients poll faster. For a
 /// server-evaluated key the repository's client context is sent as the
 /// `x-featurehub` header.
 class FeatureHubRestClient {
@@ -38,7 +41,9 @@ class FeatureHubRestClient {
   String? xFeatureHubHeader;
   bool _deadConnection = false;
   DateTime _cacheTimeout;
-  int _timeoutInSeconds;
+
+  /// How long a response is fresh: the poll interval, or a max-age.
+  Duration _freshFor;
 
   /// The longest a request may take, from sending it to reading the whole
   /// response. A request that takes longer throws a [TimeoutException]. Null
@@ -48,7 +53,8 @@ class FeatureHubRestClient {
   /// Headers sent with every request, for example for a proxy or gateway.
   final Map<String, String> headers;
 
-  /// [timeout] is the polling interval in seconds. [connectTimeout] limits how
+  /// [timeout] is the polling interval in seconds ([interval], if given,
+  /// replaces it). [connectTimeout] limits how
   /// long establishing a connection may take, and [requestTimeout] how long a
   /// whole request may take; both default to waiting indefinitely.
   ///
@@ -60,6 +66,7 @@ class FeatureHubRestClient {
     this._apiKeys,
     this._repository, {
     int timeout = 360,
+    Duration? interval,
     Duration? connectTimeout,
     this.requestTimeout,
     this.headers = const {},
@@ -79,7 +86,7 @@ class FeatureHubRestClient {
            ),
          ),
        ),
-       _timeoutInSeconds = timeout,
+       _freshFor = interval ?? Duration(seconds: timeout),
        _cacheTimeout = DateTime.now()
            .subtract(Duration(seconds: 1)) // allow for immediate polling
            {
@@ -103,7 +110,7 @@ class FeatureHubRestClient {
   Duration? get maxAge => _maxAge;
 
   bool get isConnectionDead => _deadConnection;
-  int get timeoutInSeconds => _timeoutInSeconds;
+  int get timeoutInSeconds => _freshFor.inSeconds;
   DateTime get whenNextPollAllowed => _cacheTimeout;
 
   void success(List<FeatureEnvironmentCollection> environments) {
@@ -127,8 +134,10 @@ class FeatureHubRestClient {
         try {
           var cacheAge = int.parse(match.group(0).toString().substring(8));
           if (cacheAge > 0) {
-            _timeoutInSeconds = cacheAge;
-            _maxAge = Duration(seconds: cacheAge);
+            // never poll more often than the minimum, whatever it says
+            final maxAge = atLeastMinimum(Duration(seconds: cacheAge));
+            _freshFor = maxAge;
+            _maxAge = maxAge;
           }
         } catch (e) {
           // ignore an unparseable max-age, keep the existing timeout
@@ -150,6 +159,8 @@ class FeatureHubRestClient {
     DateTime? requestedAt,
   }) async {
     if (response.statusCode == 200 || response.statusCode == 236) {
+      // only from a response with features: a 304, 4xx or 5xx (perhaps from
+      // a proxy or gateway) must not change how often clients poll
       checkForCacheControl(response);
 
       final environments = await _api.apiDelegate.getFeatureStates_decode(
@@ -168,10 +179,8 @@ class FeatureHubRestClient {
     }
 
     // from when the request was made, so a poll every timeout is allowed
-    if (_timeoutInSeconds > 0) {
-      _cacheTimeout = (requestedAt ?? DateTime.now()).add(
-        Duration(seconds: _timeoutInSeconds),
-      );
+    if (_freshFor > Duration.zero) {
+      _cacheTimeout = (requestedAt ?? DateTime.now()).add(_freshFor);
     }
   }
 
@@ -250,7 +259,7 @@ class FeatureHubPollingTransport extends PollingTransport {
         _required(target.host, 'host'),
         [_required(target.apiKey, 'apiKey')],
         target.repository,
-        timeout: target.pollInterval.inSeconds,
+        interval: target.pollInterval,
         connectTimeout: target.connectTimeout,
         requestTimeout: target.requestTimeout,
         headers: target.headers,
@@ -275,7 +284,8 @@ class FeatureHubPollingTransport extends PollingTransport {
   @override
   bool get isDead => client.isConnectionDead;
 
-  /// FeatureHub's Cache-Control max-age, if it gave one, else the interval.
+  /// FeatureHub's Cache-Control max-age, if it gave one, else the interval
+  /// (with an interval of zero, there is no next poll, whatever max-age says).
   @override
   Duration get currentInterval => client.maxAge ?? interval;
 }

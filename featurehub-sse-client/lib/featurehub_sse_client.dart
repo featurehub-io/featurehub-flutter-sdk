@@ -11,6 +11,7 @@ import "src/decoder.dart";
 import "src/event.dart";
 import "src/http/client_factory.dart"
     if (dart.library.io) "src/http/client_factory_io.dart";
+import "src/limits.dart";
 import "src/reconnect.dart";
 
 export "src/event.dart";
@@ -75,6 +76,11 @@ class EventSourceSubscriptionException extends Event implements Exception {
 /// (a non-retryable status such as 4xx, or [ReconnectPolicy.maxAttempts]
 /// exhausted) the final error is added to the stream and [readyState] becomes
 /// [EventSourceReadyState.closed].
+///
+/// A 200 response that is not `text/event-stream` (for example an HTML page
+/// from a proxy or captive portal) is a failed connection, retried like a
+/// network error. Every wait before a reconnection is at least 100ms, and a
+/// server's `retry:` field is raised to at least 1 second.
 class EventSource extends Stream<Event> {
   // interface attributes
 
@@ -89,6 +95,14 @@ class EventSource extends Stream<Event> {
   /// that times out is a network error, retried according to
   /// [reconnectPolicy]. Null waits indefinitely.
   final Duration? requestTimeout;
+
+  /// Decides which events show that a connection works, and so reset the
+  /// count of consecutive failed attempts. Null resets it as soon as a
+  /// connection opens (a 200). Checked as each event is read, before the end
+  /// of the same stream is counted as the next failure, so a server that
+  /// accepts connections and drops them at once still backs off and uses up
+  /// [ReconnectPolicy.maxAttempts].
+  final bool Function(Event event)? resetAttemptsOn;
 
   EventSourceReadyState get readyState => _readyState;
 
@@ -155,6 +169,9 @@ class EventSource extends Stream<Event> {
   /// limits how long each connection attempt waits for the server to respond.
   /// Both default to waiting indefinitely.
   ///
+  /// [resetAttemptsOn] chooses the events that reset the count of failed
+  /// attempts (by default, opening a connection does).
+  ///
   /// If you want to be able to listen to the state changes you need to provide your
   /// own readyStateController as broadcast controllers do not store state.
   static Future<EventSource> connect(
@@ -170,6 +187,7 @@ class EventSource extends Stream<Event> {
     ReconnectPolicy? reconnectPolicy,
     Duration? connectTimeout,
     Duration? requestTimeout,
+    bool Function(Event event)? resetAttemptsOn,
   }) async {
     // parameter initialization
     final uri = url is Uri ? url : Uri.parse(url as String);
@@ -189,6 +207,7 @@ class EventSource extends Stream<Event> {
       readyStateController,
       reconnectPolicy ?? const ReconnectPolicy(),
       requestTimeout,
+      resetAttemptsOn,
     );
     if (!es._openOnlyOnFirstListener) {
       await es._openOrThrow();
@@ -208,6 +227,7 @@ class EventSource extends Stream<Event> {
     StreamController<EventSourceReadyState>? _readyStateController,
     this.reconnectPolicy,
     this.requestTimeout,
+    this.resetAttemptsOn,
   ) : _openOnlyOnFirstListener = openOnlyOnFirstStream ?? false,
       _closeOnLastListener = closeOnLastStreamClosing ?? false,
       readyStateController =
@@ -363,13 +383,31 @@ class EventSource extends Stream<Event> {
       throw EventSourceSubscriptionException(response.statusCode, body);
     }
 
-    _attempts = 0;
+    final contentType = _contentTypeForHeaders(response.headers).mimeType;
+    if (contentType != "text/event-stream") {
+      // e.g. an HTML page from a gateway, proxy or captive portal: not a
+      // stream that opened, but a failed connection, retried as a network
+      // error would be
+      response.stream.listen(null).cancel();
+      throw EventSourceSubscriptionException(
+        0,
+        "the response is $contentType, not text/event-stream",
+      );
+    }
+
+    final reset = resetAttemptsOn;
+    if (reset == null) _attempts = 0;
     _setReadyState(EventSourceReadyState.open);
 
     _subscription = response.stream
         .transform(_decoder)
         .listen(
-          _streamController.add,
+          (event) {
+            // here, as the stream is read: the end of this stream is counted
+            // as the next failure only after its events
+            if (reset != null && reset(event)) _attempts = 0;
+            _streamController.add(event);
+          },
           cancelOnError: true,
           onError: (Object e, StackTrace s) {
             if (generation == _generation) {
@@ -446,7 +484,9 @@ class EventSource extends Stream<Event> {
     } else {
       base = reconnectPolicy.delay;
     }
-    final delay = reconnectPolicy.delayFor(_attempts, base);
+    var delay = reconnectPolicy.delayFor(_attempts, base);
+    // whatever the policy says, never a tight reconnect loop
+    if (delay < minReconnectDelay) delay = minReconnectDelay;
 
     _setReadyState(EventSourceReadyState.connecting);
     _log.fine("reconnecting in $delay (attempt $_attempts)");
@@ -474,7 +514,8 @@ class EventSource extends Stream<Event> {
   }
 
   void _updateRetryDelay(Duration retry) {
-    _serverRetry = retry;
+    // retry: 10 would otherwise reconnect every 10ms
+    _serverRetry = retry < minServerRetryDelay ? minServerRetryDelay : retry;
   }
 }
 

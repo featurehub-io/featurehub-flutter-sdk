@@ -8,6 +8,8 @@ import 'package:openfeature_dart_server_sdk/evaluation_context.dart';
 import 'package:openfeature_dart_server_sdk/open_feature_api.dart';
 import 'package:openfeature_dart_server_sdk/provider_lifecycle.dart';
 import 'package:test/test.dart';
+// ignore: implementation_imports
+import 'package:featurehub_openfeatures_common/src/transport/polling_limits.dart';
 
 final _colour = FeatureState(
   id: 'fv-colour',
@@ -34,6 +36,10 @@ final _colour = FeatureState(
 /// The server provider getting its features from another server: the
 /// features as they are with no query parameters, else evaluated for them.
 void main() {
+  // these tests poll far faster than applications may
+  setUpAll(() => minPollingInterval = const Duration(milliseconds: 1));
+  tearDownAll(() => minPollingInterval = defaultMinPollingInterval);
+
   late HttpServer server;
   late ClientFeatureRepository features;
   final queries = <String>[];

@@ -200,6 +200,10 @@ final class FeatureHubProvider
         );
       }
     }
+    if (this.mode != fh.FeatureHubUpdateMode.streaming) {
+      // zero polls once; otherwise at least 5 seconds
+      fh.validatePollInterval(pollInterval);
+    }
     if (this.host == null &&
         this.featuresUrl == null &&
         transportFactory == null &&

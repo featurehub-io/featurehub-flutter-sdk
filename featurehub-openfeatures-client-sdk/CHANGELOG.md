@@ -6,6 +6,7 @@
   (Flutter and browsers), supporting server- and client-evaluated API keys,
   context reconciliation, streaming (native `EventSource` in browsers),
   polling and passive refresh, with optional HTTP connect and request timeouts.
+- A poll interval of 0 polls once; any other must be at least 5 seconds.
 - A `catchAndReleaseMode` option (and `release()`), which can be set when the
   provider is created.
 - A `stores` option for feature stores, attached before connecting.

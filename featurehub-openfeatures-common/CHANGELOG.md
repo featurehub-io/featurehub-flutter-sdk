@@ -10,6 +10,14 @@ OpenFeature providers for Dart.
   `activePolling` (previously `streaming`, `passive` and `polling`)
 * A `bye` (a lost connection being re-established) no longer changes the repository's readiness: it stays ready
   with the last features, and nothing is broadcast. Previously it became not ready until the features arrived again
+* A poll interval of 0 polls once and never again (a context change still fetches); before, active polling polled
+  in a tight loop and passive polling on every resolution. Any other interval must be at least 5 seconds (an
+  `ArgumentError`, also from `PollingTransport`; `validatePollInterval` checks one), and a FeatureHub
+  `Cache-Control: max-age` below that is raised to it
+* Streaming: consecutive failed attempts are counted until FeatureHub sends an event that shows the connection
+  works (`featureHubEventShowsConnectionWorks`: `ack`, `features`, `feature`, `delete_feature`, `config`), not just
+  until a connection opens, so a server or proxy that drops every connection still backs off and uses up
+  `maxAttempts`. The browser listener's own reconnections wait at least 100ms
 * Streaming: the default reconnect policy retries every status but a 4xx (`featureHubShouldRetryStatus`): a 5xx, or
   an invalid 1xx or 3xx, is retried with the 5xx backoff; every 4xx, 429 included, stops for good. Whenever the event
   source stops for good (also a status a custom policy does not retry, or running out of `maxAttempts`) the

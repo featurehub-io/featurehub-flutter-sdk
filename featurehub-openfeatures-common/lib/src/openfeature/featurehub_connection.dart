@@ -10,6 +10,7 @@ import '../transport/api_keys.dart';
 import '../transport/featurehub_polling_transport.dart';
 import '../transport/featurehub_sse_transport.dart';
 import '../transport/featurehub_transport.dart';
+import '../transport/polling_limits.dart';
 import '../transport/snapshot_transport.dart';
 import 'context_mapper.dart';
 
@@ -135,6 +136,11 @@ class FeatureHubConnection {
           'mode',
         );
       }
+    }
+
+    if (this.mode != FeatureHubUpdateMode.streaming) {
+      // zero polls once; otherwise at least 5 seconds
+      validatePollInterval(pollInterval);
     }
 
     final target = FeatureHubTransportTarget(

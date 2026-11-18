@@ -482,7 +482,10 @@ polling_transport:
       is not configuration, so it is not an error). An SDK MAY lower the
       minimum for its own tests, but MUST NOT let applications lower it (Go:
       core.MinPollingInterval, read from an internal package that only the
-      SDK's tests can change).
+      SDK's tests can change; Dart: minPollingInterval in
+      featurehub_openfeatures_common's lib/src/transport/polling_limits.dart,
+      which is not exported, so only a direct import of the src file, which
+      the analyzer warns about, can change it).
     negative: a negative interval is a validation error (providers.validation_errors)
     absent: >-
       Where an interval is required (the server provider polling), it MUST be
@@ -807,6 +810,12 @@ featurehub_edge:
         (notify(bye), the network-error delay), not as a stream that opened.
         Otherwise it looks like a stream that opens and ends at once,
         forever, at the first-attempt delay.
+      not_an_event_stream_in_browsers: >-
+        A browser's EventSource cannot meet not_an_event_stream: it refuses a
+        response that is not text/event-stream itself, closing for good
+        (readyState CLOSED) without saying why, so it cannot be told from a
+        4xx. A browser SDK is exempt: it treats that close as it treats any
+        other (Dart: a permanent failure).
       classification:
         - status: 4xx
           meaning: "permanent: the API key or environment is rejected. Every 4xx, 429 included (unlike the snapshot client, which retries 429)"
@@ -861,7 +870,13 @@ featurehub_edge:
         with backoffMultiplier 2 and maxDelay 5 minutes; unlimited attempts;
         shouldRetryStatus every status but a 4xx
         (featureHubShouldRetryStatus). The listener notifies failure whenever
-        the event source stops for good. Go (core.DefaultReconnectPolicy):
+        the event source stops for good. The minimums are
+        featurehub_sse_client's minReconnectDelay (100ms) and
+        minServerRetryDelay (1s), in its unexported lib/src/limits.dart, and
+        the attempt count resets on the events featureHubEventShowsConnectionWorks
+        accepts (the EventSource's resetAttemptsOn, checked as the stream is
+        read). The browser listener resets in its event handlers, and has the
+        same 100ms floor for the reconnections it schedules. Go (core.DefaultReconnectPolicy):
         the same, plus up to 50% jitter, with core.MinReconnectDelay (100ms)
         and core.MinServerRetryDelay (1s) as the minimums.
       configuration: >-

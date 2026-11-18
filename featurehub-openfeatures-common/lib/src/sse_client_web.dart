@@ -10,10 +10,14 @@ import 'package:logging/logging.dart';
 import 'package:web/web.dart' as web;
 
 import 'transport/api_keys.dart';
-import 'transport/featurehub_transport.dart' show defaultReconnectPolicy;
+import 'transport/featurehub_transport.dart'
+    show defaultReconnectPolicy, featureHubEventShowsConnectionWorks;
 import 'repository.dart';
 
 final _log = Logger('featurehub_web_eventsource');
+
+/// The shortest wait before a reconnection this listener schedules itself.
+const _minReconnectDelay = Duration(milliseconds: 100);
 
 /// The server-sent event types the repository understands.
 const _featureEvents = [
@@ -142,7 +146,8 @@ class EventSourceRepositoryListener {
       if (!identical(_es, es)) return;
       _openTimer?.cancel();
       _openTimer = null;
-      _attempts = 0;
+      // the failed attempts start again only once FeatureHub has sent
+      // something (_message, _config), not when a connection merely opens
     }).toJS;
     es.onerror = ((web.Event _) => _error(es)).toJS;
 
@@ -166,6 +171,7 @@ class EventSourceRepositoryListener {
 
   void _message(web.EventSource es, String type, web.MessageEvent msg) {
     if (!identical(_es, es)) return;
+    if (featureHubEventShowsConnectionWorks(type)) _attempts = 0;
     final data = _data(msg);
     _log.fine('Event is $type value $data');
 
@@ -181,6 +187,7 @@ class EventSourceRepositoryListener {
 
   void _config(web.EventSource es, web.MessageEvent msg) {
     if (!identical(_es, es)) return;
+    _attempts = 0;
     final data = _data(msg);
     _log.fine('Config event $data');
     if (data != null && jsonDecode(data)?['edge.stale'] == true) {
@@ -220,7 +227,9 @@ class EventSourceRepositoryListener {
     }
 
     _attempts++;
-    final delay = _reconnectPolicy.delayFor(_attempts, base);
+    var delay = _reconnectPolicy.delayFor(_attempts, base);
+    // whatever the policy says, never a tight reconnect loop
+    if (delay < _minReconnectDelay) delay = _minReconnectDelay;
     _log.fine('Unable to connect, reconnecting in $delay (attempt $_attempts)');
     _repository.notify(SSEResultState.bye, null);
     _reconnectTimer = Timer(delay, () {

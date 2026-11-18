@@ -4,6 +4,7 @@ import 'package:logging/logging.dart';
 
 import '../repository.dart';
 import 'featurehub_transport.dart';
+import 'polling_limits.dart';
 
 final _log = Logger('featurehub_polling');
 
@@ -24,6 +25,10 @@ final _log = Logger('featurehub_polling');
 ///   made until the interval has passed.
 ///
 /// Requests are made one at a time; a context change forces one at once.
+///
+/// An [interval] of zero polls once: the first request is made, and no other
+/// (in either mode, whatever a Cache-Control max-age says) except those a
+/// context change forces. Any other interval must be at least 5 seconds.
 abstract class PollingTransport implements FeatureHubTransport {
   final ClientFeatureRepository repository;
 
@@ -41,7 +46,18 @@ abstract class PollingTransport implements FeatureHubTransport {
   /// so an outage does not cost a request per evaluation.
   DateTime? _retryAfter;
 
-  PollingTransport(this.repository, this.interval, {required this.active});
+  /// Whether the first request has been made (an interval of zero then
+  /// makes no more).
+  bool _requested = false;
+
+  /// Throws an [ArgumentError] for a negative [interval], or one between zero
+  /// and 5 seconds.
+  PollingTransport(this.repository, this.interval, {required this.active}) {
+    validatePollInterval(interval);
+  }
+
+  /// True if the interval is zero: poll once.
+  bool get _once => interval == Duration.zero;
 
   /// Makes one request, unless (when not [force]d) the features are still
   /// fresh. Throws for errors worth retrying; a permanent rejection is
@@ -63,12 +79,15 @@ abstract class PollingTransport implements FeatureHubTransport {
       if (!force && retryAfter != null && DateTime.now().isBefore(retryAfter)) {
         return;
       }
+      // poll once: after the first request, only forced ones
+      if (!force && _once && _requested) return;
+      _requested = true;
       try {
         await fetch(force: force);
         _retryAfter = null;
       } catch (e) {
         _log.fine('Fetching features failed: $e');
-        if (!active) _retryAfter = DateTime.now().add(interval);
+        if (!active && !_once) _retryAfter = DateTime.now().add(interval);
       }
     });
     _inFlight = next;
@@ -89,7 +108,7 @@ abstract class PollingTransport implements FeatureHubTransport {
   }
 
   void _scheduleNext() {
-    if (!active || _closed || isDead) return;
+    if (!active || _once || _closed || isDead) return;
     // the full interval (or the max-age that replaced it), from the end of
     // the poll just made
     _timer = Timer(currentInterval, () async {

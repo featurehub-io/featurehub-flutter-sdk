@@ -111,6 +111,20 @@ const defaultReconnectPolicy = ReconnectPolicy(
 bool featureHubShouldRetryStatus(int statusCode) =>
     statusCode < 400 || statusCode >= 500;
 
+/// Whether a FeatureHub event (by its `event:` name) shows that a streaming
+/// connection works, so the count of consecutive failed reconnection
+/// attempts starts again: `ack`, `features`, `feature`, `delete_feature` or
+/// `config`. Not merely opening (a 200), and not `bye`, `error` or
+/// `failure`: a server or proxy that accepts connections and drops them at
+/// once must still back off, and use up the maximum attempts.
+bool featureHubEventShowsConnectionWorks(String? event) => const {
+  'ack',
+  'features',
+  'feature',
+  'delete_feature',
+  'config',
+}.contains(event);
+
 /// Creates a transport for a connection (see [FeatureHubTransport]).
 typedef FeatureHubTransportFactory =
     FeatureHubTransport Function(FeatureHubTransportTarget target);

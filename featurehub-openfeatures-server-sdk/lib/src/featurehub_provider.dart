@@ -248,10 +248,10 @@ class FeatureHubProvider
       final seconds = setting(pollIntervalVariable);
       if (seconds != null) {
         final parsed = int.tryParse(seconds);
-        if (parsed == null || parsed <= 0) {
+        if (parsed == null || parsed < 0) {
           throw ArgumentError(
-            '$pollIntervalVariable must be a positive number of seconds, not '
-            '"$seconds"',
+            '$pollIntervalVariable must be a number of seconds (0 polls once), '
+            'not "$seconds"',
           );
         }
         interval = Duration(seconds: parsed);
@@ -278,6 +278,11 @@ class FeatureHubProvider
             '$pollIntervalVariable to be set',
         'pollInterval',
       );
+    }
+
+    if (resolvedMode != FeatureHubUpdateMode.streaming) {
+      // zero polls once; otherwise at least 5 seconds
+      validatePollInterval(interval!);
     }
 
     return FeatureHubProvider._(

@@ -6,8 +6,14 @@ import 'package:featurehub_openfeatures_client_sdk/featurehub_openfeatures_clien
 import 'package:openfeature_dart_client_sdk/openfeature_dart_client_sdk.dart';
 import 'package:stream_channel/stream_channel.dart';
 import 'package:test/test.dart';
+// ignore: implementation_imports
+import 'package:featurehub_openfeatures_common/src/transport/polling_limits.dart';
 
 void main() {
+  // these tests poll far faster than applications may
+  setUpAll(() => minPollingInterval = const Duration(milliseconds: 1));
+  tearDownAll(() => minPollingInterval = defaultMinPollingInterval);
+
   late StreamChannel<Object?> edge;
   late StreamQueue<Object?> fromEdge;
   late String host;

@@ -32,4 +32,28 @@ void main() {
       expect(p.shouldRetryStatus(status), true, reason: '$status');
     }
   });
+
+  // conformance: streaming-attempt-reset (the SSE client resets where the
+  // stream is read, for the events this accepts)
+  test(
+    'only FeatureHub events that show a connection works reset attempts',
+    () {
+      for (final event in [
+        'ack',
+        'features',
+        'feature',
+        'delete_feature',
+        'config',
+      ]) {
+        expect(featureHubEventShowsConnectionWorks(event), true, reason: event);
+      }
+      for (final event in ['bye', 'error', 'failure', 'message', null]) {
+        expect(
+          featureHubEventShowsConnectionWorks(event),
+          false,
+          reason: event,
+        );
+      }
+    },
+  );
 }

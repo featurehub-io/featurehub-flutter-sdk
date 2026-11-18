@@ -12,6 +12,7 @@ import 'package:featurehub_sse_client/featurehub_sse_client.dart'
     show ReconnectPolicy;
 import 'package:http/http.dart' as http;
 import 'package:test/test.dart';
+import 'package:featurehub_openfeatures_common/src/transport/polling_limits.dart';
 
 /// A minimal FeatureHub Edge: GET /features?apiKey=... (polling) and
 /// `GET /features/<apiKey>` (SSE). The colour feature's value is the userkey
@@ -109,6 +110,10 @@ class _Edge {
 }
 
 void main() {
+  // these tests poll far faster than applications may
+  setUpAll(() => minPollingInterval = const Duration(milliseconds: 1));
+  tearDownAll(() => minPollingInterval = defaultMinPollingInterval);
+
   late _Edge edge;
 
   setUp(() async {
@@ -236,7 +241,8 @@ void main() {
         host: edge.host,
         apiKey: 'a/b/c',
         mode: FeatureHubUpdateMode.passivePolling,
-        pollInterval: Duration.zero,
+        // (an interval of zero would poll once, and not retry)
+        pollInterval: const Duration(milliseconds: 1),
         requestTimeout: const Duration(milliseconds: 200),
       );
       final started = DateTime.now();
@@ -248,7 +254,8 @@ void main() {
       // a timeout is not a rejection of the key
       expect(connection.repository.readyness, Readyness.NotReady);
 
-      // the next request is answered
+      // the next request, once the interval has passed, is answered
+      await Future<void>.delayed(const Duration(milliseconds: 5));
       await connection.refreshIfStale();
       expect(connection.repository.readyness, Readyness.Ready);
       await connection.close();

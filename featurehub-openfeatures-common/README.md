@@ -200,7 +200,11 @@ transports, chosen by what it is given (or through your own; see below):
 
 `activePolling` polls every `pollInterval`; `passivePolling` fetches only
 when a flag is read and the features are older than `pollInterval`. Both
-polling transports share their scheduling (`PollingTransport`).
+polling transports share their scheduling (`PollingTransport`). A
+`pollInterval` of 0 polls once, at start-up, and never again (a context
+change still fetches); any other interval must be at least 5 seconds, and a
+FeatureHub `Cache-Control: max-age` (read only from a `200` or `236`) below
+that is raised to it. `validatePollInterval` checks an interval.
 
 ## Writing your own transport
 

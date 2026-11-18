@@ -8,6 +8,7 @@ import 'dart:io';
 import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_openfeatures_common/featurehub_openfeatures_common.dart';
 import 'package:test/test.dart';
+import 'package:featurehub_openfeatures_common/src/transport/polling_limits.dart';
 
 FeatureState _colour({int version = 1, String nz = 'green'}) => FeatureState(
   id: 'fv-colour',
@@ -96,6 +97,10 @@ class _FeatureServer {
 }
 
 void main() {
+  // these tests poll far faster than applications may
+  setUpAll(() => minPollingInterval = const Duration(milliseconds: 1));
+  tearDownAll(() => minPollingInterval = defaultMinPollingInterval);
+
   late _FeatureServer server;
   final connections = <FeatureHubConnection>[];
 
@@ -218,7 +223,7 @@ void main() {
   test('a response for an earlier context is discarded', () async {
     final c = connect(
       mode: FeatureHubUpdateMode.passivePolling,
-      pollInterval: Duration.zero,
+      pollInterval: const Duration(milliseconds: 1),
     );
     await c.start(context: mapEvaluationContext({'country': 'nz'}));
     await ready(c);

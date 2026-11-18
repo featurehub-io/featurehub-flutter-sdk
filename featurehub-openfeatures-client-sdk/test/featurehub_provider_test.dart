@@ -51,6 +51,36 @@ void main() {
     expect(() => FeatureHubProvider(apiKey: 'env/key'), throwsArgumentError);
   });
 
+  test('a poll interval is 0 (poll once) or at least 5 seconds', () {
+    for (final bad in [
+      const Duration(seconds: -1),
+      const Duration(seconds: 4),
+    ]) {
+      expect(
+        () => FeatureHubProvider(
+          host: 'http://x',
+          apiKey: 'env/key',
+          mode: FeatureHubUpdateMode.passivePolling,
+          pollInterval: bad,
+        ),
+        throwsArgumentError,
+        reason: '$bad',
+      );
+    }
+    for (final good in [Duration.zero, const Duration(seconds: 5)]) {
+      FeatureHubProvider(
+        featuresUrl: 'https://my.app/features',
+        pollInterval: good,
+      );
+    }
+    // streaming does not poll
+    FeatureHubProvider(
+      host: 'http://x',
+      apiKey: 'env/key',
+      pollInterval: const Duration(seconds: 1),
+    );
+  });
+
   test('without a host and api key, requires a featuresUrl or stores', () {
     expect(() => FeatureHubProvider(), throwsArgumentError);
     expect(

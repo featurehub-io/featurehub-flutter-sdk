@@ -305,7 +305,8 @@ void main() {
         ),
         throwsA(isA<ArgumentError>().having((e) => e.name, 'name', 'apiKey')),
       );
-      for (final bad in ['soon', '0', '-5']) {
+      // 0 polls once; anything else must be at least 5 seconds
+      for (final bad in ['soon', '-5', '4']) {
         expect(
           () => FeatureHubProvider(
             environment: {
@@ -316,6 +317,15 @@ void main() {
           ),
           throwsArgumentError,
           reason: bad,
+        );
+      }
+      for (final good in ['0', '5']) {
+        FeatureHubProvider(
+          environment: {
+            'FEATUREHUB_EDGE_URL': host,
+            'FEATUREHUB_CLIENT_API_KEY': 'env/key*client',
+            'FEATUREHUB_POLL_INTERVAL': good,
+          },
         );
       }
     });
