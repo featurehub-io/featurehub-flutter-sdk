@@ -39,8 +39,9 @@ enum FeatureHubUpdateMode {
 ///   updated (a newer version, or a new value for the context).
 /// - `notify(SSEResultState.deleteFeature, feature)`: one feature deleted.
 /// - `notify(SSEResultState.bye, null)`: the connection was lost and is
-///   being re-established. Providers stay ready (they do not report stale):
-///   the features arrive again on reconnection.
+///   being re-established. The repository's readiness does not change (it
+///   stays ready), and providers report nothing (not stale): the features
+///   arrive again on reconnection.
 /// - `notify(SSEResultState.failure, null)`: the source rejected the
 ///   connection for good (for example, an invalid API key); stop trying.
 ///   Before any features, the provider's initialization fails; after them,

@@ -460,9 +460,38 @@ client:
 # ---------------------------------------------------------------------------
 polling_transport:
   serialisation: one request at a time; a forced request waits for the one in flight
+  interval:
+    zero_polls_once: >-
+      DELIBERATE, not a mistake: a poll interval of 0 means "poll once and
+      stop". The transport makes its first request (start) and then never
+      polls again, in both modes: activePolling schedules nothing, and
+      passivePolling's refreshIfStale does nothing (it MUST NOT treat a
+      0-second-old snapshot as stale, which would make a request on every
+      resolution). A failed first request is not retried. A FeatureHub
+      Cache-Control max-age does not start polling again. contextChanged
+      still makes its forced request (it is not periodic). Use it for
+      short-lived processes, or features that are only read at start-up.
+      The transport is not stopped or failed: the provider stays Ready with
+      the features it got.
+    minimum: >-
+      Any interval other than 0 MUST be at least 5 seconds, so that no
+      configuration polls a server too often: a shorter one is a validation
+      error (providers.validation_errors), never silently raised. It applies
+      to FeatureHub polling and the snapshot client, in both modes. A
+      FeatureHub Cache-Control max-age below it is raised to it (the server
+      is not configuration, so it is not an error). An SDK MAY lower the
+      minimum for its own tests, but MUST NOT let applications lower it (Go:
+      core.MinPollingInterval, read from an internal package that only the
+      SDK's tests can change).
+    negative: a negative interval is a validation error (providers.validation_errors)
+    absent: >-
+      Where an interval is required (the server provider polling), it MUST be
+      given explicitly; where a language defaults a missing interval to 0
+      (e.g. the Go SDK's FEATUREHUB_POLLING_PASSIVE without
+      FEATUREHUB_POLLING_INTERVAL), that is poll once, as above.
   start:
     - "if the repository is already ready (e.g. loaded from a store): request in the background; else await the first request"
-    - "then, with activePolling, schedule the next poll"
+    - "then, with activePolling, schedule the next poll (none with an interval of 0: interval.zero_polls_once)"
   active_polling:
     schedule: >-
       After each poll finishes, whether it succeeded or failed, wait the full
@@ -480,6 +509,7 @@ polling_transport:
       resolution; the app provider fires it without waiting, resolution being
       synchronous). Makes an unforced request.
     failure_backoff: after a failed request, no unforced request until now + interval
+    zero_interval: "refreshIfStale does nothing after the first request (interval.zero_polls_once)"
   context_changed: a forced request (fetches for the new context immediately)
   errors: logged; the next poll or refresh retries
 
@@ -503,7 +533,7 @@ repository:
       payload: one feature_state (only key/id needed)
       semantics: remove it (and, where catch-and-release is supported, any update for it held back); recompute the SHA
     bye:
-      semantics: "readiness NotReady. Providers do NOT report stale: the connection is being re-established, and the features arrive again on reconnection"
+      semantics: "readiness MUST NOT change, and nothing is broadcast: the connection is being re-established, and the features held are still the latest known (Ready stays Ready; before any features it stays NotReady). Providers report nothing and do NOT report stale; the features arrive again on reconnection, as a full set"
     failure:
       semantics: "readiness Failed. Before any features: the provider's initialisation fails (PROVIDER_FATAL). After features: a permanent stop, so the provider reports STALE for good and keeps resolving from the last features"
   environment_stale:
@@ -515,9 +545,9 @@ repository:
       after the last features. Sets environmentStale = true, once; readiness
       is unchanged (it stays Ready), so initialisation is not delayed and
       resolutions continue from the last features. Providers report STALE,
-      permanently. It is a separate signal from bye because bye makes the
-      repository NotReady, which would make a first-response 236 fail
-      initialisation.
+      permanently. It is a separate signal from bye because a bye means the
+      source will send more (it is reconnecting), and a stale environment
+      means it never will.
   update_rule: >-
     Reject an incoming feature if the held one has a higher version, or the
     same version and the same value, v, id and type. Otherwise replace it.
@@ -636,7 +666,8 @@ providers:
     - featuresUrl together with host or apiKey
     - featuresUrl with streaming and no transportFactory
     - "nothing to get features from (no host+apiKey, featuresUrl, transportFactory or stores)"
-    - "server provider: activePolling or passivePolling without a pollInterval"
+    - "server provider: activePolling or passivePolling without a pollInterval (0 is a valid interval: poll once, polling_transport.interval.zero_polls_once)"
+    - "a negative pollInterval, or one between 0 and 5 seconds (activePolling or passivePolling, FeatureHub or your own server; polling_transport.interval.minimum)"
   local_evaluation_rule:
     description: Whether resolutions evaluate strategies locally (clientEvaluated) or the source is sent the context (sendsContext = !clientEvaluated).
     rules:
@@ -728,7 +759,15 @@ featurehub_edge:
         shorter or longer. It applies to every later poll (and to passive
         mode's freshness) until another max-age changes it; a response
         without one leaves it as it is. A missing, zero or unparseable
-        max-age changes nothing.
+        max-age changes nothing. A max-age below the minimum interval
+        (polling_transport.interval.minimum, 5 seconds) is raised to it. With
+        a configured interval of 0 (poll once) a max-age does not start
+        polling again.
+      other_responses: >-
+        max-age MUST NOT be read from any other response (304, 4xx, 5xx): a
+        failing proxy or gateway answering 503 with max-age=1 would otherwise
+        make every client poll once a second while Edge is down. Parse it
+        only once the status is known to be 200 or 236.
       typescript_reference: >-
         parseCacheControl: cacheHeader.match(/max-age=(\d+)/); if the parsed
         value > 0, frequency = value * 1000 ms.
@@ -761,6 +800,13 @@ featurehub_edge:
         SSE client that is not a browser's EventSource (which hides the HTTP
         status) MUST determine whether the failure was a 4xx or a 5xx
         response, as they mean opposite things.
+      not_an_event_stream: >-
+        A 200 response whose Content-Type is not text/event-stream (for
+        example an HTML page from a gateway, proxy or captive portal) MUST be
+        treated as a failed connection, temporary like a network error
+        (notify(bye), the network-error delay), not as a stream that opened.
+        Otherwise it looks like a stream that opens and ends at once,
+        forever, at the first-attempt delay.
       classification:
         - status: 4xx
           meaning: "permanent: the API key or environment is rejected. Every 4xx, 429 included (unlike the snapshot client, which retries 429)"
@@ -783,9 +829,30 @@ featurehub_edge:
       backoff: >-
         Retries SHOULD wait longer after a 5xx than after a network error, and
         SHOULD grow with each consecutive failure up to a cap, so a failing Edge
-        is not hammered. The count resets once a connection opens. A
-        configurable maximum number of attempts MAY stop retrying; running out
-        of attempts is then a permanent failure (stopping_for_good).
+        is not hammered. A configurable maximum number of attempts MAY stop
+        retrying; running out of attempts is then a permanent failure
+        (stopping_for_good).
+      attempt_reset: >-
+        The count of consecutive failures MUST reset only when the connection
+        delivers a FeatureHub event showing it works: ack, features, feature,
+        delete_feature or config. Not merely when it opens (a 200), and not on
+        bye, error or failure: a server or proxy that accepts the connection
+        and drops it at once (or only says bye) must still back off and use
+        up the maximum attempts, rather than reconnect at the first-attempt
+        delay forever. The reset MUST happen before the end of that same
+        stream is counted as the next failure: an implementation whose SSE
+        library reports the stream ending separately from (and possibly
+        before) handing over the events before it MUST reset where the stream
+        is read (Go watches the response body's event: lines), not where the
+        events are handled.
+      minimums: >-
+        No configuration may make a tight reconnect loop. Every wait before a
+        reconnection attempt MUST be at least 100ms, after jitter and whatever
+        the reconnect policy or the server says (policy delays and caps below
+        it are raised to it). A server's SSE retry: field (milliseconds) that
+        replaces the network-error delay MUST be raised to at least 1 second
+        (retry: 10 would otherwise reconnect every 10ms); the backoff
+        multiplier still applies to it.
       reference_defaults: >-
         Dart (defaultReconnectPolicy, a featurehub_sse_client ReconnectPolicy):
         3s after a network error or a dropped stream (a server retry: field
@@ -794,7 +861,9 @@ featurehub_edge:
         with backoffMultiplier 2 and maxDelay 5 minutes; unlimited attempts;
         shouldRetryStatus every status but a 4xx
         (featureHubShouldRetryStatus). The listener notifies failure whenever
-        the event source stops for good.
+        the event source stops for good. Go (core.DefaultReconnectPolicy):
+        the same, plus up to 50% jitter, with core.MinReconnectDelay (100ms)
+        and core.MinServerRetryDelay (1s) as the minimums.
       configuration: >-
         Every value MUST be configurable by the application: the network-error
         delay, the 5xx delay, the multiplier, the cap, the maximum number of
@@ -845,14 +914,28 @@ conformance:
     check: "with a 1s interval and a server taking 0.6s, requests start 1.6s apart: 3 in 3s after the first response"
   - id: polling-max-age
     check: "a Cache-Control max-age replaces the poll interval, shorter or longer"
+  - id: polling-max-age-only-on-success
+    check: "a max-age on a 304, 429, 502 or 503 response leaves the poll interval unchanged; on a 200 or 236 it replaces it"
+  - id: polling-zero-interval
+    check: "with an interval of 0, activePolling and passivePolling (FeatureHub and snapshot) make exactly one request, however many resolutions follow and whatever max-age says; the transport does not stop or fail"
+  - id: polling-negative-interval
+    check: "a negative poll interval is a validation error"
+  - id: polling-minimum-interval
+    check: "a poll interval of 4s (or 1ms) is a validation error, for FeatureHub and snapshot polling; 5s and 0 are valid; a max-age=1 response sets the interval to 5s"
   - id: edge-polling-rejection
     check: "polling FeatureHub: any 4xx fails the repository and stops polling; a 5xx keeps polling"
   - id: edge-stale
     check: "a 236 (polling) or edge.stale (streaming) after features: the repository stays Ready, environmentStale is true, nothing more is requested, the provider reports STALE once"
   - id: bye-not-stale
-    check: "a bye makes the repository NotReady, but the provider reports no event"
+    check: "a bye leaves the repository's readiness unchanged (Ready stays Ready, nothing is broadcast), and the provider reports no event"
   - id: streaming-statuses
     check: "the default reconnect policy retries 1xx, 3xx and 5xx, and not any 4xx (429 included)"
+  - id: streaming-not-an-event-stream
+    check: "a 200 with Content-Type text/html is a failed connection (retried with the network-error delay, counted towards the maximum attempts)"
+  - id: streaming-attempt-reset
+    check: "with a maximum of 3 attempts, a server that accepts and drops every connection (no events, or only bye) stops the client after 3 attempts; one whose every third connection delivers an ack keeps it running"
+  - id: streaming-minimum-delays
+    check: "a policy with nanosecond delays and full jitter, and a server retry: 1, still wait at least 100ms before each attempt; a retry: below 1000 is used as 1 second"
   - id: streaming-stops-for-good
     check: "the event source stopping for good (a 4xx, an unretried status, no attempts left) notifies failure, never bye"
   - id: permanent-failure

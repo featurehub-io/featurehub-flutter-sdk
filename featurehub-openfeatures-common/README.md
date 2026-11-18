@@ -251,7 +251,7 @@ It gives what it receives to the repository with `notify`:
 | `notify(SSEResultState.features, features)` | The full set of features (a `List<FeatureState>`, or their JSON). The first makes the provider ready; features missing from a later set are removed. |
 | `notify(SSEResultState.feature, feature)` | One feature added or updated. |
 | `notify(SSEResultState.deleteFeature, feature)` | One feature deleted. |
-| `notify(SSEResultState.bye, null)` | The connection was lost and is being re-established. The provider stays ready (it does not report `stale`); features arrive again on reconnection. |
+| `notify(SSEResultState.bye, null)` | The connection was lost and is being re-established. The repository's readiness does not change and the provider reports nothing (not `stale`); features arrive again on reconnection. |
 | `notify(SSEResultState.failure, null)` | The source rejected you for good (for example an invalid key). Stop trying. Before any features, the provider fails to initialize; after them, it reports `stale` for good and keeps resolving from the last features. |
 
 FeatureHub's event stream sends exactly these, as event names (`features`,

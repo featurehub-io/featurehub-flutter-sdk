@@ -262,26 +262,23 @@ void main() {
     },
   );
 
-  test(
-    'Sending bye when not in catch and release will trigger a non ready state',
-    () {
-      final sub = repo.readynessStream;
-      expectLater(
-        sub,
-        emitsInOrder([
-          emits(Readyness.NotReady),
-          emits(Readyness.Ready),
-          emits(Readyness.NotReady),
-          emitsDone,
-        ]),
-      );
-      repo.notify(SSEResultState.features, initialFeatures());
-      repo.notify(SSEResultState.bye, null);
-      repo.shutdown();
-      scheduleMicrotask(() {}); // one for each state
-      scheduleMicrotask(() {});
-    },
-  );
+  test('A bye leaves the repository ready, and broadcasts nothing', () {
+    final sub = repo.readynessStream;
+    expectLater(
+      sub,
+      emitsInOrder([
+        emits(Readyness.NotReady),
+        emits(Readyness.Ready),
+        emitsDone,
+      ]),
+    );
+    repo.notify(SSEResultState.features, initialFeatures());
+    repo.notify(SSEResultState.bye, null);
+    expect(repo.readyness, Readyness.Ready);
+    repo.shutdown();
+    scheduleMicrotask(() {}); // one for each state
+    scheduleMicrotask(() {});
+  });
 
   test(
     'We get initial events for features but once catch and release is enabled, it stops until we release.',

@@ -141,12 +141,14 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 100));
     expect(connection.repository.evaluate('who').value, 'june');
 
-    // a lost connection is reported
+    // a lost connection is a bye: the repository stays ready, and keeps
+    // resolving from the last features
     for (final s in server.sockets) {
       await s.close();
     }
     await Future<void>.delayed(const Duration(milliseconds: 100));
-    expect(connection.repository.readyness, Readyness.NotReady);
+    expect(connection.repository.readyness, Readyness.Ready);
+    expect(connection.repository.evaluate('who').value, 'june');
 
     await connection.close();
     connection.repository.shutdown();

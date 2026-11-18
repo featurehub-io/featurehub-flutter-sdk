@@ -8,6 +8,8 @@ OpenFeature providers for Dart.
   `FeatureSnapshotTransport` (your own server, with a `featuresUrl` and no API key), sharing `PollingTransport`.
   `isClientEvaluatedKeys` is a top-level function. `FeatureHubUpdateMode` is `streaming`, `passivePolling` and
   `activePolling` (previously `streaming`, `passive` and `polling`)
+* A `bye` (a lost connection being re-established) no longer changes the repository's readiness: it stays ready
+  with the last features, and nothing is broadcast. Previously it became not ready until the features arrived again
 * Streaming: the default reconnect policy retries every status but a 4xx (`featureHubShouldRetryStatus`): a 5xx, or
   an invalid 1xx or 3xx, is retried with the 5xx backoff; every 4xx, 429 included, stops for good. Whenever the event
   source stops for good (also a status a custom policy does not retry, or running out of `maxAttempts`) the

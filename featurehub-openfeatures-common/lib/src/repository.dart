@@ -340,10 +340,9 @@ class ClientFeatureRepository {
         case SSEResultState.ack:
           break;
         case SSEResultState.bye:
-          _readynessState = Readyness.NotReady;
-          if (!_catchActive) {
-            _broadcastReadynessState();
-          }
+          // the connection is being re-established: the features held are
+          // still the latest known, so readiness is unchanged (still Ready
+          // once features have arrived), and nothing is broadcast
           break;
         case SSEResultState.failure:
           _readynessState = Readyness.Failed;
@@ -362,8 +361,8 @@ class ClientFeatureRepository {
           if (_hasReceivedInitialState && _catchActive) {
             _catchUpdatedFeatures(features);
             _caughtFullSetKeys = {for (final f in features) f.key};
-            // the features are held back, but the connection is back, so
-            // (after a bye) the repository is ready again
+            // the features are held back, but they have arrived, so the
+            // repository is ready (it may have failed in the meantime)
             if (_readynessState != Readyness.Ready) {
               _readynessState = Readyness.Ready;
               _broadcastReadynessState();

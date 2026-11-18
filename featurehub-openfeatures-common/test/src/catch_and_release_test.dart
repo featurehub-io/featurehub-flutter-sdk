@@ -212,8 +212,9 @@ void main() {
       expect(fresh.getFlag('flag'), true);
     });
 
-    test('a bye before the initial features is broadcast', () async {
+    test('a bye before the initial features changes nothing', () async {
       fresh.notify(SSEResultState.feature, _flag(1, true).toJson());
+      final before = fresh.readyness;
       final states = <Readyness>[];
       final sub = fresh.readynessStream.listen(states.add);
       await _pump();
@@ -221,28 +222,28 @@ void main() {
 
       fresh.notify(SSEResultState.bye, null);
       await _pump();
-      expect(states, [Readyness.NotReady]);
+      expect(states, isEmpty);
+      expect(fresh.readyness, before);
       await sub.cancel();
     });
   });
 
   group('readiness', () {
-    test('a reconnection makes the repository ready again', () async {
+    test('a bye and a reconnection leave the repository ready', () async {
       final states = <Readyness>[];
       final sub = repo.readynessStream.listen(states.add);
       await _pump();
       states.clear(); // the current (ready) state
 
       repo.notify(SSEResultState.bye, null);
-      expect(repo.readyness, Readyness.NotReady);
+      expect(repo.readyness, Readyness.Ready);
 
-      // the features after reconnecting are caught, but the connection is
-      // back
+      // the features after reconnecting are caught; readiness never changed
       repo.notify(SSEResultState.features, [_flag(2, true)]);
       expect(repo.readyness, Readyness.Ready);
       expect(repo.getFlag('flag'), false, reason: 'still caught');
       await _pump();
-      expect(states, [Readyness.Ready]);
+      expect(states, isEmpty);
       await sub.cancel();
     });
 
