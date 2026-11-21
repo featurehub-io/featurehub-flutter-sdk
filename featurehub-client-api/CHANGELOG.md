@@ -1,3 +1,10 @@
+1.5.0
+=====
+* Requires Dart 3.12.2 or later, and uses `lints` instead of `flutter_lints`
+* A rollout strategy with a null or absent `attributes` (e.g. a pure percentage strategy) decodes as an empty list
+  rather than failing the whole feature
+* Polls FeatureHub Edge at `/features` (as the other SDKs do), not `/features/` as generated from the API definition
+
 1.4.0
 =====
 * Updated SDK based on current Edge API

@@ -28,7 +28,7 @@ jobs:
       fail-fast: false
       matrix:
         # a release version (e.g. 3.12) installs the latest patch of that release
-        sdk: [ '3.10', '3.12', '3.14' ]
+        sdk: [ '3.12', '3.14' ]
 
     defaults:
       run:
@@ -47,7 +47,7 @@ jobs:
       # formatter output can change between SDK releases, so only check it on
       # the minimum supported SDK
       - name: Verify formatting
-        if: matrix.sdk == '3.10'
+        if: matrix.sdk == '3.12'
         run: dart format --output=none --set-exit-if-changed .
 
       - name: Analyze

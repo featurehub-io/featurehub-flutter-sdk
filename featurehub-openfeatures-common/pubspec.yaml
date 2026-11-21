@@ -1,0 +1,29 @@
+name: featurehub_openfeatures_common
+version: 1.0.0
+description: Common FeatureHub libraries (repository, strategy evaluation, polling and SSE transports) underpinning the FeatureHub OpenFeature providers for Dart.
+repository: https://github.com/featurehub-io/featurehub-flutter-sdk/tree/main/featurehub-openfeatures-common
+homepage: https://www.featurehub.io
+environment:
+  sdk: ^3.12.2
+dependencies:
+  dio: ^5.0.1
+  http: ^1.5.0
+  crypto: ^3.0.2
+#  featurehub_sse_client: ^1.4.0
+  featurehub_sse_client:
+    path: ../featurehub-sse-client
+  collection: ^1.19.0
+  logging: ^1.3.0
+  rxdart: ^0.28.0
+#  featurehub_client_api: ^1.4.0
+  featurehub_client_api:
+    path: ../featurehub-client-api
+  openapi_dart_common: ^5.1.2
+  web: ^1.1.0
+dev_dependencies:
+  lints: ^6.0.0
+  test: ^1.26.0
+#  test_coverage: ^0.4.2
+  mocktail: ^1.0.4
+  async: ^2.13.0
+  stream_channel: ^2.1.4

@@ -67,6 +67,19 @@ When the policy gives up, the final `EventSourceSubscriptionException` is added 
 
 The initial `connect()` (and `reopen()`) throws if its connection attempt fails; reconnection applies once connected.
 
+## Timeouts
+
+```dart
+EventSource eventSource = await EventSource.connect("http://example.com/events",
+  connectTimeout: Duration(seconds: 10), // establishing the connection (dart:io)
+  requestTimeout: Duration(seconds: 30)); // waiting for the server to respond
+```
+
+`connectTimeout` applies to the client the event source creates when you do not pass your own `client`, and only on
+`dart:io`. `requestTimeout` limits how long each connection attempt waits for the server's response (status and
+headers); the event stream itself then stays open. An attempt that times out is retried according to the
+`reconnectPolicy`. Both default to waiting indefinitely.
+
 ## Licensing
 
 This project is available under the MIT license, as can be found in the LICENSE file.

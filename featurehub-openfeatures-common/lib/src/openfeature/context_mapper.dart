@@ -1,0 +1,114 @@
+import 'package:featurehub_client_api/api.dart'
+    show StrategyAttributeWellKnownNamesExtension;
+
+import '../client_context.dart';
+import '../strategy/js_compat.dart';
+import '../strategy/strategy_context.dart';
+
+/// Raised when an OpenFeature evaluation context contains a value FeatureHub
+/// cannot represent (a nested object, or a list containing one).
+class InvalidContextException implements Exception {
+  final String key;
+
+  InvalidContextException(this.key);
+
+  String get message =>
+      "Context attribute '$key' is an object or contains nested objects; "
+      'FeatureHub attributes must be strings, numbers, booleans, dates, or '
+      'lists of those.';
+
+  @override
+  String toString() => 'InvalidContextException: $message';
+}
+
+/// Attribute keys FeatureHub treats specially (recognised case-insensitively):
+/// the `StrategyAttributeWellKnownNames` of the FeatureHub Edge API
+/// definition (device, country, platform, userkey, session, version).
+final _featureHubKeys = StrategyAttributeWellKnownNamesExtension.fromMap.keys
+    .toSet();
+
+/// An OpenFeature evaluation context mapped onto FeatureHub's context model.
+class MappedContext {
+  /// FeatureHub's user key (OpenFeature's `targetingKey`).
+  final String? userkey;
+
+  /// The remaining attributes, keyed by FeatureHub attribute key. Values are
+  /// a [String], [num], [bool] or [DateTime], or a list of those.
+  final Map<String, Object> attributes;
+
+  const MappedContext(this.userkey, this.attributes);
+
+  /// All attributes including `userkey`, as used for strategy evaluation.
+  Map<String, Object> get asAttributes => {'userkey': ?userkey, ...attributes};
+
+  /// A [StrategyContext] for evaluating client-evaluated features locally.
+  StrategyContext get strategyContext => MapStrategyContext(asAttributes);
+
+  /// Replaces [context]'s attributes with these (for server-evaluated keys,
+  /// whose context is sent to the server). Does not call [ClientContext.build].
+  void applyTo(ClientContext context) {
+    context.clear();
+    asAttributes.forEach((key, value) {
+      context.attrs(key, _stringValues(value));
+    });
+  }
+
+  /// The `x-featurehub` header (and context signature) for this context: the
+  /// same format [ClientContext.generateHeader] produces.
+  String? get header {
+    final context = ClientContext();
+    applyTo(context);
+    return context.generateHeader();
+  }
+
+  static List<String> _stringValues(Object value) {
+    if (value is List) return value.map((v) => _toWire(v as Object)).toList();
+    return [_toWire(value)];
+  }
+
+  static String _toWire(Object value) =>
+      value is DateTime ? value.toUtc().toIso8601String() : jsToString(value);
+}
+
+bool _isPrimitive(Object? v) =>
+    v is String || v is num || v is bool || v is DateTime;
+
+/// Maps an OpenFeature evaluation context (in map form, as passed to
+/// providers, with the targeting key under `targetingKey`) onto FeatureHub's
+/// context model:
+///
+/// - `targetingKey` (or `userkey`) becomes FeatureHub's `userkey`, the
+///   default percentage rollout key.
+/// - FeatureHub's well-known keys, the `StrategyAttributeWellKnownNames` of
+///   the Edge API definition (`device`, `country`, `platform`, `session`,
+///   `version`), are recognised case-insensitively and written lowercase.
+/// - Everything else passes through as a custom attribute; null values are
+///   skipped.
+///
+/// Throws an [InvalidContextException] for a value that cannot be represented.
+MappedContext mapEvaluationContext(Map<String, Object?>? context) {
+  final attributes = <String, Object>{};
+  String? userkey;
+
+  if (context != null) {
+    for (final entry in context.entries) {
+      final key = entry.key;
+      final value = entry.value;
+      if (value == null) continue;
+
+      final lower = key.toLowerCase();
+      if (lower == 'targetingkey' || lower == 'userkey') {
+        userkey = value is DateTime
+            ? value.toUtc().toIso8601String()
+            : jsToString(value);
+      } else if (_isPrimitive(value) ||
+          (value is List && value.every(_isPrimitive))) {
+        attributes[_featureHubKeys.contains(lower) ? lower : key] = value;
+      } else {
+        throw InvalidContextException(key);
+      }
+    }
+  }
+
+  return MappedContext(userkey, attributes);
+}

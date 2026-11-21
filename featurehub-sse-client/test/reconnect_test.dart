@@ -2,6 +2,7 @@ import "dart:async";
 import "dart:convert";
 
 import "package:featurehub_sse_client/featurehub_sse_client.dart";
+import "package:featurehub_sse_client/src/limits.dart";
 import "package:http/http.dart" as http;
 import "package:http/testing.dart";
 import "package:test/test.dart";
@@ -11,7 +12,7 @@ const _ms = Duration(milliseconds: 1);
 /// A scripted server: each connection attempt takes the next response from
 /// [responses]; once exhausted, the last one is repeated.
 class _Server {
-  final List<http.StreamedResponse Function()> responses;
+  final List<FutureOr<http.StreamedResponse> Function()> responses;
   final List<http.BaseRequest> requests = [];
   final List<DateTime> times = [];
 
@@ -34,11 +35,19 @@ http.StreamedResponse Function() _ok(String body, {bool keepOpen = false}) =>
       if (!keepOpen) {
         Timer(const Duration(milliseconds: 5), controller.close);
       }
-      return http.StreamedResponse(controller.stream, 200);
+      return http.StreamedResponse(
+        controller.stream,
+        200,
+        headers: _eventStream,
+      );
     };
 
 http.StreamedResponse Function() _status(int code) =>
     () => http.StreamedResponse(Stream.value(utf8.encode("nope")), code);
+
+/// A server that never responds.
+Future<http.StreamedResponse> Function() _hang() =>
+    () => Completer<http.StreamedResponse>().future;
 
 http.StreamedResponse Function() _networkError() =>
     () => throw http.ClientException("connection refused");
@@ -75,7 +84,19 @@ class _Listener {
       .toList();
 }
 
+const _eventStream = {"content-type": "text/event-stream"};
+
 void main() {
+  // these tests reconnect far faster than applications may
+  setUpAll(() {
+    minReconnectDelay = Duration.zero;
+    minServerRetryDelay = Duration.zero;
+  });
+  tearDownAll(() {
+    minReconnectDelay = defaultMinReconnectDelay;
+    minServerRetryDelay = defaultMinServerRetryDelay;
+  });
+
   group("ReconnectPolicy", () {
     test("defaults", () {
       const policy = ReconnectPolicy();
@@ -382,6 +403,85 @@ void main() {
     });
   });
 
+  group("request timeout", () {
+    test("an unanswered connection attempt is retried", () async {
+      final server = _Server([
+        _ok("data: a\n\n"),
+        _hang(),
+        _ok("data: b\n\n", keepOpen: true),
+      ]);
+      final es = await EventSource.connect(
+        "http://localhost/events",
+        client: server.client,
+        requestTimeout: const Duration(milliseconds: 50),
+        reconnectPolicy: const ReconnectPolicy(
+          delay: Duration(milliseconds: 5),
+        ),
+      );
+      final listener = _Listener(es);
+
+      await _until(() => listener.messages.length == 2);
+
+      final timedOut = listener.reconnects[1];
+      expect(timedOut.statusCode, isNull);
+      expect(
+        (timedOut.error as EventSourceSubscriptionException).exception,
+        isA<TimeoutException>(),
+      );
+      expect(listener.errors, isEmpty);
+      await es.close();
+    });
+
+    test("the initial connection throws when unanswered", () async {
+      final server = _Server([_hang()]);
+      await expectLater(
+        EventSource.connect(
+          "http://localhost/events",
+          client: server.client,
+          requestTimeout: const Duration(milliseconds: 50),
+        ),
+        throwsA(
+          isA<EventSourceSubscriptionException>()
+              .having((e) => e.statusCode, "statusCode", 0)
+              .having((e) => e.exception, "exception", isA<TimeoutException>()),
+        ),
+      );
+    });
+
+    test("a response within the timeout is used", () async {
+      final server = _Server([_ok("data: a\n\n", keepOpen: true)]);
+      final es = await EventSource.connect(
+        "http://localhost/events",
+        client: server.client,
+        requestTimeout: const Duration(seconds: 5),
+      );
+      final listener = _Listener(es);
+      await _until(() => listener.messages.length == 1);
+      expect(es.readyState, EventSourceReadyState.open);
+      await es.close();
+    });
+  });
+
+  group("connect timeout", () {
+    test("the default client is created with it", () async {
+      // a closed local port refuses quickly; this checks the option is wired
+      // through to a working default client
+      await expectLater(
+        EventSource.connect(
+          "http://127.0.0.1:1/events",
+          connectTimeout: const Duration(seconds: 2),
+        ),
+        throwsA(
+          isA<EventSourceSubscriptionException>().having(
+            (e) => e.statusCode,
+            "statusCode",
+            0,
+          ),
+        ),
+      );
+    });
+  });
+
   group("initial connection", () {
     test("throws with the real status code", () async {
       final server = _Server([_status(401)]);
@@ -429,6 +529,167 @@ void main() {
       await _until(() => listener.messages.length == 1);
 
       expect(listener.reconnects.single.statusCode, 503);
+      await es.close();
+    });
+  });
+
+  // conformance: streaming-not-an-event-stream
+  group("a 200 that is not an event stream", () {
+    http.StreamedResponse Function() html() =>
+        () => http.StreamedResponse(
+          Stream.value(utf8.encode("<html>sign in to the wifi</html>")),
+          200,
+          headers: {"content-type": "text/html; charset=utf-8"},
+        );
+
+    test("is a failed connection, retried with the network delay", () async {
+      final server = _Server([html(), _ok("data: a\n\n", keepOpen: true)]);
+      final es = await EventSource.connect(
+        "http://localhost/events",
+        client: server.client,
+        openOnlyOnFirstListener: true,
+        reconnectPolicy: const ReconnectPolicy(
+          delay: Duration(milliseconds: 5),
+          serverErrorDelay: Duration(seconds: 30),
+        ),
+      );
+      final listener = _Listener(es);
+      await _until(() => listener.messages.length == 1);
+
+      final reconnect = listener.reconnects.single;
+      expect(reconnect.statusCode, isNull);
+      expect(reconnect.delay, _ms * 5);
+      expect(listener.messages, ["a"]);
+      await es.close();
+    });
+
+    test("counts towards the maximum attempts", () async {
+      final server = _Server([html()]);
+      final es = await EventSource.connect(
+        "http://localhost/events",
+        client: server.client,
+        openOnlyOnFirstListener: true,
+        reconnectPolicy: const ReconnectPolicy(
+          delay: Duration(milliseconds: 5),
+          maxAttempts: 2,
+        ),
+      );
+      final listener = _Listener(es);
+      await _until(() => listener.errors.isNotEmpty);
+
+      expect(server.requests, hasLength(3));
+      expect(
+        (listener.errors.single as EventSourceSubscriptionException).statusCode,
+        0,
+      );
+    });
+  });
+
+  // conformance: streaming-attempt-reset
+  group("resetAttemptsOn", () {
+    bool works(Event event) => event.event == "ack";
+    const policy = ReconnectPolicy(
+      delay: Duration(milliseconds: 2),
+      maxAttempts: 3,
+    );
+
+    test("a server that drops every connection uses up the attempts", () async {
+      final server = _Server([_ok("event: bye\ndata: lingling\n\n")]);
+      final es = await EventSource.connect(
+        "http://localhost/events",
+        client: server.client,
+        openOnlyOnFirstListener: true,
+        reconnectPolicy: policy,
+        resetAttemptsOn: works,
+      );
+      final listener = _Listener(es);
+      await _until(() => listener.errors.isNotEmpty);
+
+      // the first connection, then 3 attempts, although every one opened
+      expect(server.requests, hasLength(4));
+      expect(listener.reconnects.map((r) => r.attempt), [1, 2, 3]);
+      expect(es.readyState, EventSourceReadyState.closed);
+    });
+
+    test("an event that shows the connection works resets them", () async {
+      final server = _Server([
+        for (var i = 0; i < 4; i++) ...[
+          _ok("event: ack\ndata: orm\n\n"),
+          _ok("event: bye\ndata: orm\n\n"),
+          _ok("event: bye\ndata: orm\n\n"),
+        ],
+        _ok("event: ack\ndata: kornaphat\n\n", keepOpen: true),
+      ]);
+      final es = await EventSource.connect(
+        "http://localhost/events",
+        client: server.client,
+        openOnlyOnFirstListener: true,
+        reconnectPolicy: policy,
+        resetAttemptsOn: works,
+      );
+      final listener = _Listener(es);
+      await _until(() => server.requests.length == 13);
+      await _until(() => listener.messages.contains("kornaphat"));
+
+      expect(listener.errors, isEmpty);
+      expect(listener.reconnects.map((r) => r.attempt).toSet(), {1, 2, 3});
+      expect(es.readyState, EventSourceReadyState.open);
+      await es.close();
+    });
+  });
+
+  // conformance: streaming-minimum-delays
+  group("minimum delays", () {
+    setUp(() {
+      minReconnectDelay = defaultMinReconnectDelay;
+      minServerRetryDelay = defaultMinServerRetryDelay;
+    });
+    tearDown(() {
+      minReconnectDelay = Duration.zero;
+      minServerRetryDelay = Duration.zero;
+    });
+
+    test("every wait is at least 100ms, whatever the policy says", () async {
+      final server = _Server([
+        _ok("data: a\n\n"),
+        _ok("data: b\n\n", keepOpen: true),
+      ]);
+      final es = await EventSource.connect(
+        "http://localhost/events",
+        client: server.client,
+        reconnectPolicy: const ReconnectPolicy(
+          delay: Duration(microseconds: 1),
+          maxDelay: Duration(microseconds: 1),
+        ),
+      );
+      final listener = _Listener(es);
+      await _until(() => listener.messages.length == 2);
+
+      expect(listener.reconnects.single.delay, _ms * 100);
+      expect(
+        server.times[1].difference(server.times[0]),
+        greaterThanOrEqualTo(_ms * 100),
+      );
+      await es.close();
+    });
+
+    test("a server retry below a second is used as a second", () async {
+      final server = _Server([
+        _ok("retry: 1\ndata: a\n\n"),
+        _ok("data: b\n\n", keepOpen: true),
+      ]);
+      final es = await EventSource.connect(
+        "http://localhost/events",
+        client: server.client,
+        reconnectPolicy: const ReconnectPolicy(
+          delay: Duration(milliseconds: 5),
+          backoffMultiplier: 2,
+        ),
+      );
+      final listener = _Listener(es);
+      await _until(() => listener.reconnects.isNotEmpty);
+
+      expect(listener.reconnects.single.delay, const Duration(seconds: 1));
       await es.close();
     });
   });

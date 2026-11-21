@@ -26,8 +26,9 @@ class ReconnectPolicy {
   final Duration serverErrorDelay;
 
   /// The maximum number of consecutive reconnection attempts before the event
-  /// source gives up and closes. The count resets whenever a connection is
-  /// successfully opened. `null` means retry forever.
+  /// source gives up and closes. The count resets when a connection opens,
+  /// or, with the event source's `resetAttemptsOn`, when it delivers an event
+  /// showing that it works. `null` means retry forever.
   final int? maxAttempts;
 
   /// Each consecutive failed attempt multiplies the delay by this factor.
