@@ -35,24 +35,18 @@ double jsNumber(String s) {
   return double.parse(t);
 }
 
-/// JavaScript's `parseFloat(s)`: the longest numeric prefix after leading
-/// whitespace, or NaN.
-double jsParseFloat(String s) {
-  final t = s.trimLeft();
-  final inf = RegExp(r'^([+-]?)Infinity').firstMatch(t);
-  if (inf != null) {
-    return inf.group(1) == '-' ? double.negativeInfinity : double.infinity;
-  }
-  final match = RegExp(r'^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?').firstMatch(t);
-  return match == null ? double.nan : double.parse(match.group(0)!);
+/// A NUMBER attribute's number: a finite [num] as is, or a string that is
+/// exactly a decimal integer or float (an optional sign, digits, and an
+/// optional fraction: `12`, `-5`, `2.5`). Anything else - `"12abc"`, `"1e3"`,
+/// `"0x10"`, `".5"`, `" 3"`, `"Infinity"`, a boolean - is not a number, and
+/// is null. Deliberately not JavaScript's parseInt / parseFloat.
+num? strictNumber(Object? value) {
+  if (value is num) return value.isFinite ? value : null;
+  if (value is! String || !_strictNumber.hasMatch(value)) return null;
+  return value.contains('.') ? double.parse(value) : num.parse(value);
 }
 
-/// JavaScript's `parseInt(s, 10)`: leading whitespace, sign, then digits;
-/// NaN if there are none.
-num jsParseInt(String s) {
-  final match = RegExp(r'^\s*([+-]?\d+)').firstMatch(s);
-  return match == null ? double.nan : int.parse(match.group(1)!);
-}
+final _strictNumber = RegExp(r'^[+-]?[0-9]+(\.[0-9]+)?$');
 
 /// The `semver-compare` npm package (1.0.0): compares the first three
 /// dot-separated parts numerically. Returns 1, -1 or 0.

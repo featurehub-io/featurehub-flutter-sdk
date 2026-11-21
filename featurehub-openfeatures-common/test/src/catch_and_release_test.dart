@@ -187,11 +187,12 @@ void main() {
       await _pump();
       expect(states, hasLength(2));
 
-      // ...but the first features are still applied, not caught
+      // ...but the first features are still applied, not caught (Failed is
+      // final, so readiness stays Failed)
       fresh.notify(SSEResultState.features, [_flag(1, true)]);
       await _pump();
       expect(fresh.getFlag('flag'), true);
-      expect(states.last, Readyness.Ready);
+      expect(states.last, Readyness.Failed);
       await sub.cancel();
     });
 
@@ -247,18 +248,22 @@ void main() {
       await sub.cancel();
     });
 
-    test('bye and failure are not broadcast while catching', () async {
+    test('a bye is not broadcast while catching; a failure is', () async {
       final states = <Readyness>[];
       final sub = repo.readynessStream.listen(states.add);
       await _pump();
       states.clear();
 
       repo.notify(SSEResultState.bye, null);
+      await _pump();
+      expect(states, isEmpty);
+
+      // after features, a failure makes readiness Stale, never Failed
       repo.notify(SSEResultState.failure, null);
       await _pump();
-
-      expect(states, isEmpty);
-      expect(repo.readyness, Readyness.Failed);
+      expect(states, [Readyness.Stale]);
+      expect(repo.readyness, Readyness.Stale);
+      expect(repo.connectionFailed, true);
       await sub.cancel();
     });
   });

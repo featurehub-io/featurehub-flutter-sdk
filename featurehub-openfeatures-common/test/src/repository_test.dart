@@ -377,7 +377,7 @@ void main() {
         .build();
     expect(
       repo.clientContext.generateHeader(),
-      'city=istanbul,country=turkey,device=desktop,musical styles=deep%2Cpsychedelic,platform=ios,session=Hot+Situations,source=youtube,userkey=DJElif,version=8.9.2',
+      'city=istanbul,country=turkey,device=desktop,musical%20styles=deep%2Cpsychedelic,platform=ios,session=Hot%20Situations,source=youtube,userkey=DJElif,version=8.9.2',
     );
   });
 

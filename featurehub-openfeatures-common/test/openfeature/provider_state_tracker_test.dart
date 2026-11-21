@@ -52,7 +52,7 @@ void main() {
 
     expect(events, ['stale environmentStale']);
     expect(tracker!.stale, true);
-    expect(repo.readyness, Readyness.Ready);
+    expect(repo.readyness, Readyness.Stale);
     expect(repo.evaluate('kwong-pastry').value, 'mango');
   });
 

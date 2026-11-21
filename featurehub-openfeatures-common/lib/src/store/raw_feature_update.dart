@@ -41,12 +41,14 @@ final class FeatureReceived extends RawFeatureUpdate {
   String toString() => 'FeatureReceived(${feature.key} from $source)';
 }
 
-/// A feature was deleted. Prefer [FeatureState.id] to identify it.
+/// A feature was deleted. A deletion only needs the feature's [key] (unique
+/// in an environment); its [id] is given when the source sent one.
 final class FeatureDeleted extends RawFeatureUpdate {
-  final FeatureState feature;
+  final String key;
+  final String? id;
 
-  const FeatureDeleted(this.feature, super.source);
+  const FeatureDeleted(this.key, this.id, super.source);
 
   @override
-  String toString() => 'FeatureDeleted(${feature.key} from $source)';
+  String toString() => 'FeatureDeleted($key from $source)';
 }

@@ -8,6 +8,11 @@
 //
 // Generates golden strategy-evaluation results from the TypeScript SDK, so the
 // Dart port can be checked against the real implementation.
+//
+// One deliberate difference: NUMBER attributes use strict numbers
+// (rollout-strategies.yaml js_conversions.strict_number), not JavaScript's
+// parseInt / parseFloat. Where TypeScript's result differs, the case records
+// the strict result as `result` and TypeScript's as `typescript`.
 import { writeFileSync } from "node:fs";
 import murmurhash from "murmurhash";
 import {
@@ -37,6 +42,40 @@ for (let i = 0; i < 200; i++) {
 // ---- matchers
 const conds = Object.values(C);
 const reg = new MatcherRegistry();
+
+// rollout-strategies.yaml js_conversions.strict_number: a finite number, or a
+// string that is exactly an optional sign, digits and an optional fraction
+function strictNumber(v: any): number | undefined {
+  if (typeof v === "number") return Number.isFinite(v) ? v : undefined;
+  return typeof v === "string" && /^[+-]?[0-9]+(\.[0-9]+)?$/.test(v) ? Number(v) : undefined;
+}
+
+// matchers.NUMBER with strict numbers: a supplied value that is not a number
+// never matches; values that are not numbers are ignored
+function strictNumberMatch(conditional: string, values: any[], supplied: any): boolean {
+  const n = strictNumber(supplied);
+  if (n === undefined) return false;
+  const valid = values.filter((v) => v != null && strictNumber(v) !== undefined);
+  const nums = valid.map((v) => strictNumber(v)!);
+  const str = String(n);
+  const strs = valid.map((v) => String(v));
+  const regex = (p: string) => { try { return new RegExp(p).test(str); } catch (_) { return false; } };
+  switch (conditional) {
+    case C.Equals: return nums.some((v) => v === n);
+    case C.NotEquals: return !nums.some((v) => v === n);
+    case C.Greater: return nums.some((v) => n > v);
+    case C.GreaterEquals: return nums.some((v) => n >= v);
+    case C.Less: return nums.some((v) => n < v);
+    case C.LessEquals: return nums.some((v) => n <= v);
+    case C.Includes: return strs.some((v) => str.includes(v));
+    case C.Excludes: return !strs.some((v) => str.includes(v));
+    case C.Regex: return strs.some(regex);
+    case C.EndsWith: return strs.some((v) => str.endsWith(v));
+    case C.StartsWith: return strs.some((v) => str.startsWith(v));
+  }
+  throw new Error(`unknown conditional ${conditional}`);
+}
+
 function matchers(type: string, valueSets: any[][], supplied: any[]) {
   for (const conditional of conds) {
     for (const values of valueSets) {
@@ -48,6 +87,13 @@ function matchers(type: string, valueSets: any[][], supplied: any[]) {
           if (result === undefined) result = "undefined";
         } catch (_) {
           result = "throw";
+        }
+        if (type === T.Number) {
+          const strict = strictNumberMatch(conditional, values, s);
+          if (strict !== result) {
+            out.matchers.push({ type, conditional, values, supplied: s, result: strict, typescript: result });
+            continue;
+          }
         }
         out.matchers.push({ type, conditional, values, supplied: s, result });
       }

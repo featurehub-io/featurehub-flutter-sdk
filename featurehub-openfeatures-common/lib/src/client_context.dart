@@ -103,16 +103,18 @@ class ClientContext implements StrategyContext {
     }
   }
 
+  /// The context in FeatureHub's `x-featurehub` header form, or null if
+  /// there are no attributes: for each attribute with values,
+  /// `encode(key)=encode(values joined by ",")`, sorted, joined with ",".
+  /// Keys and values are both encoded as JavaScript's `encodeURIComponent`
+  /// does, so a "," or "=" in either cannot be confused with the separators.
   String? generateHeader() {
-    if (_attributes.isEmpty) {
-      return null;
-    }
-
-    var params = _attributes.entries.map((entry) {
-      return '${entry.key}=${Uri.encodeQueryComponent(entry.value.join(','))}';
-    }).toList();
-    params.sort(); // i so hate the sort function
-    return params.join(',');
+    final params = [
+      for (final MapEntry(:key, :value) in _attributes.entries)
+        if (value.isNotEmpty)
+          '${Uri.encodeComponent(key)}=${Uri.encodeComponent(value.join(','))}',
+    ]..sort();
+    return params.isEmpty ? null : params.join(',');
   }
 
   Future<Function> registerChangeHandler(

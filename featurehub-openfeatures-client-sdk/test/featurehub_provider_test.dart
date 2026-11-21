@@ -27,6 +27,7 @@ void main() {
     interceptors: interceptors,
     host: 'http://localhost',
     apiKey: apiKey,
+    mode: fh.FeatureHubUpdateMode.streaming,
     waitForReady: const Duration(seconds: 2),
     connectionFactory: (p) {
       final repository = fh.ClientFeatureRepository();
@@ -77,7 +78,27 @@ void main() {
     FeatureHubProvider(
       host: 'http://x',
       apiKey: 'env/key',
+      mode: fh.FeatureHubUpdateMode.streaming,
       pollInterval: const Duration(seconds: 1),
+    );
+  });
+
+  test('a server-evaluated key has no default mode', () {
+    expect(
+      () => FeatureHubProvider(host: 'http://x', apiKey: 'lingling/kwong'),
+      throwsA(isA<ArgumentError>().having((e) => e.name, 'name', 'mode')),
+    );
+    for (final mode in fh.FeatureHubUpdateMode.values) {
+      FeatureHubProvider(
+        host: 'http://x',
+        apiKey: 'lingling/kwong',
+        mode: mode,
+      );
+    }
+    // a client-evaluated key streams by default
+    expect(
+      FeatureHubProvider(host: 'http://x', apiKey: 'lingling/kwong*orm').mode,
+      fh.FeatureHubUpdateMode.streaming,
     );
   });
 

@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:featurehub_sse_client/featurehub_sse_client.dart'
     show ReconnectPolicy;
 import 'package:http/http.dart' as http;
+import 'package:rxdart/rxdart.dart';
 
 import '../repository.dart';
 import '../transport/api_keys.dart';
@@ -50,8 +51,10 @@ class FeatureHubConnection {
   final ClientFeatureRepository repository;
 
   /// How the features are fetched. By default [FeatureHubUpdateMode.streaming]
-  /// from FeatureHub, and [FeatureHubUpdateMode.activePolling] from a
-  /// [featuresUrl] (which is only polled), as the providers do.
+  /// from FeatureHub with a client-evaluated key, and
+  /// [FeatureHubUpdateMode.activePolling] from a [featuresUrl] (which is only
+  /// polled), as the providers do. A server-evaluated key has no default: the
+  /// mode must be given.
   final FeatureHubUpdateMode mode;
   final Duration pollInterval;
 
@@ -87,7 +90,8 @@ class FeatureHubConnection {
   ///
   /// Throws an [ArgumentError] for a [featuresUrl] together with a [host] or
   /// [apiKey], or with [FeatureHubUpdateMode.streaming] for the built-in
-  /// transport (your server is polled).
+  /// transport (your server is polled); or for a server-evaluated [apiKey]
+  /// (no `*`) without a [mode], unless a transport is given.
   FeatureHubConnection({
     this.host,
     this.apiKey,
@@ -122,6 +126,16 @@ class FeatureHubConnection {
     final apiKey = this.apiKey;
     final featuresUrl = this.featuresUrl;
     final builtIn = !customTransport;
+    if (mode == null &&
+        builtIn &&
+        apiKey != null &&
+        !isClientEvaluatedKeys([apiKey])) {
+      throw ArgumentError(
+        'A server-evaluated API key (without "*") has no default mode: give '
+            'streaming, activePolling or passivePolling',
+        'mode',
+      );
+    }
     if (featuresUrl != null) {
       if (host != null || apiKey != null) {
         throw ArgumentError(
@@ -206,8 +220,9 @@ class FeatureHubConnection {
     await _transport.start();
   }
 
-  /// Waits until the repository has features (or has failed), for at most
-  /// [timeout]. Returns the readiness at that point.
+  /// Waits until the repository has features (readiness [Readyness.Ready],
+  /// or [Readyness.Stale] if the source stopped for good with them) or has
+  /// failed, for at most [timeout]. Returns the readiness at that point.
   Future<Readyness> waitForReady(Duration timeout) async {
     final current = repository.readyness;
     if (current != Readyness.NotReady) return current;
@@ -219,18 +234,36 @@ class FeatureHubConnection {
   /// Server-evaluated keys: fetches the features for [context] (if it differs
   /// from the current one) and waits, for at most [timeout], for them.
   /// Returns the readiness afterwards. Does nothing for client-evaluated keys.
+  ///
+  /// While it waits readiness is [Readyness.Stale] (the old context's
+  /// features are still held, and resolved); the new context's features make
+  /// it [Readyness.Ready]. It also stops waiting if the source stops for good
+  /// meanwhile. Once the source has stopped for good
+  /// ([ClientFeatureRepository.connectionFailed],
+  /// [ClientFeatureRepository.environmentStale]) nothing can be fetched: it
+  /// does nothing, and the last features are kept.
   Future<Readyness> setContext(MappedContext context, Duration timeout) async {
     if (clientEvaluated) return repository.readyness;
+    if (repository.connectionFailed || repository.environmentStale) {
+      return repository.readyness;
+    }
 
     final header = context.header;
     if (header == _contextHeader) return repository.readyness;
     _contextHeader = header;
 
-    // the next ready (or failed) notification is the refreshed bundle
-    final refreshed = repository.readynessStream
-        .skip(1)
-        .firstWhere((r) => r != Readyness.NotReady)
-        .timeout(timeout, onTimeout: () => repository.readyness);
+    repository.contextChanging();
+    // readiness is not Ready now, so the next Ready is the new context's
+    final refreshed =
+        Rx.merge<Object>([
+              repository.readynessStream.where(
+                (r) => r == Readyness.Ready || r == Readyness.Failed,
+              ),
+              repository.connectionFailedStream.where((failed) => failed),
+              repository.environmentStaleStream.where((stale) => stale),
+            ]).first
+            .then((_) => repository.readyness)
+            .timeout(timeout, onTimeout: () => repository.readyness);
 
     context.applyTo(repository.clientContext);
     repository.clientContext.build();

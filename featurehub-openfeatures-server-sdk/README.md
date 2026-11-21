@@ -60,8 +60,10 @@ Anything not passed to `FeatureHubProvider` is read from the environment:
 | `FEATUREHUB_POLL_INTERVAL` | `pollInterval`, in seconds: if set, the provider polls at this interval instead of streaming (0 polls once; otherwise at least 5) |
 
 Arguments take precedence over the environment. The constructor throws an
-`ArgumentError` if there is a host but no API key or the reverse, or if
-`FEATUREHUB_POLL_INTERVAL` is not a number of seconds: 0, or at least 5.
+`ArgumentError` if there is a host but no API key or the reverse, if
+`FEATUREHUB_POLL_INTERVAL` is not a number of seconds: 0, or at least 5, or if
+a server-evaluated key (without `*`, such as `FEATUREHUB_SERVER_API_KEY`'s) has
+no mode: pass `mode`, or set `FEATUREHUB_POLL_INTERVAL` to poll.
 
 With a `featuresUrl` instead of a host and API key, the provider gets its
 features from another server's API rather than from FeatureHub (see the
@@ -178,7 +180,7 @@ properties (`FeatureState.fp`) when it has any.
 |---|---|---|
 | `host` | `FEATUREHUB_EDGE_URL` | |
 | `apiKey` | `FEATUREHUB_CLIENT_API_KEY`, then `FEATUREHUB_SERVER_API_KEY` | |
-| `mode` | `activePolling` if there is a poll interval (or a `featuresUrl`), otherwise `streaming` | `streaming` (FeatureHub only), `activePolling` (every `pollInterval`) or `passivePolling` (fetch on resolution once older than `pollInterval`) |
+| `mode` | `activePolling` if there is a poll interval (or a `featuresUrl`), otherwise `streaming` for a client-evaluated key; a server-evaluated key has no default without a poll interval (an `ArgumentError`) | `streaming` (FeatureHub only), `activePolling` (every `pollInterval`) or `passivePolling` (fetch on resolution once older than `pollInterval`) |
 | `pollInterval` | `FEATUREHUB_POLL_INTERVAL` (seconds), otherwise none | required for `activePolling` and `passivePolling`. 0 polls once, at start-up, and never again (a context change still fetches); anything else must be at least 5 seconds (an `ArgumentError`), and a FeatureHub `Cache-Control: max-age` below that is raised to it |
 | `waitForReady` | 10s | how long initialization, and a server-evaluated context change, wait for features |
 | `reconnectPolicy` | `defaultReconnectPolicy`: 3s after a network error, 30s after a 5xx (or an invalid 1xx or 3xx), doubling with each consecutive failure up to 5 minutes; a 200 that is not an event stream (e.g. a proxy's HTML page) is retried as a network error; every wait is at least 100ms, and a server's `retry:` at least 1s; consecutive failures are counted until FeatureHub sends an event, not just until a connection opens, so a server that drops every connection still backs off and uses up `maxAttempts`; a 4xx, 429 included, stops for good. Any stop for good (also an unretried status, or running out of `maxAttempts`) is a failure: before any features the provider fails to initialize, after them it goes `stale` | streaming reconnection; set any value with your own `ReconnectPolicy(delay:, serverErrorDelay:, backoffMultiplier:, maxDelay:, maxAttempts:)` (see `featurehub_sse_client`) |

@@ -7,9 +7,24 @@ import 'package:featurehub_openfeatures_common/featurehub.dart';
 import 'package:logging/logging.dart';
 import 'package:rxdart/rxdart.dart';
 
+/// A repository's readiness.
+///
+/// - [NotReady]: no features are held.
+/// - [Ready]: features are held and are current (for the current context,
+///   from a live source).
+/// - [Stale]: features are held and keep being resolved, but may not be
+///   current: a context change is in progress, or the source has stopped for
+///   good ([ClientFeatureRepository.connectionFailed],
+///   [ClientFeatureRepository.environmentStale]).
+/// - [Failed]: final; the connection failed before any features were
+///   received.
+///
+/// Ready never goes straight to NotReady (clearing goes Ready, Stale,
+/// NotReady), NotReady never goes to Stale, and once a full set of features
+/// has been received nothing makes readiness Failed.
 // public API; kept as-is rather than renamed to lowerCamelCase
 // ignore: constant_identifier_names
-enum Readyness { NotReady, Ready, Failed }
+enum Readyness { NotReady, Ready, Stale, Failed }
 
 abstract class FeatureStateHolder {
   bool get exists;
@@ -250,9 +265,28 @@ class ClientFeatureRepository {
 
   /// True once the source has said the environment is stale: FeatureHub
   /// answered `236`, or sent `config` with `edge.stale`. The features held
-  /// are the last there will be: they stay usable (readiness is unchanged),
-  /// but are no longer kept up to date. Providers report this as stale.
+  /// are the last there will be: they stay usable (readiness is
+  /// [Readyness.Stale]), but are no longer kept up to date. Providers report
+  /// this as stale.
   bool get environmentStale => _environmentStaleListeners.value;
+
+  final _connectionFailedListeners = BehaviorSubject<bool>.seeded(false);
+
+  /// True once the connection updating the repository has failed for good
+  /// (`notify(SSEResultState.failure, ...)`: a rejected API key, a browser
+  /// connection error, no reconnection attempts left): it will send nothing
+  /// more. Before any features readiness is then [Readyness.Failed];
+  /// after them it is [Readyness.Stale] and the features keep being
+  /// resolved. Providers report this as stale.
+  bool get connectionFailed => _connectionFailedListeners.value;
+
+  /// Emits false, then true if and when the connection fails for good (see
+  /// [connectionFailed]). Separate from [readynessStream].
+  Stream<bool> get connectionFailedStream => _connectionFailedListeners.stream;
+
+  /// True once the source has stopped for good ([connectionFailed] or
+  /// [environmentStale]): nothing will bring the features up to date.
+  bool get _stoppedForGood => connectionFailed || environmentStale;
 
   /// Emits false, then true if and when the environment becomes stale (see
   /// [environmentStale]).
@@ -268,6 +302,30 @@ class ClientFeatureRepository {
       'further updates.',
     );
     _environmentStaleListeners.add(true);
+    // the features held are the last there will be; before any features
+    // readiness is unchanged
+    if (_readynessState == Readyness.Ready) _setReadyness(Readyness.Stale);
+  }
+
+  /// A context change is in progress (the providers call this before asking
+  /// the transport for the new context's features): readiness goes from
+  /// [Readyness.Ready] to [Readyness.Stale], as the features held are for the
+  /// old context. They are still resolved. The next full set of features
+  /// makes it Ready again. Does nothing unless Ready.
+  void contextChanging() {
+    if (_readynessState == Readyness.Ready) _setReadyness(Readyness.Stale);
+  }
+
+  void _setReadyness(Readyness readyness) {
+    _readynessState = readyness;
+    _broadcastReadynessState();
+  }
+
+  /// Readiness after a full set of features: Ready, unless nothing will bring
+  /// them up to date (then Stale); Failed is final.
+  void _fullSetReceived() {
+    if (_readynessState == Readyness.Failed) return;
+    _setReadyness(_stoppedForGood ? Readyness.Stale : Readyness.Ready);
   }
 
   /// Emits when new feature states are available: when they have been
@@ -318,8 +376,35 @@ class ClientFeatureRepository {
     if (!_rawUpdates.isClosed) _rawUpdates.add(update);
   }
 
-  static FeatureState _featureState(dynamic data) =>
-      data is FeatureState ? data : FeatureState.fromJson(data);
+  /// [data] as a feature, or null (logged) if it is not a valid one: a
+  /// feature needs an id, a key, a version and a type.
+  static FeatureState? _featureState(dynamic data) {
+    if (data is FeatureState) return data;
+    if (data is Map) {
+      try {
+        return FeatureState.fromJson(Map<String, dynamic>.from(data));
+      } catch (e) {
+        _log.warning('featurehub: ignoring an invalid feature ($e): $data');
+        return null;
+      }
+    }
+    _log.warning('featurehub: ignoring an invalid feature: $data');
+    return null;
+  }
+
+  /// [data] as a full set of features, or null (logged) if it is not a list.
+  /// Entries that are not valid features are left out.
+  static List<FeatureState>? _fullSet(dynamic data) {
+    if (data is List<FeatureState>) return data;
+    if (data is! List) {
+      _log.warning(
+        'featurehub: ignoring features that are not a list: '
+        '${data.runtimeType}',
+      );
+      return null;
+    }
+    return [for (final entry in data) ?_featureState(entry)];
+  }
 
   Iterable<String?> get availableFeatures => _features.keys;
 
@@ -345,27 +430,34 @@ class ClientFeatureRepository {
           // once features have arrived), and nothing is broadcast
           break;
         case SSEResultState.failure:
-          _readynessState = Readyness.Failed;
-          // an initial failure is always broadcast
-          final catching = _catchActive;
+          // once: later failures change nothing
+          if (connectionFailed || _connectionFailedListeners.isClosed) break;
           _initialStateResolved = true;
-          if (!catching) {
-            _broadcastReadynessState();
+          _connectionFailedListeners.add(true);
+          if (!_hasReceivedInitialState) {
+            // before any full set of features: final
+            if (_readynessState == Readyness.NotReady) {
+              _setReadyness(Readyness.Failed);
+            }
+          } else if (_readynessState == Readyness.Ready) {
+            // the features keep being resolved, but are no longer updated
+            _setReadyness(Readyness.Stale);
           }
           break;
         case SSEResultState.features:
-          final features = (data is List<FeatureState>)
-              ? data
-              : FeatureState.listFromJson(data);
+          // not a list is not a full set: removing every feature not in it
+          // would empty the repository
+          final features = _fullSet(data);
+          if (features == null) break;
           _raw(FeaturesReceived(List.unmodifiable(features), source));
           if (_hasReceivedInitialState && _catchActive) {
             _catchUpdatedFeatures(features);
             _caughtFullSetKeys = {for (final f in features) f.key};
             // the features are held back, but they have arrived, so the
-            // repository is ready (it may have failed in the meantime)
-            if (_readynessState != Readyness.Ready) {
-              _readynessState = Readyness.Ready;
-              _broadcastReadynessState();
+            // repository is ready (unless the source has stopped for good)
+            final before = _readynessState;
+            if (before == Readyness.NotReady || before == Readyness.Stale) {
+              _fullSetReceived();
             }
           } else {
             var updated = false;
@@ -384,12 +476,12 @@ class ClientFeatureRepository {
             }
             if (source == featureHubEdgeSource) _initialStateResolved = true;
             _updateFeaturesSha();
-            _readynessState = Readyness.Ready;
-            _broadcastReadynessState();
+            _fullSetReceived();
           }
           break;
         case SSEResultState.feature:
           final feature = _featureState(data);
+          if (feature == null) break;
           _raw(FeatureReceived(feature, source));
           if (_catchActive) {
             _catchUpdatedFeatures([feature]);
@@ -403,14 +495,16 @@ class ClientFeatureRepository {
           }
           break;
         case SSEResultState.deleteFeature:
-          final feature = _featureState(data);
+          // only the key (and id) are needed
+          final feature = _deletedFeature(data);
+          if (feature == null) break;
           // an update held back for it must not bring it back on release
           _catchReleaseStates.removeWhere(
             (id, f) => id == feature.id || f.key == feature.key,
           );
           _caughtFullSetKeys?.remove(feature.key);
           _deleteFeature(feature);
-          _raw(FeatureDeleted(feature, source));
+          _raw(FeatureDeleted(feature.key, feature.id, source));
           break;
         case SSEResultState.config:
         case SSEResultState.error:
@@ -420,8 +514,22 @@ class ClientFeatureRepository {
     }
   }
 
+  /// The feature [data] (a [FeatureState] or its JSON) deletes: only its
+  /// key, and id if given, are needed.
+  static ({String key, String? id})? _deletedFeature(dynamic data) {
+    if (data is FeatureState) return (key: data.key, id: data.id);
+    if (data is Map && data['key'] is String) {
+      final id = data['id'];
+      return (key: data['key'] as String, id: id is String ? id : null);
+    }
+    _log.warning('featurehub: ignoring an invalid feature deletion: $data');
+    return null;
+  }
+
   void _broadcastReadynessState() {
-    _readynessListeners.add(_readynessState);
+    if (!_readynessListeners.isClosed) {
+      _readynessListeners.add(_readynessState);
+    }
   }
 
   void _catchUpdatedFeatures(List<FeatureState> features) {
@@ -762,26 +870,31 @@ class ClientFeatureRepository {
     return missing.isNotEmpty;
   }
 
-  void _deleteFeature(FeatureState feature) {
+  void _deleteFeature(({String key, String? id}) feature) {
     if (_features.remove(feature.key) != null) {
       _updateFeaturesSha();
       _featuresChanged();
     }
   }
 
-  /// call this to clear the repository if you are swapping environments
+  /// call this to clear the repository if you are swapping environments.
+  /// With no features left, readiness becomes [Readyness.NotReady]: from
+  /// Ready it goes to Stale first (both are broadcast).
   void shutdownFeatures() {
     for (var f in _features.values) {
       f.shutdown();
     }
     _features.clear();
     _updateFeaturesSha();
+    if (_readynessState == Readyness.Ready) _setReadyness(Readyness.Stale);
+    if (_readynessState == Readyness.Stale) _setReadyness(Readyness.NotReady);
   }
 
   /// after this method is called, the repository is not usable, create a new one.
   void shutdown() {
     _readynessListeners.close();
     _environmentStaleListeners.close();
+    _connectionFailedListeners.close();
     _newFeatureStateAvailableListeners.close();
     _featuresChangedListeners.close();
     _rawUpdates.close();

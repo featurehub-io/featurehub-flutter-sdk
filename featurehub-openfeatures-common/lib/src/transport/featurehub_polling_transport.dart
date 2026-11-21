@@ -125,6 +125,51 @@ class FeatureHubRestClient {
     _repository.notify(SSEResultState.features, states);
   }
 
+  /// The features in a FeatureHub polling response body (decoded JSON): an
+  /// array of environments, each an object with a `features` array (absent
+  /// or null means none). Together they are one full set, with each
+  /// feature's `environmentId` filled in from its environment. A null
+  /// environment is skipped; features that are not valid are left for the
+  /// repository to skip.
+  ///
+  /// Throws a [FormatException] for anything else, which only something
+  /// between the SDK and Edge (a proxy, a gateway) or a fault sends: a top
+  /// level that is not an array, an environment that is not an object, or
+  /// `features` that is not an array.
+  static List<Object?> featuresFromEnvironments(Object? body) {
+    if (body is! List) {
+      throw FormatException(
+        'FeatureHub features are not an array of environments: '
+        '${body.runtimeType}',
+      );
+    }
+    final features = <Object?>[];
+    for (final environment in body) {
+      if (environment == null) continue;
+      if (environment is! Map) {
+        throw FormatException(
+          'FeatureHub sent an environment that is not an object: $environment',
+        );
+      }
+      final states = environment['features'];
+      if (states == null) continue;
+      if (states is! List) {
+        throw FormatException(
+          'FeatureHub sent features that are not an array: $states',
+        );
+      }
+      final id = environment['id'];
+      for (final f in states) {
+        features.add(
+          f is Map && id is String && f['environmentId'] == null
+              ? {...f, 'environmentId': id}
+              : f,
+        );
+      }
+    }
+    return features;
+  }
+
   void decodeCacheControl(List<String> cacheControlHeader) {
     final reg = RegExp(r'max-age=(\d+)', caseSensitive: false);
 
@@ -163,11 +208,14 @@ class FeatureHubRestClient {
       // a proxy or gateway) must not change how often clients poll
       checkForCacheControl(response);
 
-      final environments = await _api.apiDelegate.getFeatureStates_decode(
-        response.body!,
+      final body = response.body;
+      if (body == null) {
+        throw const FormatException('FeatureHub sent no features');
+      }
+      _repository.notify(
+        SSEResultState.features,
+        featuresFromEnvironments(jsonDecode(await utf8.decodeStream(body))),
       );
-
-      success(environments);
 
       if (response.statusCode == 236) {
         // the last features: stop polling, and report the environment stale

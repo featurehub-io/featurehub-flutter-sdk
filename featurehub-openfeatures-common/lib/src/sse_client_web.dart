@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:js_interop';
 
 import 'package:featurehub_client_api/api.dart';
@@ -11,7 +10,11 @@ import 'package:web/web.dart' as web;
 
 import 'transport/api_keys.dart';
 import 'transport/featurehub_transport.dart'
-    show defaultReconnectPolicy, featureHubEventShowsConnectionWorks;
+    show
+        decodeFeatureHubEventData,
+        defaultReconnectPolicy,
+        featureHubConfigIsStale,
+        featureHubEventShowsConnectionWorks;
 import 'repository.dart';
 
 final _log = Logger('featurehub_web_eventsource');
@@ -176,7 +179,7 @@ class EventSourceRepositoryListener {
     _log.fine('Event is $type value $data');
 
     final state = SSEResultStateExtension.fromJson(type);
-    _repository.notify(state, data == null ? null : jsonDecode(data));
+    _repository.notify(state, decodeFeatureHubEventData(data));
 
     if (state == SSEResultState.failure) {
       // the server has rejected us, don't keep reconnecting
@@ -190,7 +193,7 @@ class EventSourceRepositoryListener {
     _attempts = 0;
     final data = _data(msg);
     _log.fine('Config event $data');
-    if (data != null && jsonDecode(data)?['edge.stale'] == true) {
+    if (featureHubConfigIsStale(data)) {
       // the features already delivered are the last: stop, and report it
       _repository.markEnvironmentStale();
       close();
@@ -203,7 +206,7 @@ class EventSourceRepositoryListener {
     if (es.readyState != web.EventSource.CLOSED) {
       // the browser is reconnecting by itself
       _log.fine('Lost connection to feature repository, reconnecting');
-      if (_repository.readyness != Readyness.Failed) {
+      if (!_repository.connectionFailed) {
         _repository.notify(SSEResultState.bye, null);
       }
       return;

@@ -208,21 +208,31 @@ that is raised to it. `validatePollInterval` checks an interval.
 
 ## Writing your own transport
 
-[`doc/featurehub-protocol.yaml`](doc/featurehub-protocol.yaml)
-is a machine-readable specification of the snapshot encoding, server, client
-and transport contract, with test vectors, for implementing them in other
-languages.
-[`doc/openfeature-resolution.yaml`](doc/openfeature-resolution.yaml)
+The SDK specifications are in
+[featurehub-sdk-docs](https://github.com/featurehub-io/featurehub-sdk-docs/tree/1.0-initial-log) (tag `1.0-initial-log`).
+[`featurehub-protocol.yaml`](https://github.com/featurehub-io/featurehub-sdk-docs/blob/1.0-initial-log/specs/featurehub-protocol.yaml)
+is a machine-readable specification of the FeatureHub protocol as the SDKs
+use it: the feature encoding and SHA, polling scheduling, the repository,
+the transport contract, provider wiring and FeatureHub Edge's polling and
+streaming, with test vectors, for implementing them in other languages.
+[`feature-snapshot-protocol.yaml`](https://github.com/featurehub-io/featurehub-sdk-docs/blob/1.0-initial-log/specs/feature-snapshot-protocol.yaml)
+specifies the separate snapshot protocol, built on it: your own server
+re-serving features to its clients, and the snapshot client.
+[`openfeature-resolution.yaml`](https://github.com/featurehub-io/featurehub-sdk-docs/blob/1.0-initial-log/specs/openfeature-resolution.yaml)
 specifies how the providers resolve a flag, so other-language providers give
 the same results: the order of checks, type conversion, reasons, variants,
 error codes and flag metadata.
-[`doc/feature-store.yaml`](doc/feature-store.yaml) specifies feature stores:
+[`feature-store.yaml`](https://github.com/featurehub-io/featurehub-sdk-docs/blob/1.0-initial-log/specs/feature-store.yaml) specifies feature stores:
 the store contract, how store features are treated, the local storage, Redis
 and YAML formats (shared with the other SDKs), and how stores pair with
 value interceptors.
-[`doc/rollout-strategies.yaml`](doc/rollout-strategies.yaml) specifies
+[`rollout-strategies.yaml`](https://github.com/featurehub-io/featurehub-sdk-docs/blob/1.0-initial-log/specs/rollout-strategies.yaml) specifies
 rollout strategy evaluation (percentage rollouts and every matcher), with the
 golden fixture generated from the TypeScript SDK as its conformance suite.
+NUMBER attributes are the one deliberate difference: a number in the context or
+a strategy must be exactly an integer or a decimal (`12`, `-5`, `2.5`), so
+`"12abc"`, `"1e3"` and `"0x10"` are not numbers and never match, where the
+TypeScript SDK reads them as 12, 1000 and 0.
 
 A transport is what fetches the features: the built-in ones stream or poll
 FeatureHub, or poll your own server. To use something else, such as
@@ -252,18 +262,20 @@ It gives what it receives to the repository with `notify`:
 
 | Call | When |
 |---|---|
-| `notify(SSEResultState.features, features)` | The full set of features (a `List<FeatureState>`, or their JSON). The first makes the provider ready; features missing from a later set are removed. |
-| `notify(SSEResultState.feature, feature)` | One feature added or updated. |
-| `notify(SSEResultState.deleteFeature, feature)` | One feature deleted. |
+| `notify(SSEResultState.features, features)` | The full set of features (a `List<FeatureState>`, or their JSON). The first makes the provider ready; features missing from a later set are removed. Anything that is not a list is ignored (logged), changing nothing; a feature without an id, key, version or type is skipped, and counts as not in the set. |
+| `notify(SSEResultState.feature, feature)` | One feature added or updated (an invalid one is skipped). |
+| `notify(SSEResultState.deleteFeature, feature)` | One feature deleted: only its `key` is needed. |
 | `notify(SSEResultState.bye, null)` | The connection was lost and is being re-established. The repository's readiness does not change and the provider reports nothing (not `stale`); features arrive again on reconnection. |
-| `notify(SSEResultState.failure, null)` | The source rejected you for good (for example an invalid key). Stop trying. Before any features, the provider fails to initialize; after them, it reports `stale` for good and keeps resolving from the last features. |
+| `notify(SSEResultState.failure, null)` | The connection has failed for good (for example an invalid key). Stop trying. The repository's `connectionFailed` becomes true. Before any features readiness is `Failed` and the provider fails to initialize; after them readiness is `Stale`, and the provider reports `stale` for good and keeps resolving from the last features. |
 
 FeatureHub's event stream sends exactly these, as event names (`features`,
 `feature`, `delete_feature`, `bye`, `failure`) with JSON data, so a
 transport relaying them can pass each one on with
-`notify(SSEResultStateExtension.fromJson(name), jsonDecode(data))`. A
-`config` event with `{"edge.stale": true}` means the environment will not
-change again, so stop. `FeatureSnapshot.from` reads the snapshots your own
+`notify(SSEResultStateExtension.fromJson(name), jsonDecode(data))` (or
+`decodeFeatureHubEventData(data)`). A `config` event whose data has an
+`edge.stale` key, whatever its value (`featureHubConfigIsStale(data)`), means
+the environment will not change again: call `markEnvironmentStale()` and
+stop. Other `config` events are ignored. `FeatureSnapshot.from` reads the snapshots your own
 server serves.
 
 A WebSocket transport, whose server sends `{"event": ..., "data": ...}`
@@ -396,8 +408,8 @@ fhConfig!.request();
 ```
 
 `request` is an async method and it will return its content directly to the Repository.
-A failed call is caught and a Failure status is sent to the repository, which will have an updated error status
-(such as FAILED, in the Readyness listener).
+A rejection (a 4xx) is sent to the repository as a failure, which sets `connectionFailed` (and readiness `Failed`
+before any features, `Stale` after them).
 
 If the request has no data or an api key doesn't exist, that is not considered an error because they may just
 not yet be available and you don't want your application to fail.
@@ -516,17 +528,23 @@ if immediate updates are important.
 
 ## Failure
 
-If for some reason the connection to the FeatureHub server fails - either initially or for some reason during
-the process, you will get a readyness event to indicate that it has now failed.
+The repository's readiness says whether it holds features, and whether they are current:
 
 ```dart
 enum Readyness {
-  NotReady = 'NotReady',
-  Ready = 'Ready',
-  Failed = 'Failed'
+  NotReady, // no features are held
+  Ready,    // features are held and are current
+  Stale,    // features are held and keep being resolved, but may not be current
+  Failed,   // final: the connection failed before any features were received
 }
-
 ```
+
+Readiness is `Stale` while a context change is in progress (server-evaluated keys: until the new context's
+features arrive), and for good once the source has stopped: the connection failed after features
+(`connectionFailed`, `connectionFailedStream`) or the environment went stale (`environmentStale`,
+`environmentStaleStream`). A full set of features makes it `Ready` again, unless the source has stopped. Readiness
+never goes straight from `Ready` to `NotReady` (`shutdownFeatures` goes `Ready`, `Stale`, `NotReady`), and nothing
+makes it `Failed` once features have arrived. A lost connection being re-established (a `bye`) changes nothing.
     
 ## FeatureHub Test API
 

@@ -258,6 +258,19 @@ class FeatureHubProvider
       }
     }
 
+    if (mode == null &&
+        interval == null &&
+        transportFactory == null &&
+        resolvedKey != null &&
+        !isClientEvaluatedKeys([resolvedKey])) {
+      throw ArgumentError(
+        'A server-evaluated API key (without "*") has no default mode: give '
+            'streaming, activePolling or passivePolling (or set '
+            '$pollIntervalVariable to poll)',
+        'mode',
+      );
+    }
+
     final resolvedMode =
         mode ??
         (interval == null && resolvedUrl == null
@@ -448,7 +461,9 @@ class FeatureHubProvider
     await connection.start(context: initialContext);
     final readiness = await connection.waitForReady(waitForReady);
 
-    if (readiness != Readyness.Ready) {
+    // Stale: features held, but the source stopped for good with them (READY,
+    // then STALE)
+    if (readiness != Readyness.Ready && readiness != Readyness.Stale) {
       final fatal = readiness == Readyness.Failed;
       final message = fatal
           ? _rejected(connection)

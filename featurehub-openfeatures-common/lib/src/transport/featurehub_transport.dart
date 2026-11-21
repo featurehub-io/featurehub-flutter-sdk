@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 import 'package:featurehub_sse_client/featurehub_sse_client.dart'
     show ReconnectPolicy;
@@ -55,10 +57,12 @@ enum FeatureHubUpdateMode {
 /// FeatureHub's own event stream sends exactly these, as `event:` names
 /// (`features`, `feature`, `delete_feature`, `bye`, `failure`) with JSON
 /// `data:`, so a transport carrying them can pass each on with
-/// `notify(SSEResultStateExtension.fromJson(name), jsonDecode(data))`. A
-/// `config` event with `{"edge.stale": true}` means the environment will
-/// not change again: call [ClientFeatureRepository.markEnvironmentStale]
-/// and stop.
+/// `notify(SSEResultStateExtension.fromJson(name), jsonDecode(data))` (or
+/// [decodeFeatureHubEventData]). A `config` event whose data has an
+/// `edge.stale` key, whatever its value ([featureHubConfigIsStale]), means
+/// the environment will not change again: call
+/// [ClientFeatureRepository.markEnvironmentStale] and stop. Other config
+/// events are ignored.
 ///
 /// [FeatureSnapshot.from] reads the snapshots your own server serves (see
 /// [ClientFeatureRepository.featureSnapshot]).
@@ -124,6 +128,32 @@ bool featureHubEventShowsConnectionWorks(String? event) => const {
   'delete_feature',
   'config',
 }.contains(event);
+
+/// True if the `data:` of a FeatureHub `config` event says the environment
+/// is stale: a JSON object with an `edge.stale` key, whatever its value
+/// (`true`, `false`, `null` all count). A config event without that key, or
+/// whose data is not a JSON object, is not a stale signal and is ignored.
+bool featureHubConfigIsStale(String? data) {
+  if (data == null) return false;
+  try {
+    final decoded = jsonDecode(data);
+    return decoded is Map && decoded.containsKey('edge.stale');
+  } on FormatException {
+    return false;
+  }
+}
+
+/// The `data:` of a FeatureHub event, decoded from JSON, to pass to
+/// [ClientFeatureRepository.notify]; [data] itself if it is not JSON (the
+/// repository ignores, and logs, features that are not a list or an object).
+Object? decodeFeatureHubEventData(String? data) {
+  if (data == null) return null;
+  try {
+    return jsonDecode(data);
+  } on FormatException {
+    return data;
+  }
+}
 
 /// Creates a transport for a connection (see [FeatureHubTransport]).
 typedef FeatureHubTransportFactory =

@@ -5,7 +5,10 @@ library;
 
 // Checks the Dart strategy evaluation against results produced by the
 // TypeScript SDK (see fixtures/generate.ts.txt), so that features evaluate
-// identically on every FeatureHub platform.
+// identically on every FeatureHub platform. NUMBER cases use strict numbers
+// (rollout-strategies.yaml js_conversions.strict_number): where TypeScript
+// differs, `result` is the strict result and `typescript` its own, which is
+// not checked.
 import 'dart:convert';
 import 'dart:io';
 
@@ -107,5 +110,6 @@ void main() {
 }
 
 /// Scenarios whose TypeScript results are bugs Dart deliberately does not
-/// reproduce (see doc/rollout-strategies.yaml golden_fixture.known_typescript_bugs).
+/// reproduce (see golden_fixture.known_typescript_bugs in featurehub-sdk-docs
+/// specs/rollout-strategies.yaml, tag 1.0-initial-log).
 const _knownTypeScriptBugs = {'empty strategy first'};

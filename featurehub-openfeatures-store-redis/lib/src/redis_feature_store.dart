@@ -207,7 +207,7 @@ class RedisFeatureStore implements FeatureStore {
     final Future<void> Function() handler = switch (update) {
       FeaturesReceived(:final features) => () => _processUpdates(features),
       FeatureReceived(:final feature) => () => _processUpdate(feature),
-      FeatureDeleted(:final feature) => () => _deleteFeature(feature),
+      FeatureDeleted(:final key) => () => _deleteFeature(key),
     };
     _serial(handler).catchError((Object e, StackTrace s) {
       _log.warning('RedisFeatureStore: unable to store $update', e, s);
@@ -343,9 +343,9 @@ class RedisFeatureStore implements FeatureStore {
     ]);
   }
 
-  Future<void> _deleteFeature(FeatureState feature) async {
+  Future<void> _deleteFeature(String key) async {
     final stored = await _readFeatures();
-    if (stored == null || !stored.any((f) => f.id == feature.id)) return;
-    await _storeFeatures(stored.where((f) => f.id != feature.id).toList());
+    if (stored == null || !stored.any((f) => f.key == key)) return;
+    await _storeFeatures(stored.where((f) => f.key != key).toList());
   }
 }

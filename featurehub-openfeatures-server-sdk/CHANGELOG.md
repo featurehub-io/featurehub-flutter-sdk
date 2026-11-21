@@ -41,3 +41,10 @@
   rejection before any features still fails initialization.
 - `mode` is `streaming`, `activePolling` or `passivePolling` (previously
   `streaming`, `polling` or `passive`).
+- A server-evaluated API key (without `*`) has no default mode: `mode` must be
+  given (or a
+  `FEATUREHUB_POLL_INTERVAL`, which polls). Client-evaluated keys still stream by default.
+- A context change is not a reason to report stale: only a permanent failure
+  (the repository's `connectionFailed`) or a stale environment are. The
+  provider initializes if the source stopped for good with its first features
+  (READY, then STALE).

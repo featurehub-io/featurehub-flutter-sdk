@@ -19,8 +19,11 @@ enum StaleCause {
 /// features will never be updated again.
 ///
 /// A provider goes stale only on a permanent stop after features have
-/// arrived: the environment going stale ([StaleCause.environmentStale]), or
-/// the source failing for good ([StaleCause.connectionFailed]). It is
+/// arrived: the environment going stale ([StaleCause.environmentStale],
+/// [ClientFeatureRepository.environmentStale]), or the source failing for
+/// good ([StaleCause.connectionFailed],
+/// [ClientFeatureRepository.connectionFailed]). Not on readiness
+/// [Readyness.Stale] by itself, which is also a context change in progress. It is
 /// reported once, never recovers, and the provider keeps resolving from the
 /// last features. A lost connection that is being re-established (a `bye`)
 /// is not reported: the provider stays ready, and the features arrive again
@@ -47,10 +50,10 @@ class ProviderStateTracker {
   }) : _versions = _currentVersions(repository) {
     _subscriptions
       ..add(
-        repository.readynessStream.listen((readiness) {
-          if (readiness == Readyness.Failed) {
-            _goStale(StaleCause.connectionFailed);
-          }
+        // not readiness: a Stale readiness alone is a context change in
+        // progress, which is not a reason to report stale
+        repository.connectionFailedStream.listen((failed) {
+          if (failed) _goStale(StaleCause.connectionFailed);
         }),
       )
       ..add(

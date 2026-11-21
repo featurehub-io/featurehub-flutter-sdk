@@ -177,6 +177,16 @@ final class FeatureHubProvider
            : _nonEmpty(featuresUrl) != null || transportFactory != null
            ? !sendContext
            : true {
+    if (mode == null &&
+        transportFactory == null &&
+        this.apiKey != null &&
+        !clientEvaluated) {
+      throw ArgumentError(
+        'A server-evaluated API key (without "*") has no default mode: give '
+            'streaming, activePolling or passivePolling',
+        'mode',
+      );
+    }
     if ((this.host == null) != (this.apiKey == null)) {
       throw ArgumentError(
         'FeatureHubProvider requires both a host and an apiKey, or neither',
@@ -329,7 +339,9 @@ final class FeatureHubProvider
     await connection.start(context: initialContext);
     final readiness = await connection.waitForReady(waitForReady);
 
-    if (readiness != fh.Readyness.Ready) {
+    // Stale: features held, but the source stopped for good with them (READY,
+    // then STALE)
+    if (readiness != fh.Readyness.Ready && readiness != fh.Readyness.Stale) {
       final fatal = readiness == fh.Readyness.Failed;
       _emit(
         ProviderEventType.error,

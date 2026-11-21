@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_sse_client/featurehub_sse_client.dart';
@@ -8,7 +7,11 @@ import 'package:logging/logging.dart';
 
 import 'transport/api_keys.dart';
 import 'transport/featurehub_transport.dart'
-    show defaultReconnectPolicy, featureHubEventShowsConnectionWorks;
+    show
+        decodeFeatureHubEventData,
+        defaultReconnectPolicy,
+        featureHubConfigIsStale,
+        featureHubEventShowsConnectionWorks;
 import 'repository.dart';
 
 final _log = Logger('featurehub_io_eventsource');
@@ -110,7 +113,7 @@ class EventSourceRepositoryListener {
   }
 
   bool configEvent(Event event) {
-    if (event.data != null && jsonDecode(event.data!)?['edge.stale'] == true) {
+    if (featureHubConfigIsStale(event.data)) {
       // the features already delivered are the last: stop, and report it
       _repository.markEnvironmentStale();
       close();
@@ -139,7 +142,7 @@ class EventSourceRepositoryListener {
 
         if (event is EventSourceReconnect) {
           // the connection was lost and the event source is reconnecting
-          if (_repository.readyness != Readyness.Failed) {
+          if (!_repository.connectionFailed) {
             _repository.notify(SSEResultState.bye, null);
           }
           return;
@@ -152,10 +155,7 @@ class EventSourceRepositoryListener {
 
         final state = SSEResultStateExtension.fromJson(event.event);
         if (state != null) {
-          _repository.notify(
-            state,
-            event.data == null ? null : jsonDecode(event.data!),
-          );
+          _repository.notify(state, decodeFeatureHubEventData(event.data));
         }
 
         if (state == SSEResultState.failure) {
@@ -172,7 +172,7 @@ class EventSourceRepositoryListener {
         _repository.notify(SSEResultState.failure, null);
       },
       onDone: () {
-        if (_repository.readyness != Readyness.Failed && !_closed) {
+        if (!_repository.connectionFailed && !_closed) {
           _repository.notify(SSEResultState.bye, null);
         }
       },

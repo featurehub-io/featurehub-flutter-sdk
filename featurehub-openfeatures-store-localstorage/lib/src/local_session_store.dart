@@ -107,8 +107,8 @@ class LocalSessionStore implements FeatureStore {
         _store = {for (final f in features) f.id: f};
       case FeatureReceived(:final feature):
         _store[feature.id] = feature;
-      case FeatureDeleted(:final feature):
-        _store.remove(feature.id);
+      case FeatureDeleted(:final key):
+        _store.removeWhere((_, f) => f.key == key);
     }
     _persist();
   }

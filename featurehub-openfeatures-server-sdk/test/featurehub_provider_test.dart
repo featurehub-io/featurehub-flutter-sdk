@@ -143,6 +143,7 @@ void main() {
     interceptors: interceptors,
     host: 'http://localhost',
     apiKey: apiKey,
+    mode: FeatureHubUpdateMode.streaming,
     waitForReady: const Duration(seconds: 2),
     connectionFactory: (p) {
       final repository = ClientFeatureRepository();
@@ -202,6 +203,7 @@ void main() {
 
     test('falls back to the server API key', () {
       final p = FeatureHubProvider(
+        mode: FeatureHubUpdateMode.streaming,
         environment: const {
           'FEATUREHUB_EDGE_URL': host,
           'FEATUREHUB_SERVER_API_KEY': 'env/key',
@@ -209,6 +211,40 @@ void main() {
       );
       expect(p.apiKey, 'env/key');
       expect(p.clientEvaluated, false);
+    });
+
+    test('a server-evaluated key has no default mode', () {
+      expect(
+        () => FeatureHubProvider(
+          environment: const {
+            'FEATUREHUB_EDGE_URL': host,
+            'FEATUREHUB_SERVER_API_KEY': 'lingling/kwong',
+          },
+        ),
+        throwsA(isA<ArgumentError>().having((e) => e.name, 'name', 'mode')),
+      );
+      // a mode, or a poll interval from the environment, chooses one
+      expect(
+        FeatureHubProvider(
+          environment: const {
+            'FEATUREHUB_EDGE_URL': host,
+            'FEATUREHUB_SERVER_API_KEY': 'lingling/kwong',
+            'FEATUREHUB_POLL_INTERVAL': '30',
+          },
+        ).mode,
+        FeatureHubUpdateMode.activePolling,
+      );
+      expect(
+        FeatureHubProvider(
+          mode: FeatureHubUpdateMode.passivePolling,
+          pollInterval: Duration.zero,
+          environment: const {
+            'FEATUREHUB_EDGE_URL': host,
+            'FEATUREHUB_SERVER_API_KEY': 'lingling/kwong',
+          },
+        ).mode,
+        FeatureHubUpdateMode.passivePolling,
+      );
     });
 
     test('prefers the client API key over the server one', () {

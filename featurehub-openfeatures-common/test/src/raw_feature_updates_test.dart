@@ -41,7 +41,8 @@ void main() {
     final all = updates[0] as FeaturesReceived;
     expect(all.features.single.version, 1);
     expect((updates[1] as FeatureReceived).feature.version, 2);
-    expect((updates[2] as FeatureDeleted).feature.id, 'f1');
+    expect((updates[2] as FeatureDeleted).id, 'f1');
+    expect((updates[2] as FeatureDeleted).key, 'flag');
     expect(updates.map((u) => u.source).toSet(), {featureHubEdgeSource});
   });
 

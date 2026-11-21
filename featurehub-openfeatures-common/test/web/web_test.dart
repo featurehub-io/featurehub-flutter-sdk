@@ -189,7 +189,9 @@ void main() {
       final listener = EventSourceRepositoryListener(host, 'a/b/fail', repo);
 
       await until(() => listener.closed);
-      expect(repo.readyness, Readyness.Failed);
+      // the features came first: the connection failed, readiness is Stale
+      expect(repo.connectionFailed, true);
+      expect(repo.readyness, Readyness.Stale);
     });
   });
 }

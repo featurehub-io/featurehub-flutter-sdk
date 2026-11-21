@@ -157,24 +157,17 @@ class DateTimeMatcher extends StringMatcher {
 class NumberMatcher implements StrategyMatcher {
   const NumberMatcher();
 
-  static List<num> _numericValues(List<dynamic> values) => values
-      .where((v) => v != null)
-      .map((v) => v is num ? v : jsParseFloat(jsToString(v as Object)))
-      .toList();
-
   @override
   bool match(Object comparedValue, FeatureRolloutStrategyAttribute attr) {
-    final num suppliedValue;
-    if (comparedValue is num) {
-      suppliedValue = comparedValue;
-    } else {
-      final s = jsToString(comparedValue);
-      suppliedValue = s.contains('.') ? jsParseFloat(s) : jsParseInt(s);
-    }
+    // a supplied value that is not a number never matches, whatever the
+    // conditional; values that are not numbers are ignored
+    final suppliedValue = strictNumber(comparedValue);
+    if (suppliedValue == null) return false;
 
-    final nums = _numericValues(attr.values);
+    final valid = attr.values.where((v) => strictNumber(v) != null).toList();
+    final nums = valid.map((v) => strictNumber(v)!).toList();
     final asString = jsToString(suppliedValue);
-    final strings = _stringValues(attr.values);
+    final strings = _stringValues(valid);
 
     switch (attr.conditional) {
       case _Cond.EQUALS:

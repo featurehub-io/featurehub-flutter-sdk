@@ -18,9 +18,13 @@ class _MockRepository extends Mock implements ClientFeatureRepository {
   final ClientContext clientContext = ClientContext();
 
   Readyness r = Readyness.Ready;
+  bool failed = false;
 
   @override
   Readyness get readyness => r;
+
+  @override
+  bool get connectionFailed => failed;
 }
 
 class SseClientTest extends EventSourceRepositoryListener {
@@ -137,8 +141,8 @@ void main() {
       expect(stream.hasListener, true);
     });
 
-    test('a reconnect is not reported once the repository failed', () async {
-      repo.r = Readyness.Failed;
+    test('a reconnect is not reported once the connection failed', () async {
+      repo.failed = true;
       stream.add(
         EventSourceReconnect(
           attempt: 1,
@@ -152,7 +156,7 @@ void main() {
     });
 
     test('a failure from the server closes the connection', () async {
-      repo.r = Readyness.Failed; // what the repository does on failure
+      repo.failed = true; // what the repository does on failure
       stream.add(Event(event: SSEResultState.failure.name, data: '{}'));
       await pump();
 

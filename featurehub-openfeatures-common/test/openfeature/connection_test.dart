@@ -266,6 +266,7 @@ void main() {
       final connection = FeatureHubConnection(
         host: edge.host,
         apiKey: 'a/b/c',
+        mode: FeatureHubUpdateMode.streaming,
         requestTimeout: const Duration(milliseconds: 200),
         reconnectPolicy: const ReconnectPolicy(
           delay: Duration(milliseconds: 10),

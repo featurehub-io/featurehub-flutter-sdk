@@ -8,6 +8,29 @@ OpenFeature providers for Dart.
   `FeatureSnapshotTransport` (your own server, with a `featuresUrl` and no API key), sharing `PollingTransport`.
   `isClientEvaluatedKeys` is a top-level function. `FeatureHubUpdateMode` is `streaming`, `passivePolling` and
   `activePolling` (previously `streaming`, `passive` and `polling`)
+* Readiness has a `Stale` state: features are held and resolved, but may not be current. A context change goes
+  `Ready` to `Stale` (`ClientFeatureRepository.contextChanging`) until the new context's features arrive; a failure
+  after features, or a stale environment (`236`, `edge.stale`), goes to `Stale` for good. `Failed` is only reached
+  before any features, and is final. A permanent failure is its own event, `connectionFailed`
+  (`connectionFailedStream`), which the providers (with `environmentStale`) use to report STALE.
+  `shutdownFeatures` goes `Ready`, `Stale`, `NotReady`
+* `notify(SSEResultState.features, ...)` ignores anything that is not a list (before, null emptied the repository and
+  made it ready, and other values threw); features without an id, key, version or type are skipped. A deletion only
+  needs the key, and `FeatureDeleted` carries the `key` and `id` rather than a `FeatureState`
+* The `x-featurehub` header (and context signature) encodes keys as well as values, as JavaScript's
+  `encodeURIComponent` does (a space is `%20`, not `+`), and leaves out attributes with no values
+* A server-evaluated API key (without `*`) has no default mode: `FeatureHubConnection` (and the providers) require
+  one, unless a transport is given
+* A `config` event with an `edge.stale` key is stale whatever its value (`featureHubConfigIsStale`); a config event
+  that is not a JSON object is ignored rather than throwing. `decodeFeatureHubEventData` decodes an event's data
+* FeatureHub polling checks the body (`FeatureHubRestClient.featuresFromEnvironments`): a body that is not an array
+  of environments, or an environment whose `features` is not an array, is an error (retried by the next poll) rather
+  than a full set; a null environment, and `features` that is null, are none
+* NUMBER strategy attributes use strict numbers instead of JavaScript's `parseInt` / `parseFloat`: a string must be
+  exactly an integer or a decimal (an optional sign, digits, an optional fraction). A supplied value that is not a
+  number (`"12abc"`, `"1e3"`, `"0x10"`, `" 3"`, `"Infinity"`) never matches, whatever the conditional (before,
+  `"12abc"` was 12 and anything unparseable made `NOT_EQUALS` true), and strategy values that are not numbers are
+  ignored
 * A `bye` (a lost connection being re-established) no longer changes the repository's readiness: it stays ready
   with the last features, and nothing is broadcast. Previously it became not ready until the features arrived again
 * A poll interval of 0 polls once and never again (a context change still fetches); before, active polling polled
@@ -88,8 +111,8 @@ OpenFeature providers for Dart.
 * A feature with no value set resolves to the code default with the reason `DISABLED` (as the Go SDK does), rather
   than `DEFAULT`; a matched strategy with no value keeps its id as the variant
 * A stale FeatureHub environment (`236` when polling, `edge.stale` when streaming) is reported with
-  `ClientFeatureRepository.markEnvironmentStale` (`environmentStale`, `environmentStaleStream`): readiness is
-  unchanged, and the providers report STALE for good. Your own
+  `ClientFeatureRepository.markEnvironmentStale` (`environmentStale`, `environmentStaleStream`): readiness becomes
+  `Stale`, and the providers report STALE for good. Your own
   server's features API is not required to send `236`
 * The well-known context keys are taken from the Edge API's `StrategyAttributeWellKnownNames` (device, country,
   platform, userkey, session, version); `email` is no longer treated as one, so it keeps the case it is given
