@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:featurehub_client_api/api.dart';
 import 'package:logging/logging.dart';
@@ -9,6 +8,7 @@ import 'package:openapi_dart_common/openapi.dart';
 
 import '../repository.dart';
 import 'api_keys.dart';
+import 'edge_request.dart';
 import 'featurehub_transport.dart';
 import 'polling_limits.dart';
 import 'polling_transport.dart';
@@ -16,7 +16,8 @@ import 'polling_transport.dart';
 final _log = Logger('FeatureHub');
 
 /// Polls FeatureHub Edge for an environment's features
-/// (`GET <host>/features?apiKey=...`), and loads them into a repository: the
+/// (`GET <host>/features?apiKey=...&contextSha=...&sdk_version=2`), and loads
+/// them into a repository: the
 /// HTTP client behind [FeatureHubPollingTransport].
 ///
 /// - `200`: the features, as a full set.
@@ -37,6 +38,9 @@ class FeatureHubRestClient {
   final List<String> _apiKeys;
   final bool _clientEvaluated;
   final FeatureServiceApi _api;
+
+  /// The host's own query parameters, sent before the SDK's.
+  final List<QueryParam> _hostQuery;
   final ClientFeatureRepository _repository;
   String? xFeatureHubHeader;
   bool _deadConnection = false;
@@ -63,18 +67,41 @@ class FeatureHubRestClient {
   /// [dio] given).
   FeatureHubRestClient(
     String host,
-    this._apiKeys,
-    this._repository, {
+    List<String> apiKeys,
+    ClientFeatureRepository repository, {
     int timeout = 360,
     Duration? interval,
     Duration? connectTimeout,
-    this.requestTimeout,
-    this.headers = const {},
+    Duration? requestTimeout,
+    Map<String, String> headers = const {},
     Dio? dio,
+  }) : this._(
+         EdgeHost(host),
+         apiKeys,
+         repository,
+         timeout: timeout,
+         interval: interval,
+         connectTimeout: connectTimeout,
+         requestTimeout: requestTimeout,
+         headers: headers,
+         dio: dio,
+       );
+
+  FeatureHubRestClient._(
+    EdgeHost host,
+    this._apiKeys,
+    this._repository, {
+    required int timeout,
+    required Duration? interval,
+    required Duration? connectTimeout,
+    required this.requestTimeout,
+    required this.headers,
+    required Dio? dio,
   }) : _clientEvaluated = isClientEvaluatedKeys(_apiKeys),
+       _hostQuery = [for (final q in host.query) QueryParam(q.key, q.value)],
        _api = FeatureServiceApi(
          ApiClient(
-           basePath: host,
+           basePath: host.base,
            apiClientDelegate: DioClientDelegate(
              dio ??
                  Dio(
@@ -264,9 +291,7 @@ class FeatureHubRestClient {
             ..headers = {...headers, 'x-featurehub': ?xFeatureHubHeader});
 
     // added to break any caching if we change the header on the client side
-    final sha = xFeatureHubHeader == null
-        ? '0'
-        : sha256.convert(utf8.encode(xFeatureHubHeader!)).toString();
+    final sha = contextShaOf(xFeatureHubHeader);
 
     final requestedAt = DateTime.now();
     Future<void> fetch() async {
@@ -275,6 +300,8 @@ class FeatureHubRestClient {
           _apiKeys,
           options: options,
           contextSha: sha,
+          sdkVersion: edgeSdkVersion,
+          hostQuery: _hostQuery,
         );
         await decodeResponse(response, requestedAt: requestedAt);
       } on ApiException catch (e) {

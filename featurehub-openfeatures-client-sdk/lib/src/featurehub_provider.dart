@@ -15,9 +15,10 @@ final _log = Logger('featurehub_openfeature_client');
 /// (Android, iOS) and browser applications.
 ///
 /// The provider keeps the whole feature bundle of one FeatureHub environment
-/// in a local repository, kept up to date by streaming (the default: native
-/// `EventSource` in browsers, `featurehub_sse_client` elsewhere), polling or
-/// passive refresh, and resolves every flag synchronously from it.
+/// in a local repository, kept up to date by polling (the default, every
+/// [pollInterval]), streaming (native `EventSource` in browsers,
+/// `featurehub_sse_client` elsewhere) or passive refresh, and resolves every
+/// flag synchronously from it.
 ///
 /// - **Server-evaluated API keys** (recommended for applications, since a
 ///   client-evaluated key exposes every rollout strategy to the device):
@@ -82,7 +83,8 @@ final class FeatureHubProvider
   /// [fh.FeatureHubTransport] for what it has to do).
   final fh.FeatureHubTransportFactory? transportFactory;
 
-  /// Streaming by default, or polling with a [featuresUrl].
+  /// [fh.FeatureHubUpdateMode.activePolling] (every [pollInterval]) unless
+  /// another is given, for any key and for a [featuresUrl] alike.
   final fh.FeatureHubUpdateMode mode;
 
   /// For [fh.FeatureHubUpdateMode.activePolling], how often to poll; for
@@ -110,6 +112,12 @@ final class FeatureHubProvider
   /// attempt waits for the stream to open (null: indefinitely). A streaming
   /// attempt that times out is retried according to [reconnectPolicy].
   final Duration? requestTimeout;
+
+  /// How long an open streaming connection may go without data before it is
+  /// dropped and reconnected (null: indefinitely; `dart:io` only, browsers
+  /// time out connections themselves). FeatureHub may send nothing for up to
+  /// 5 minutes, so it should be longer.
+  final Duration? readTimeout;
 
   /// True if features are evaluated locally for each context: [apiKey] is
   /// client-evaluated, a [featuresUrl] or [transportFactory] is used without
@@ -160,6 +168,7 @@ final class FeatureHubProvider
     this.reconnectPolicy = fh.defaultReconnectPolicy,
     this.connectTimeout,
     this.requestTimeout,
+    this.readTimeout,
     this._catchAndReleaseMode = false,
     this.stores = const [],
     this.interceptors = const [],
@@ -167,26 +176,13 @@ final class FeatureHubProvider
   }) : host = _nonEmpty(host),
        apiKey = _nonEmpty(apiKey),
        featuresUrl = _nonEmpty(featuresUrl),
-       mode =
-           mode ??
-           (_nonEmpty(featuresUrl) == null
-               ? fh.FeatureHubUpdateMode.streaming
-               : fh.FeatureHubUpdateMode.activePolling),
+       // an app polls unless it chooses to stream
+       mode = mode ?? fh.FeatureHubUpdateMode.activePolling,
        clientEvaluated = _nonEmpty(apiKey) != null
            ? fh.isClientEvaluatedKeys([apiKey!.trim()])
            : _nonEmpty(featuresUrl) != null || transportFactory != null
            ? !sendContext
            : true {
-    if (mode == null &&
-        transportFactory == null &&
-        this.apiKey != null &&
-        !clientEvaluated) {
-      throw ArgumentError(
-        'A server-evaluated API key (without "*") has no default mode: give '
-            'streaming, activePolling or passivePolling',
-        'mode',
-      );
-    }
     if ((this.host == null) != (this.apiKey == null)) {
       throw ArgumentError(
         'FeatureHubProvider requires both a host and an apiKey, or neither',
@@ -314,6 +310,7 @@ final class FeatureHubProvider
           reconnectPolicy: reconnectPolicy,
           connectTimeout: connectTimeout,
           requestTimeout: requestTimeout,
+          readTimeout: readTimeout,
         );
     _connection = connection;
     connection.repository.catchAndReleaseMode = _catchAndReleaseMode;

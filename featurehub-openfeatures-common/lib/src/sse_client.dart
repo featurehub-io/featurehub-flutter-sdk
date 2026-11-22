@@ -11,8 +11,9 @@ import 'repository.dart';
 /// [connectTimeout] limits how long establishing a connection may take
 /// (`dart:io` only: browsers control it themselves). [requestTimeout] limits
 /// how long each connection attempt waits for the event stream to open; one
-/// that times out is retried according to [reconnectPolicy]. Both default to
-/// waiting indefinitely.
+/// that times out is retried according to [reconnectPolicy]. [readTimeout]
+/// limits how long an open connection may go without data (`dart:io` only).
+/// All default to waiting indefinitely.
 ///
 /// [headers] are sent when connecting, and [client] (for example one
 /// configured with a proxy) makes the connections; both on `dart:io` only,
@@ -26,6 +27,7 @@ class EventSourceRepositoryListener {
     ReconnectPolicy reconnectPolicy = defaultReconnectPolicy,
     Duration? connectTimeout,
     Duration? requestTimeout,
+    Duration? readTimeout,
     Map<String, String> headers = const {},
     http.Client? client,
   });

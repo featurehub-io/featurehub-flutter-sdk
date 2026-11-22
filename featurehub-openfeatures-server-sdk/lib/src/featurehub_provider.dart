@@ -12,6 +12,8 @@ import 'package:openfeature_dart_server_sdk/feature_provider.dart';
 import 'package:openfeature_dart_server_sdk/provider_capabilities.dart';
 import 'package:openfeature_dart_server_sdk/provider_lifecycle.dart';
 
+import 'environment.dart';
+
 final _log = Logger('featurehub_openfeature_server');
 
 /// The FeatureHub provider for the OpenFeature Dart server SDK.
@@ -107,6 +109,11 @@ class FeatureHubProvider
   /// attempt that times out is retried according to [reconnectPolicy].
   final Duration? requestTimeout;
 
+  /// How long an open streaming connection may go without data before it is
+  /// dropped and reconnected (null: indefinitely). FeatureHub may send
+  /// nothing for up to 5 minutes, so it should be longer.
+  final Duration? readTimeout;
+
   /// True if features are evaluated locally for each context: [apiKey] is
   /// client-evaluated, a [featuresUrl] or [transportFactory] is used without
   /// [sendContext], or the features come from the stores alone.
@@ -149,20 +156,64 @@ class FeatureHubProvider
   /// is given and [clientApiKeyVariable] is not set.
   static const serverApiKeyVariable = 'FEATUREHUB_SERVER_API_KEY';
 
-  /// The environment variable read for [pollInterval] (in seconds) when it is
-  /// not given. If set, the provider polls rather than streams.
-  static const pollIntervalVariable = 'FEATUREHUB_POLL_INTERVAL';
+  /// The environment variable read for [mode] when it is not given:
+  /// `active`, `passive` or `streaming`.
+  static const connectTypeVariable = 'FEATUREHUB_CONNECT_TYPE';
+
+  /// The environment variable read for [pollInterval] when it is not given
+  /// (a duration such as `30s`; `0` polls once). Without
+  /// [connectTypeVariable], setting it chooses active polling.
+  static const connectIntervalVariable = 'FEATUREHUB_CONNECT_INTERVAL';
+
+  /// The environment variable read for [requestTimeout] when polling.
+  static const pollingRequestTimeoutVariable = 'FEATUREHUB_POLLING_REQ_TIMEOUT';
+
+  /// The environment variable read for [connectTimeout] when streaming.
+  static const sseConnectTimeoutVariable = 'FEATUREHUB_SSE_CONNECT_TIMEOUT';
+
+  /// The environment variable read for [readTimeout] when streaming.
+  static const sseReadTimeoutVariable = 'FEATUREHUB_SSE_READ_TIMEOUT';
+
+  /// The environment variable read for the [reconnectPolicy]'s delay after
+  /// a network error or a dropped stream, when no policy is given.
+  static const sseInitialRetryDelayVariable =
+      'FEATUREHUB_SSE_INITIAL_RETRY_DELAY';
+
+  /// The environment variable read for the [reconnectPolicy]'s longest
+  /// wait, when no policy is given.
+  static const sseMaxRetryDelayVariable = 'FEATUREHUB_SSE_MAX_RETRY_DELAY';
+
+  /// The environment variable read for the [reconnectPolicy]'s backoff
+  /// multiplier (a number, at least 1), when no policy is given.
+  static const sseBackoffMultiplierVariable =
+      'FEATUREHUB_SSE_BACKOFF_MULTIPLIER';
 
   /// Creates the provider. Anything not given is read from the environment:
   ///
   /// - [host] from `FEATUREHUB_EDGE_URL`;
   /// - [apiKey] from `FEATUREHUB_CLIENT_API_KEY`, or if that is not set
   ///   `FEATUREHUB_SERVER_API_KEY`;
-  /// - [pollInterval] from `FEATUREHUB_POLL_INTERVAL` (seconds).
+  /// - [mode] from `FEATUREHUB_CONNECT_TYPE` (`active`, `passive` or
+  ///   `streaming`, in any case);
+  /// - [pollInterval] from `FEATUREHUB_CONNECT_INTERVAL`, a number and a
+  ///   unit (`ms`, `s`, `m` or `h`) such as `30s`, or `0`;
+  /// - when polling, [requestTimeout] from `FEATUREHUB_POLLING_REQ_TIMEOUT`;
+  /// - when streaming, [connectTimeout] from `FEATUREHUB_SSE_CONNECT_TIMEOUT`
+  ///   and [readTimeout] from `FEATUREHUB_SSE_READ_TIMEOUT`;
+  /// - without a [reconnectPolicy], [defaultReconnectPolicy] with its delay
+  ///   from `FEATUREHUB_SSE_INITIAL_RETRY_DELAY`, its longest wait from
+  ///   `FEATUREHUB_SSE_MAX_RETRY_DELAY` and its multiplier from
+  ///   `FEATUREHUB_SSE_BACKOFF_MULTIPLIER`.
   ///
-  /// Unless [mode] is given, the provider polls every [pollInterval] if there
-  /// is one, and otherwise streams. Polling and passive modes require a
-  /// [pollInterval].
+  /// A setting given in code always wins over the environment: a [mode]
+  /// given means `FEATUREHUB_CONNECT_TYPE` is not read, but the interval still
+  /// comes from `FEATUREHUB_CONNECT_INTERVAL` if [pollInterval] is not given.
+  /// With a [transportFactory], neither is read.
+  ///
+  /// Unless a mode is given (in code or the environment), the provider polls
+  /// actively if there is a poll interval (and always for a [featuresUrl]),
+  /// and otherwise streams, for client- and server-evaluated keys alike. Active
+  /// and passive polling require a poll interval: there is no default.
   ///
   /// With a [featuresUrl], the provider polls that server instead of
   /// FeatureHub (the host and API key are then not read from the
@@ -171,8 +222,9 @@ class FeatureHubProvider
   ///
   /// Throws an [ArgumentError] if there is a host but no API key or the
   /// reverse, if a [featuresUrl] is given with them or with streaming, if
-  /// there is nothing to get features from, or if the poll interval is
-  /// invalid or missing for polling. [environment] replaces the
+  /// there is nothing to get features from, if the poll interval is
+  /// invalid or missing for polling, or if an environment variable's value
+  /// is not valid. [environment] replaces the
   /// process environment (for tests), and [connectionFactory] the connection
   /// to FeatureHub (for tests).
   factory FeatureHubProvider({
@@ -187,9 +239,10 @@ class FeatureHubProvider
     FeatureHubUpdateMode? mode,
     Duration? pollInterval,
     Duration waitForReady = const Duration(seconds: 10),
-    ReconnectPolicy reconnectPolicy = defaultReconnectPolicy,
+    ReconnectPolicy? reconnectPolicy,
     Duration? connectTimeout,
     Duration? requestTimeout,
+    Duration? readTimeout,
     bool catchAndReleaseMode = false,
     List<FeatureStore> stores = const [],
     List<ValueInterceptor> interceptors = const [],
@@ -197,11 +250,8 @@ class FeatureHubProvider
     FeatureHubConnection Function(FeatureHubProvider provider)?
     connectionFactory,
   }) {
-    final env = environment ?? Platform.environment;
-    String? setting(String name) {
-      final value = env[name]?.trim();
-      return value == null || value.isEmpty ? null : value;
-    }
+    final env = FeatureHubEnvironment(environment ?? Platform.environment);
+    String? setting(String name) => env[name];
 
     final resolvedUrl = _nonEmpty(featuresUrl);
     if (resolvedUrl != null &&
@@ -243,39 +293,38 @@ class FeatureHubProvider
       );
     }
 
+    // with a transportFactory, the mode and interval are not read
+    final fromEnvironment = transportFactory == null;
     var interval = pollInterval;
-    if (interval == null) {
-      final seconds = setting(pollIntervalVariable);
-      if (seconds != null) {
-        final parsed = int.tryParse(seconds);
-        if (parsed == null || parsed < 0) {
-          throw ArgumentError(
-            '$pollIntervalVariable must be a number of seconds (0 polls once), '
-            'not "$seconds"',
-          );
-        }
-        interval = Duration(seconds: parsed);
+    if (interval == null && fromEnvironment) {
+      interval = env.duration(connectIntervalVariable);
+      if (interval != null &&
+          interval != Duration.zero &&
+          interval < const Duration(seconds: 5)) {
+        throw ArgumentError(
+          '$connectIntervalVariable must be 0 (connect once) or at least 5s, '
+          'not "${setting(connectIntervalVariable)}"',
+        );
       }
     }
-
-    if (mode == null &&
-        interval == null &&
-        transportFactory == null &&
-        resolvedKey != null &&
-        !isClientEvaluatedKeys([resolvedKey])) {
-      throw ArgumentError(
-        'A server-evaluated API key (without "*") has no default mode: give '
-            'streaming, activePolling or passivePolling (or set '
-            '$pollIntervalVariable to poll)',
-        'mode',
-      );
-    }
+    final environmentMode = mode == null && fromEnvironment
+        ? env.mode(connectTypeVariable)
+        : null;
 
     final resolvedMode =
         mode ??
+        environmentMode ??
         (interval == null && resolvedUrl == null
             ? FeatureHubUpdateMode.streaming
             : FeatureHubUpdateMode.activePolling);
+    if (environmentMode == FeatureHubUpdateMode.streaming &&
+        pollInterval == null &&
+        setting(connectIntervalVariable) != null) {
+      _log.warning(
+        'featurehub: $connectIntervalVariable is not used when streaming '
+        '($connectTypeVariable=streaming)',
+      );
+    }
     if (resolvedUrl != null &&
         transportFactory == null &&
         resolvedMode == FeatureHubUpdateMode.streaming) {
@@ -288,7 +337,7 @@ class FeatureHubProvider
     if (resolvedMode != FeatureHubUpdateMode.streaming && interval == null) {
       throw ArgumentError(
         '${resolvedMode.name} mode requires a pollInterval, or '
-            '$pollIntervalVariable to be set',
+            '$connectIntervalVariable to be set',
         'pollInterval',
       );
     }
@@ -297,6 +346,18 @@ class FeatureHubProvider
       // zero polls once; otherwise at least 5 seconds
       validatePollInterval(interval!);
     }
+
+    final streaming = resolvedMode == FeatureHubUpdateMode.streaming;
+    final resolvedRequestTimeout =
+        requestTimeout ??
+        (streaming ? null : env.duration(pollingRequestTimeoutVariable));
+    final resolvedConnectTimeout =
+        connectTimeout ??
+        (streaming ? env.duration(sseConnectTimeoutVariable) : null);
+    final resolvedReadTimeout =
+        readTimeout ??
+        (streaming ? env.duration(sseReadTimeoutVariable) : null);
+    final resolvedPolicy = reconnectPolicy ?? _reconnectPolicyFrom(env);
 
     return FeatureHubProvider._(
       host: resolvedHost,
@@ -312,9 +373,10 @@ class FeatureHubProvider
           ? null
           : interval,
       waitForReady: waitForReady,
-      reconnectPolicy: reconnectPolicy,
-      connectTimeout: connectTimeout,
-      requestTimeout: requestTimeout,
+      reconnectPolicy: resolvedPolicy,
+      connectTimeout: resolvedConnectTimeout,
+      requestTimeout: resolvedRequestTimeout,
+      readTimeout: resolvedReadTimeout,
       catchAndReleaseMode: catchAndReleaseMode,
       stores: stores,
       interceptors: interceptors,
@@ -337,6 +399,7 @@ class FeatureHubProvider
     required this.reconnectPolicy,
     required this.connectTimeout,
     required this.requestTimeout,
+    required this.readTimeout,
     required this._catchAndReleaseMode,
     required this.stores,
     required this.interceptors,
@@ -350,6 +413,27 @@ class FeatureHubProvider
   /// True if the provider connects to FeatureHub (it has a [host] and an
   /// [apiKey]).
   bool get connectsToFeatureHub => host != null;
+
+  /// [defaultReconnectPolicy], with the delays and multiplier the
+  /// environment sets.
+  static ReconnectPolicy _reconnectPolicyFrom(FeatureHubEnvironment env) {
+    final delay = env.duration(sseInitialRetryDelayVariable);
+    final maxDelay = env.duration(sseMaxRetryDelayVariable);
+    final multiplier = env.number(sseBackoffMultiplierVariable, minimum: 1);
+    if (delay == null && maxDelay == null && multiplier == null) {
+      return defaultReconnectPolicy;
+    }
+    const d = defaultReconnectPolicy;
+    return ReconnectPolicy(
+      delay: delay ?? d.delay,
+      serverErrorDelay: d.serverErrorDelay,
+      maxAttempts: d.maxAttempts,
+      backoffMultiplier: multiplier ?? d.backoffMultiplier,
+      maxDelay: maxDelay ?? d.maxDelay,
+      honourServerRetry: d.honourServerRetry,
+      shouldRetryStatus: d.shouldRetryStatus,
+    );
+  }
 
   static String? _nonEmpty(String? value) =>
       value == null || value.trim().isEmpty ? null : value.trim();
@@ -436,6 +520,7 @@ class FeatureHubProvider
           reconnectPolicy: reconnectPolicy,
           connectTimeout: connectTimeout,
           requestTimeout: requestTimeout,
+          readTimeout: readTimeout,
         );
     _connection = connection;
     connection.repository.catchAndReleaseMode = _catchAndReleaseMode;

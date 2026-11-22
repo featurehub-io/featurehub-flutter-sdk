@@ -104,6 +104,23 @@ class EventSource extends Stream<Event> {
   /// [ReconnectPolicy.maxAttempts].
   final bool Function(Event event)? resetAttemptsOn;
 
+  /// A connection that opens and ends sooner than this after its request
+  /// was sent, cleanly or not, is a failed attempt: a server or cache that
+  /// answers with a stream that is already closing must back off, however
+  /// well its events look. The reset of the failed attempts that an event
+  /// earns ([resetAttemptsOn], or the connection opening) is only made once
+  /// this long has passed since the request; if the connection ends first,
+  /// the reset is dropped. It is measured from the request, not from the
+  /// response, so a server or proxy that is slow to send the response
+  /// headers does not make a long connection look short. Null: no minimum,
+  /// an event resets the count at once.
+  final Duration? shortConnectionThreshold;
+
+  /// The longest an open connection may go without receiving anything (not
+  /// even a comment) before it is treated as dropped: a network error,
+  /// retried according to [reconnectPolicy]. Null waits indefinitely.
+  final Duration? readTimeout;
+
   EventSourceReadyState get readyState => _readyState;
 
   Stream<Event> get onOpen => where((e) => e.event == "open");
@@ -138,6 +155,20 @@ class EventSource extends Stream<Event> {
   /// Consecutive reconnection attempts since the last successful connection.
   int _attempts = 0;
 
+  /// Running until [shortConnectionThreshold] after the current
+  /// connection's request was sent.
+  Timer? _shortTimer;
+
+  /// True once the current connection has opened (a 200 event stream).
+  bool _opened = false;
+
+  /// A reset of [_attempts] earned by the current connection, made once
+  /// [_shortTimer] has run out.
+  bool _resetDue = false;
+
+  /// Consecutive connections that ended before [shortConnectionThreshold].
+  int _shortConnections = 0;
+
   /// The reconnection time sent by the server in a `retry:` field, if any.
   Duration? _serverRetry;
 
@@ -157,6 +188,10 @@ class EventSource extends Stream<Event> {
   /// successful connection.
   int get reconnectAttempts => _attempts;
 
+  /// The number of consecutive connections that ended before
+  /// [shortConnectionThreshold]; reset when one lasts that long.
+  int get consecutiveShortConnections => _shortConnections;
+
   /// Create a new EventSource by connecting to the specified url.
   ///
   /// If the initial connection fails, an [EventSourceSubscriptionException] is
@@ -170,7 +205,10 @@ class EventSource extends Stream<Event> {
   /// Both default to waiting indefinitely.
   ///
   /// [resetAttemptsOn] chooses the events that reset the count of failed
-  /// attempts (by default, opening a connection does).
+  /// attempts (by default, opening a connection does), and
+  /// [shortConnectionThreshold] how long a connection must last before that
+  /// reset is made. [readTimeout] limits how long an open connection may go
+  /// without data.
   ///
   /// If you want to be able to listen to the state changes you need to provide your
   /// own readyStateController as broadcast controllers do not store state.
@@ -188,6 +226,8 @@ class EventSource extends Stream<Event> {
     Duration? connectTimeout,
     Duration? requestTimeout,
     bool Function(Event event)? resetAttemptsOn,
+    Duration? shortConnectionThreshold,
+    Duration? readTimeout,
   }) async {
     // parameter initialization
     final uri = url is Uri ? url : Uri.parse(url as String);
@@ -208,6 +248,8 @@ class EventSource extends Stream<Event> {
       reconnectPolicy ?? const ReconnectPolicy(),
       requestTimeout,
       resetAttemptsOn,
+      shortConnectionThreshold,
+      readTimeout,
     );
     if (!es._openOnlyOnFirstListener) {
       await es._openOrThrow();
@@ -228,6 +270,8 @@ class EventSource extends Stream<Event> {
     this.reconnectPolicy,
     this.requestTimeout,
     this.resetAttemptsOn,
+    this.shortConnectionThreshold,
+    this.readTimeout,
   ) : _openOnlyOnFirstListener = openOnlyOnFirstStream ?? false,
       _closeOnLastListener = closeOnLastStreamClosing ?? false,
       readyStateController =
@@ -322,6 +366,8 @@ class EventSource extends Stream<Event> {
     _generation++;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
+    _shortTimer?.cancel();
+    _shortTimer = null;
     final subscription = _subscription;
     _subscription = null;
     _setReadyState(EventSourceReadyState.closed);
@@ -337,6 +383,20 @@ class EventSource extends Stream<Event> {
   Future<void> _start() async {
     final generation = ++_generation;
     _setReadyState(EventSourceReadyState.connecting);
+
+    _opened = false;
+    _resetDue = false;
+    _shortTimer?.cancel();
+    _shortTimer = null;
+    final threshold = shortConnectionThreshold;
+    if (threshold != null) {
+      _shortTimer = Timer(threshold, () {
+        if (generation != _generation) return;
+        if (_opened) _shortConnections = 0;
+        if (_resetDue) _attempts = 0;
+        _resetDue = false;
+      });
+    }
 
     var request = http.Request(_method, url);
     request.headers["Cache-Control"] = "no-cache";
@@ -396,16 +456,39 @@ class EventSource extends Stream<Event> {
     }
 
     final reset = resetAttemptsOn;
-    if (reset == null) _attempts = 0;
+    // a reset this connection has earned, made once it is old enough
+    void earnReset() {
+      if (_shortTimer?.isActive ?? false) {
+        _resetDue = true;
+      } else {
+        _attempts = 0;
+      }
+    }
+
+    _opened = true;
+    if (reset == null) earnReset();
     _setReadyState(EventSourceReadyState.open);
 
-    _subscription = response.stream
+    final timeout = readTimeout;
+    final Stream<List<int>> body = timeout == null
+        ? response.stream
+        : response.stream.timeout(
+            timeout,
+            onTimeout: (sink) {
+              sink.addError(
+                TimeoutException("No data within $timeout", timeout),
+              );
+              sink.close();
+            },
+          );
+
+    _subscription = body
         .transform(_decoder)
         .listen(
           (event) {
             // here, as the stream is read: the end of this stream is counted
             // as the next failure only after its events
-            if (reset != null && reset(event)) _attempts = 0;
+            if (reset != null && reset(event)) earnReset();
             _streamController.add(event);
           },
           cancelOnError: true,
@@ -448,6 +531,13 @@ class EventSource extends Stream<Event> {
   /// up, according to [reconnectPolicy].
   void _handleFailure(Object? error) {
     _subscription = null;
+    // a connection that opened but did not last: a failure whatever it sent
+    final short = _opened && (_shortTimer?.isActive ?? false);
+    _shortTimer?.cancel();
+    _shortTimer = null;
+    _opened = false;
+    _resetDue = false;
+    if (short) _shortConnections++;
     if (_stopped) return;
 
     final statusCode =
@@ -498,6 +588,8 @@ class EventSource extends Stream<Event> {
         statusCode: statusCode,
         error: error,
         id: lastEventId,
+        shortConnection: short,
+        consecutiveShortConnections: _shortConnections,
       ),
     );
 

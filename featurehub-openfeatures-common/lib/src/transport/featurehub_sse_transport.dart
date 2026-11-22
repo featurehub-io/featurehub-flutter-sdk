@@ -4,7 +4,8 @@ import '../sse_client.dart'
 import 'featurehub_transport.dart';
 
 /// Streams an environment's features from FeatureHub Edge over server-sent
-/// events (`<host>/features/<apiKey>`): the transport a connection with a
+/// events (`<host>/features/<apiKey>?contextSha=...&sdk_version=2`): the
+/// transport a connection with a
 /// host and an API key uses for [FeatureHubUpdateMode.streaming].
 ///
 /// It uses the platform's SSE client (`featurehub_sse_client` on `dart:io`,
@@ -27,6 +28,7 @@ class FeatureHubSseTransport implements FeatureHubTransport {
         reconnectPolicy: target.reconnectPolicy,
         connectTimeout: target.connectTimeout,
         requestTimeout: target.requestTimeout,
+        readTimeout: target.readTimeout,
         headers: target.headers,
         client: target.httpClient,
       );

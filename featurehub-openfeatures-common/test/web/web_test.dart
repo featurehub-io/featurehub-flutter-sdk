@@ -127,6 +127,56 @@ void main() {
       listener.close();
     });
 
+    // conformance: query-parameter-order, sdk-version
+    test('sends contextSha, sdk_version, then xfeaturehub', () async {
+      final repo = ClientFeatureRepository();
+      repo.clientContext.userKey('ling');
+      final listener = EventSourceRepositoryListener(host, 'a/b/c', repo);
+
+      final request = await messages.next as Map;
+      final names = (request['query'] as String)
+          .split('&')
+          .map((p) => p.split('=').first)
+          .toList();
+      expect(names, ['contextSha', 'sdk_version', 'xfeaturehub']);
+      expect(request['query'], contains('sdk_version=2'));
+      expect(request['query'], isNot(contains('contextSha=0')));
+      listener.close();
+    });
+
+    // conformance: streaming-short-connections
+    test('a short connection is a failure: it backs off, and gives up at the '
+        'maximum attempts', () async {
+      final repo = ClientFeatureRepository();
+      final listener = EventSourceRepositoryListener(
+        host,
+        'a/b/short*c',
+        repo,
+        reconnectPolicy: const ReconnectPolicy(
+          delay: Duration(milliseconds: 10),
+          maxAttempts: 2,
+        ),
+      );
+
+      await until(() => listener.closed);
+      // the features came first: the connection failed, readiness is Stale
+      expect(repo.connectionFailed, true);
+      expect(repo.readyness, Readyness.Stale);
+      expect(repo.getString('colour'), 'blue');
+      final requests = <Map>[];
+      while (await messages.hasNext.timeout(
+        const Duration(milliseconds: 500),
+        onTimeout: () => false,
+      )) {
+        requests.add(await messages.next as Map);
+      }
+      // the first connection and 2 attempts, each a new EventSource that the
+      // listener opened (so without a Last-Event-ID)
+      expect(requests, hasLength(3));
+      expect(requests.map((r) => r['lastEventId']).toSet(), {null});
+      expect(requests.first['query'], 'contextSha=0&sdk_version=2');
+    });
+
     test('never sends the context for client-evaluated keys', () async {
       final repo = ClientFeatureRepository();
       repo.clientContext.userKey('fred');

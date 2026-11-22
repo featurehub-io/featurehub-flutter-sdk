@@ -4,7 +4,9 @@
 // The first request for the key "slow" is left unanswered, and a key ending
 // "gone" or "broken" is answered 404 or 503 (the browser closes the stream
 // either way, without saying which). Polling requests
-// (GET /features?apiKey=...) are answered gzip-compressed.
+// (GET /features?apiKey=...) are answered gzip-compressed. A key with
+// "/short" in it is sent its features and a bye, and the stream closed at
+// once, as a cache replaying a closed stream would.
 import 'dart:convert';
 import 'dart:io';
 
@@ -24,7 +26,9 @@ Future<void> hybridMain(StreamChannel<Object?> channel) async {
     }
     channel.sink.add({
       'path': request.uri.path,
+      'query': request.uri.query,
       'xfeaturehub': request.uri.queryParameters['xfeaturehub'],
+      'lastEventId': request.headers.value('last-event-id'),
     });
 
     final response = request.response;
@@ -83,8 +87,15 @@ Future<void> hybridMain(StreamChannel<Object?> channel) async {
         'l': false,
       },
     ];
-    response.write('event: features\ndata: ${jsonEncode(features)}\n\n');
+    response.write('id: 3\nevent: features\ndata: ${jsonEncode(features)}\n\n');
     await response.flush();
+
+    if (request.uri.path.contains('/short')) {
+      // reconnect quickly, if the browser is left to do it
+      response.write('retry: 10\nevent: bye\ndata: {}\n\n');
+      await response.close();
+      return;
+    }
 
     if (request.uri.path.endsWith('/fail')) {
       response.write('event: failure\ndata: {}\n\n');

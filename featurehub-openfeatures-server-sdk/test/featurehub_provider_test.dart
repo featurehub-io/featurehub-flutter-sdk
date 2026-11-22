@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_openfeatures_common/featurehub_openfeatures_common.dart';
 import 'package:featurehub_openfeatures_server_sdk/featurehub_openfeatures_server_sdk.dart';
+import 'package:featurehub_openfeatures_server_sdk/src/environment.dart';
 import 'package:openfeature_dart_server_sdk/client.dart';
 import 'package:openfeature_dart_server_sdk/evaluation_context.dart';
 import 'package:openfeature_dart_server_sdk/feature_provider.dart';
@@ -213,23 +214,24 @@ void main() {
       expect(p.clientEvaluated, false);
     });
 
-    test('a server-evaluated key has no default mode', () {
-      expect(
-        () => FeatureHubProvider(
-          environment: const {
-            'FEATUREHUB_EDGE_URL': host,
-            'FEATUREHUB_SERVER_API_KEY': 'lingling/kwong',
-          },
-        ),
-        throwsA(isA<ArgumentError>().having((e) => e.name, 'name', 'mode')),
-      );
-      // a mode, or a poll interval from the environment, chooses one
+    // conformance: server-default-mode
+    test('a server-evaluated key streams by default, as a client one does', () {
       expect(
         FeatureHubProvider(
           environment: const {
             'FEATUREHUB_EDGE_URL': host,
             'FEATUREHUB_SERVER_API_KEY': 'lingling/kwong',
-            'FEATUREHUB_POLL_INTERVAL': '30',
+          },
+        ).mode,
+        FeatureHubUpdateMode.streaming,
+      );
+      // a mode, or a poll interval from the environment, chooses another
+      expect(
+        FeatureHubProvider(
+          environment: const {
+            'FEATUREHUB_EDGE_URL': host,
+            'FEATUREHUB_SERVER_API_KEY': 'lingling/kwong',
+            'FEATUREHUB_CONNECT_INTERVAL': '30s',
           },
         ).mode,
         FeatureHubUpdateMode.activePolling,
@@ -266,7 +268,7 @@ void main() {
         environment: const {
           'FEATUREHUB_EDGE_URL': host,
           'FEATUREHUB_CLIENT_API_KEY': 'env/key*client',
-          'FEATUREHUB_POLL_INTERVAL': '60',
+          'FEATUREHUB_CONNECT_INTERVAL': '60s',
         },
       );
       expect(p.host, 'http://other');
@@ -288,7 +290,7 @@ void main() {
         environment: const {
           'FEATUREHUB_EDGE_URL': host,
           'FEATUREHUB_CLIENT_API_KEY': 'env/key*client',
-          'FEATUREHUB_POLL_INTERVAL': '15',
+          'FEATUREHUB_CONNECT_INTERVAL': '15s',
         },
       );
       expect(polling.mode, FeatureHubUpdateMode.activePolling);
@@ -309,7 +311,7 @@ void main() {
         environment: const {
           'FEATUREHUB_EDGE_URL': host,
           'FEATUREHUB_CLIENT_API_KEY': 'env/key*client',
-          'FEATUREHUB_POLL_INTERVAL': '15',
+          'FEATUREHUB_CONNECT_INTERVAL': '15s',
         },
       );
       expect(p.mode, FeatureHubUpdateMode.streaming);
@@ -342,28 +344,252 @@ void main() {
         throwsA(isA<ArgumentError>().having((e) => e.name, 'name', 'apiKey')),
       );
       // 0 polls once; anything else must be at least 5 seconds
-      for (final bad in ['soon', '-5', '4']) {
+      for (final bad in ['soon', '-5s', '4s', '30', '1m30s']) {
         expect(
           () => FeatureHubProvider(
             environment: {
               'FEATUREHUB_EDGE_URL': host,
               'FEATUREHUB_CLIENT_API_KEY': 'env/key*client',
-              'FEATUREHUB_POLL_INTERVAL': bad,
+              'FEATUREHUB_CONNECT_INTERVAL': bad,
             },
           ),
           throwsArgumentError,
           reason: bad,
         );
       }
-      for (final good in ['0', '5']) {
+      for (final good in ['0', '0s', '5s', '1.5m']) {
         FeatureHubProvider(
           environment: {
             'FEATUREHUB_EDGE_URL': host,
             'FEATUREHUB_CLIENT_API_KEY': 'env/key*client',
-            'FEATUREHUB_POLL_INTERVAL': good,
+            'FEATUREHUB_CONNECT_INTERVAL': good,
           },
         );
       }
+    });
+
+    // conformance: environment-mode-selection, environment-connect-interval,
+    // environment-durations, environment-names
+    group('FEATUREHUB_CONNECT_TYPE and FEATUREHUB_CONNECT_INTERVAL', () {
+      FeatureHubProvider withEnv(
+        Map<String, String> env, {
+        String key = 'env/key*client',
+        FeatureHubUpdateMode? mode,
+        Duration? pollInterval,
+      }) => FeatureHubProvider(
+        mode: mode,
+        pollInterval: pollInterval,
+        environment: {
+          'FEATUREHUB_EDGE_URL': host,
+          'FEATUREHUB_CLIENT_API_KEY': key,
+          ...env,
+        },
+      );
+
+      test('active, passive and streaming choose the mode, in any case', () {
+        final active = withEnv({
+          'FEATUREHUB_CONNECT_TYPE': 'ACTIVE',
+          'FEATUREHUB_CONNECT_INTERVAL': '30s',
+        });
+        expect(active.mode, FeatureHubUpdateMode.activePolling);
+        expect(active.pollInterval, const Duration(seconds: 30));
+
+        final passive = withEnv({
+          'FEATUREHUB_CONNECT_TYPE': ' passive ',
+          'FEATUREHUB_CONNECT_INTERVAL': '5000ms',
+        });
+        expect(passive.mode, FeatureHubUpdateMode.passivePolling);
+        expect(passive.pollInterval, const Duration(seconds: 5));
+
+        final streaming = withEnv({
+          'FEATUREHUB_CONNECT_TYPE': 'Streaming',
+          'FEATUREHUB_CONNECT_INTERVAL': '30s',
+        });
+        expect(streaming.mode, FeatureHubUpdateMode.streaming);
+        expect(streaming.pollInterval, isNull);
+
+        expect(
+          () => withEnv({'FEATUREHUB_CONNECT_TYPE': 'sometimes'}),
+          throwsArgumentError,
+        );
+      });
+
+      test('active and passive need an interval: there is no default', () {
+        for (final type in ['active', 'passive']) {
+          expect(
+            () => withEnv({'FEATUREHUB_CONNECT_TYPE': type}),
+            throwsA(
+              isA<ArgumentError>().having(
+                (e) => e.message,
+                'message',
+                contains('FEATUREHUB_CONNECT_INTERVAL'),
+              ),
+            ),
+            reason: type,
+          );
+        }
+        // the interval in code serves too
+        expect(
+          withEnv({
+            'FEATUREHUB_CONNECT_TYPE': 'passive',
+          }, pollInterval: Duration.zero).mode,
+          FeatureHubUpdateMode.passivePolling,
+        );
+      });
+
+      test('a mode in code wins, but still takes the interval', () {
+        final p = withEnv({
+          'FEATUREHUB_CONNECT_TYPE': 'passive',
+          'FEATUREHUB_CONNECT_INTERVAL': '1m',
+        }, mode: FeatureHubUpdateMode.activePolling);
+        expect(p.mode, FeatureHubUpdateMode.activePolling);
+        expect(p.pollInterval, const Duration(minutes: 1));
+
+        final inCode = withEnv({
+          'FEATUREHUB_CONNECT_INTERVAL': '1m',
+        }, pollInterval: const Duration(seconds: 10));
+        expect(inCode.pollInterval, const Duration(seconds: 10));
+      });
+
+      test('a server-evaluated key takes its mode from the environment', () {
+        expect(
+          withEnv({
+            'FEATUREHUB_CONNECT_TYPE': 'streaming',
+          }, key: 'sirilak/key').mode,
+          FeatureHubUpdateMode.streaming,
+        );
+      });
+
+      test('your own server is polled actively unless passive is chosen', () {
+        FeatureHubProvider snapshot(Map<String, String> env) =>
+            FeatureHubProvider(
+              featuresUrl: 'http://features.example.com/features',
+              environment: env,
+            );
+        expect(
+          snapshot({'FEATUREHUB_CONNECT_INTERVAL': '30s'}).mode,
+          FeatureHubUpdateMode.activePolling,
+        );
+        expect(
+          snapshot({
+            'FEATUREHUB_CONNECT_TYPE': 'passive',
+            'FEATUREHUB_CONNECT_INTERVAL': '30s',
+          }).mode,
+          FeatureHubUpdateMode.passivePolling,
+        );
+        // no default interval, and never streamed
+        expect(() => snapshot({}), throwsArgumentError);
+        expect(
+          () => snapshot({'FEATUREHUB_CONNECT_TYPE': 'streaming'}),
+          throwsArgumentError,
+        );
+      });
+
+      test('the legacy FEATUREHUB_POLL_INTERVAL is not read', () {
+        final p = withEnv({'FEATUREHUB_POLL_INTERVAL': '30'});
+        expect(p.mode, FeatureHubUpdateMode.streaming);
+        expect(p.pollInterval, isNull);
+      });
+
+      test('the timeouts for the mode are read', () {
+        final polling = withEnv({
+          'FEATUREHUB_CONNECT_INTERVAL': '30s',
+          'FEATUREHUB_POLLING_REQ_TIMEOUT': '2s',
+          'FEATUREHUB_SSE_CONNECT_TIMEOUT': '3s',
+          'FEATUREHUB_SSE_READ_TIMEOUT': '6m',
+        });
+        expect(polling.requestTimeout, const Duration(seconds: 2));
+        expect(polling.connectTimeout, isNull);
+        expect(polling.readTimeout, isNull);
+
+        final streaming = withEnv({
+          'FEATUREHUB_POLLING_REQ_TIMEOUT': '2s',
+          'FEATUREHUB_SSE_CONNECT_TIMEOUT': '3s',
+          'FEATUREHUB_SSE_READ_TIMEOUT': '6m',
+        });
+        expect(streaming.requestTimeout, isNull);
+        expect(streaming.connectTimeout, const Duration(seconds: 3));
+        expect(streaming.readTimeout, const Duration(minutes: 6));
+
+        expect(
+          () => withEnv({'FEATUREHUB_SSE_READ_TIMEOUT': '300'}),
+          throwsArgumentError,
+        );
+      });
+
+      test('the reconnect policy takes its delays from the environment', () {
+        final p = withEnv({
+          'FEATUREHUB_SSE_INITIAL_RETRY_DELAY': '500ms',
+          'FEATUREHUB_SSE_MAX_RETRY_DELAY': '2m',
+          'FEATUREHUB_SSE_BACKOFF_MULTIPLIER': '1.5',
+        });
+        expect(p.reconnectPolicy.delay, const Duration(milliseconds: 500));
+        expect(p.reconnectPolicy.maxDelay, const Duration(minutes: 2));
+        expect(p.reconnectPolicy.backoffMultiplier, 1.5);
+        expect(
+          p.reconnectPolicy.serverErrorDelay,
+          defaultReconnectPolicy.serverErrorDelay,
+        );
+        expect(withEnv({}).reconnectPolicy, same(defaultReconnectPolicy));
+
+        for (final bad in ['0.5', '2x', '-1']) {
+          expect(
+            () => withEnv({'FEATUREHUB_SSE_BACKOFF_MULTIPLIER': bad}),
+            throwsArgumentError,
+            reason: bad,
+          );
+        }
+
+        // a policy in code wins
+        const mine = ReconnectPolicy(delay: Duration(seconds: 9));
+        expect(
+          FeatureHubProvider(
+            reconnectPolicy: mine,
+            environment: const {
+              'FEATUREHUB_EDGE_URL': host,
+              'FEATUREHUB_CLIENT_API_KEY': 'env/key*client',
+              'FEATUREHUB_SSE_INITIAL_RETRY_DELAY': '1s',
+            },
+          ).reconnectPolicy,
+          same(mine),
+        );
+      });
+
+      test('durations take one number and a lowercase unit, or 0', () {
+        for (final (value, expected) in [
+          ('0', Duration.zero),
+          ('0s', Duration.zero),
+          ('30s', const Duration(seconds: 30)),
+          ('500ms', const Duration(milliseconds: 500)),
+          ('1.5m', const Duration(seconds: 90)),
+          ('1h', const Duration(hours: 1)),
+        ]) {
+          expect(
+            FeatureHubEnvironment.parseDuration(value),
+            expected,
+            reason: value,
+          );
+        }
+        for (final bad in [
+          '30',
+          '1.5',
+          '1m30s',
+          '-30s',
+          '+30s',
+          '30 s',
+          '30S',
+          '1us',
+          '.5s',
+          'ten',
+        ]) {
+          expect(FeatureHubEnvironment.parseDuration(bad), isNull, reason: bad);
+        }
+        // trimmed before it is matched
+        expect(
+          withEnv({'FEATUREHUB_CONNECT_INTERVAL': ' 30s '}).pollInterval,
+          const Duration(seconds: 30),
+        );
+      });
     });
   });
 

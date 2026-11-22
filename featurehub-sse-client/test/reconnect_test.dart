@@ -42,6 +42,19 @@ http.StreamedResponse Function() _ok(String body, {bool keepOpen = false}) =>
       );
     };
 
+/// A 200 response that sends [body] and closes the stream after [closeAfter].
+http.StreamedResponse Function() _okFor(String body, Duration closeAfter) =>
+    () {
+      final controller = StreamController<List<int>>();
+      controller.add(utf8.encode(body));
+      Timer(closeAfter, controller.close);
+      return http.StreamedResponse(
+        controller.stream,
+        200,
+        headers: _eventStream,
+      );
+    };
+
 http.StreamedResponse Function() _status(int code) =>
     () => http.StreamedResponse(Stream.value(utf8.encode("nope")), code);
 
@@ -636,6 +649,207 @@ void main() {
       expect(es.readyState, EventSourceReadyState.open);
       await es.close();
     });
+  });
+
+  // conformance: streaming-short-connections
+  group("shortConnectionThreshold", () {
+    bool works(Event event) => event.event == "ack" || event.event == "bye";
+    const threshold = Duration(milliseconds: 150);
+
+    test(
+      "a connection that ends before it is a failure, whatever it sent",
+      () async {
+        final server = _Server([
+          _ok("event: ack\ndata: lingling\n\nevent: bye\ndata: lingling\n\n"),
+        ]);
+        final es = await EventSource.connect(
+          "http://localhost/events",
+          client: server.client,
+          openOnlyOnFirstListener: true,
+          reconnectPolicy: const ReconnectPolicy(
+            delay: Duration(milliseconds: 2),
+            backoffMultiplier: 2,
+            maxAttempts: 3,
+          ),
+          resetAttemptsOn: works,
+          shortConnectionThreshold: threshold,
+        );
+        final listener = _Listener(es);
+        await _until(() => listener.errors.isNotEmpty);
+
+        // the first connection, then 3 attempts, backing off as for any failure
+        expect(server.requests, hasLength(4));
+        expect(listener.reconnects.map((r) => r.attempt), [1, 2, 3]);
+        expect(listener.reconnects.map((r) => r.delay), [
+          _ms * 2,
+          _ms * 4,
+          _ms * 8,
+        ]);
+        expect(listener.reconnects.every((r) => r.shortConnection), isTrue);
+        expect(listener.reconnects.map((r) => r.consecutiveShortConnections), [
+          1,
+          2,
+          3,
+        ]);
+        // the events were still delivered
+        expect(listener.messages.where((m) => m == "lingling"), hasLength(8));
+        expect(es.readyState, EventSourceReadyState.closed);
+      },
+    );
+
+    test("one that lasts past it earns its reset", () async {
+      final server = _Server([
+        for (var i = 0; i < 5; i++)
+          _okFor("event: ack\ndata: orm\n\n", threshold * 2),
+        _ok("event: ack\ndata: kornaphat\n\n", keepOpen: true),
+      ]);
+      final es = await EventSource.connect(
+        "http://localhost/events",
+        client: server.client,
+        openOnlyOnFirstListener: true,
+        reconnectPolicy: const ReconnectPolicy(
+          delay: Duration(milliseconds: 2),
+          maxAttempts: 1,
+        ),
+        resetAttemptsOn: works,
+        shortConnectionThreshold: threshold,
+      );
+      final listener = _Listener(es);
+      await _until(
+        () => listener.messages.contains("kornaphat"),
+        timeout: const Duration(seconds: 10),
+      );
+
+      expect(listener.errors, isEmpty);
+      expect(listener.reconnects.map((r) => r.attempt).toSet(), {1});
+      expect(listener.reconnects.any((r) => r.shortConnection), isFalse);
+      await es.close();
+    });
+
+    test(
+      "a connection that lasts ends a run of short ones, not the attempts",
+      () async {
+        // only a comment, which earns no reset, on the long connection
+        final server = _Server([
+          _okFor("", threshold ~/ 3),
+          _okFor("", threshold ~/ 3),
+          _okFor(":\n\n", threshold * 2),
+          _okFor("", threshold ~/ 3),
+          _ok("event: ack\ndata: always wonder\n\n", keepOpen: true),
+        ]);
+        final es = await EventSource.connect(
+          "http://localhost/events",
+          client: server.client,
+          openOnlyOnFirstListener: true,
+          reconnectPolicy: const ReconnectPolicy(
+            delay: Duration(milliseconds: 2),
+          ),
+          resetAttemptsOn: works,
+          shortConnectionThreshold: threshold,
+        );
+        final listener = _Listener(es);
+        await _until(() => listener.messages.contains("always wonder"));
+
+        expect(listener.reconnects.map((r) => r.shortConnection), [
+          true,
+          true,
+          false,
+          true,
+        ]);
+        expect(listener.reconnects.map((r) => r.consecutiveShortConnections), [
+          1,
+          2,
+          0,
+          1,
+        ]);
+        // no event reset the count: a comment is not one
+        expect(listener.reconnects.map((r) => r.attempt), [1, 2, 3, 4]);
+        await es.close();
+      },
+    );
+  });
+
+  group("shortConnectionThreshold is measured from the request", () {
+    test("slow response headers do not make a connection short", () async {
+      const threshold = Duration(milliseconds: 100);
+      final server = _Server([
+        () async {
+          // as a proxy that holds the headers back until the first data
+          await Future<void>.delayed(threshold * 2);
+          return _ok("event: bye\ndata: chago\n\n")();
+        },
+        _ok("event: ack\ndata: ormkorn\n\n", keepOpen: true),
+      ]);
+      final es = await EventSource.connect(
+        "http://localhost/events",
+        client: server.client,
+        openOnlyOnFirstListener: true,
+        reconnectPolicy: const ReconnectPolicy(
+          delay: Duration(milliseconds: 2),
+          maxAttempts: 1,
+        ),
+        resetAttemptsOn: (e) => e.event == "bye" || e.event == "ack",
+        shortConnectionThreshold: threshold,
+      );
+      final listener = _Listener(es);
+      await _until(() => listener.messages.contains("ormkorn"));
+
+      expect(listener.reconnects.single.shortConnection, isFalse);
+      expect(listener.errors, isEmpty);
+      await es.close();
+    });
+
+    test("a failed attempt is not a short connection", () async {
+      final server = _Server([
+        _networkError(),
+        _ok("data: keep silent\n\n", keepOpen: true),
+      ]);
+      final es = await EventSource.connect(
+        "http://localhost/events",
+        client: server.client,
+        openOnlyOnFirstListener: true,
+        reconnectPolicy: const ReconnectPolicy(
+          delay: Duration(milliseconds: 2),
+        ),
+        shortConnectionThreshold: const Duration(seconds: 1),
+      );
+      final listener = _Listener(es);
+      await _until(() => listener.messages.contains("keep silent"));
+
+      expect(listener.reconnects.single.shortConnection, isFalse);
+      expect(listener.reconnects.single.consecutiveShortConnections, 0);
+      await es.close();
+    });
+  });
+
+  group("readTimeout", () {
+    test(
+      "a connection with no data for that long is dropped and retried",
+      () async {
+        final server = _Server([_ok("data: keep silent\n\n", keepOpen: true)]);
+        final es = await EventSource.connect(
+          "http://localhost/events",
+          client: server.client,
+          reconnectPolicy: const ReconnectPolicy(
+            delay: Duration(milliseconds: 2),
+          ),
+          readTimeout: const Duration(milliseconds: 50),
+        );
+        final listener = _Listener(es);
+        await _until(() => server.requests.length >= 2);
+
+        expect(
+          listener.reconnects.first.error,
+          isA<EventSourceSubscriptionException>(),
+        );
+        expect(
+          (listener.reconnects.first.error as EventSourceSubscriptionException)
+              .exception,
+          isA<TimeoutException>(),
+        );
+        await es.close();
+      },
+    );
   });
 
   // conformance: streaming-minimum-delays

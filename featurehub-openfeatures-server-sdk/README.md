@@ -57,13 +57,31 @@ Anything not passed to `FeatureHubProvider` is read from the environment:
 | `FEATUREHUB_EDGE_URL` | `host`, the FeatureHub Edge URL |
 | `FEATUREHUB_CLIENT_API_KEY` | `apiKey`: a client-evaluated key (preferred if both keys are set) |
 | `FEATUREHUB_SERVER_API_KEY` | `apiKey`: a server-evaluated key, used if `FEATUREHUB_CLIENT_API_KEY` is not set |
-| `FEATUREHUB_POLL_INTERVAL` | `pollInterval`, in seconds: if set, the provider polls at this interval instead of streaming (0 polls once; otherwise at least 5) |
+| `FEATUREHUB_CONNECT_TYPE` | `mode`: `active`, `passive` or `streaming` (in any case) |
+| `FEATUREHUB_CONNECT_INTERVAL` | `pollInterval`, for active and passive polling: a duration such as `30s` (0 polls once; otherwise at least `5s`). Without `FEATUREHUB_CONNECT_TYPE`, setting it chooses active polling. Not used when streaming |
+| `FEATUREHUB_POLLING_REQ_TIMEOUT` | `requestTimeout` when polling |
+| `FEATUREHUB_SSE_CONNECT_TIMEOUT` | `connectTimeout` when streaming |
+| `FEATUREHUB_SSE_READ_TIMEOUT` | `readTimeout` when streaming: more than `5m`, as FeatureHub may send nothing for that long |
+| `FEATUREHUB_SSE_INITIAL_RETRY_DELAY` | without a `reconnectPolicy`, its wait after a network error or a dropped stream |
+| `FEATUREHUB_SSE_MAX_RETRY_DELAY` | without a `reconnectPolicy`, its longest wait |
+| `FEATUREHUB_SSE_BACKOFF_MULTIPLIER` | without a `reconnectPolicy`, how much the wait grows after each consecutive failure: a number, at least 1 |
 
-Arguments take precedence over the environment. The constructor throws an
-`ArgumentError` if there is a host but no API key or the reverse, if
-`FEATUREHUB_POLL_INTERVAL` is not a number of seconds: 0, or at least 5, or if
-a server-evaluated key (without `*`, such as `FEATUREHUB_SERVER_API_KEY`'s) has
-no mode: pass `mode`, or set `FEATUREHUB_POLL_INTERVAL` to poll.
+A duration is one number and a lowercase unit, `ms`, `s`, `m` or `h`, such as
+`30s`, `500ms` or `1.5m`, or `0`. A bare number such as `30` is not a duration,
+nor is a compound one such as `1m30s`.
+
+Arguments take precedence over the environment, setting by setting: a `mode`
+passed means `FEATUREHUB_CONNECT_TYPE` is not read, but the interval still
+comes from `FEATUREHUB_CONNECT_INTERVAL` if `pollInterval` is not passed. With a
+`transportFactory`, neither is read. Active and passive polling need an
+interval: there is no default.
+
+The constructor throws an `ArgumentError` if there is a host but no API key or
+the reverse, if a variable's value is not valid (an unknown connect type, a
+duration that is not one, or an interval between 0 and 5 seconds), if polling
+or has no interval (a `featuresUrl` is always polled, so it needs one). With
+no mode and no interval, the provider streams, for a client- or a
+server-evaluated key.
 
 With a `featuresUrl` instead of a host and API key, the provider gets its
 features from another server's API rather than from FeatureHub (see the
@@ -180,15 +198,16 @@ properties (`FeatureState.fp`) when it has any.
 |---|---|---|
 | `host` | `FEATUREHUB_EDGE_URL` | |
 | `apiKey` | `FEATUREHUB_CLIENT_API_KEY`, then `FEATUREHUB_SERVER_API_KEY` | |
-| `mode` | `activePolling` if there is a poll interval (or a `featuresUrl`), otherwise `streaming` for a client-evaluated key; a server-evaluated key has no default without a poll interval (an `ArgumentError`) | `streaming` (FeatureHub only), `activePolling` (every `pollInterval`) or `passivePolling` (fetch on resolution once older than `pollInterval`) |
-| `pollInterval` | `FEATUREHUB_POLL_INTERVAL` (seconds), otherwise none | required for `activePolling` and `passivePolling`. 0 polls once, at start-up, and never again (a context change still fetches); anything else must be at least 5 seconds (an `ArgumentError`), and a FeatureHub `Cache-Control: max-age` below that is raised to it |
+| `mode` | `FEATUREHUB_CONNECT_TYPE`; otherwise `activePolling` if there is a poll interval (or a `featuresUrl`), and `streaming` for any key | `streaming` (FeatureHub only), `activePolling` (every `pollInterval`) or `passivePolling` (fetch on resolution once older than `pollInterval`) |
+| `pollInterval` | `FEATUREHUB_CONNECT_INTERVAL`, otherwise none | required for `activePolling` and `passivePolling`. 0 polls once, at start-up, and never again (a context change still fetches); anything else must be at least 5 seconds (an `ArgumentError`), and a FeatureHub `Cache-Control: max-age` below that is raised to it |
 | `waitForReady` | 10s | how long initialization, and a server-evaluated context change, wait for features |
-| `reconnectPolicy` | `defaultReconnectPolicy`: 3s after a network error, 30s after a 5xx (or an invalid 1xx or 3xx), doubling with each consecutive failure up to 5 minutes; a 200 that is not an event stream (e.g. a proxy's HTML page) is retried as a network error; every wait is at least 100ms, and a server's `retry:` at least 1s; consecutive failures are counted until FeatureHub sends an event, not just until a connection opens, so a server that drops every connection still backs off and uses up `maxAttempts`; a 4xx, 429 included, stops for good. Any stop for good (also an unretried status, or running out of `maxAttempts`) is a failure: before any features the provider fails to initialize, after them it goes `stale` | streaming reconnection; set any value with your own `ReconnectPolicy(delay:, serverErrorDelay:, backoffMultiplier:, maxDelay:, maxAttempts:)` (see `featurehub_sse_client`) |
-| `connectTimeout` | none | how long establishing an HTTP connection may take |
+| `reconnectPolicy` | `defaultReconnectPolicy`, with any delays and multiplier the `FEATUREHUB_SSE_` variables set: 3s after a network error, 30s after a 5xx (or an invalid 1xx or 3xx), doubling with each consecutive failure up to 5 minutes; a 200 that is not an event stream (e.g. a proxy's HTML page) is retried as a network error; every wait is at least 100ms, and a server's `retry:` at least 1s; consecutive failures are counted until FeatureHub sends an event (a `bye` included, as FeatureHub ends quiet connections with one), not just until a connection opens, so a server that drops every connection still backs off and uses up `maxAttempts`; a connection that ends within 10 seconds of its request is a failure whatever it sent (typically a cache in front of FeatureHub replaying a closed stream), and three in a row are logged as a warning; a 4xx, 429 included, stops for good. Any stop for good (also an unretried status, or running out of `maxAttempts`) is a failure: before any features the provider fails to initialize, after them it goes `stale` | streaming reconnection; set any value with your own `ReconnectPolicy(delay:, serverErrorDelay:, backoffMultiplier:, maxDelay:, maxAttempts:)` (see `featurehub_sse_client`) |
+| `connectTimeout` | `FEATUREHUB_SSE_CONNECT_TIMEOUT` when streaming, otherwise none | how long establishing an HTTP connection may take |
+| `readTimeout` | `FEATUREHUB_SSE_READ_TIMEOUT` when streaming, otherwise none | how long an open streaming connection may go without data before it is dropped and reconnected; FeatureHub may send nothing for up to 5 minutes, so a shorter one is warned about |
 | `stores` | none | stores that keep a copy of the features, attached before connecting (see `FeatureStore`): e.g. `featurehub_openfeatures_store_redis`, to share features between processes |
 | `interceptors` | none | value interceptors that supply feature values in place of FeatureHub's (see `ValueInterceptor`), overriding locked features too: e.g. `LocalYamlValueInterceptor` from `featurehub_openfeatures_yaml_interceptor`, for local overrides during development |
 | `catchAndReleaseMode` | false | hold feature updates back until `release()` is called; takes effect once the initial features have arrived, so it can be set at creation. Released changes are announced as configuration changed events |
-| `requestTimeout` | none | how long a polling request may take, or how long a streaming connection attempt waits for the stream to open (an attempt that times out is retried under `reconnectPolicy`) |
+| `requestTimeout` | `FEATUREHUB_POLLING_REQ_TIMEOUT` when polling, otherwise none | how long a polling request may take, or how long a streaming connection attempt waits for the stream to open (an attempt that times out is retried under `reconnectPolicy`) |
 | `headers` | none | sent with every request (FeatureHub streaming and polling, and `featuresUrl`): for a gateway, extra authentication or tracing |
 | `dio` | created | the `Dio` for polling, e.g. one configured with a proxy |
 | `httpClient` | created | the `http.Client` for streaming, e.g. one configured with a proxy |

@@ -10,8 +10,9 @@
 //
 // The provider reads its configuration from these variables: use
 // FEATUREHUB_SERVER_API_KEY instead for a server-evaluated key, and set
-// FEATUREHUB_POLL_INTERVAL (seconds) to poll for feature updates instead of
-// streaming them (the default). PORT (default 8099) is the server's port.
+// FEATUREHUB_CONNECT_INTERVAL (a duration, such as 30s) to poll for feature
+// updates instead of streaming them (the default), or FEATUREHUB_CONNECT_TYPE
+// (active, passive or streaming) to choose the mode. PORT (default 8099) is the server's port.
 // The features used are FEATURE_TITLE_TO_UPPERCASE (boolean),
 // FEATURE_STRING (string), FEATURE_NUMBER (number) and FEATURE_JSON (JSON
 // with a "foo" field), each evaluated for the user in the request.
@@ -334,7 +335,8 @@ Future<void> main() async {
   Logger.root.level = Level.FINE;
 
   // the provider reads FEATUREHUB_EDGE_URL, FEATUREHUB_CLIENT_API_KEY (or
-  // FEATUREHUB_SERVER_API_KEY) and FEATUREHUB_POLL_INTERVAL
+  // FEATUREHUB_SERVER_API_KEY), FEATUREHUB_CONNECT_TYPE and
+  // FEATUREHUB_CONNECT_INTERVAL
   final FeatureHubProvider provider;
   try {
     provider = FeatureHubProvider();

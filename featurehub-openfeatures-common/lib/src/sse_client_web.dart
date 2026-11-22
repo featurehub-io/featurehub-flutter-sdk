@@ -9,12 +9,14 @@ import 'package:logging/logging.dart';
 import 'package:web/web.dart' as web;
 
 import 'transport/api_keys.dart';
+import 'transport/edge_request.dart';
 import 'transport/featurehub_transport.dart'
     show
         decodeFeatureHubEventData,
         defaultReconnectPolicy,
         featureHubConfigIsStale,
         featureHubEventShowsConnectionWorks;
+import 'transport/streaming_limits.dart';
 import 'repository.dart';
 
 final _log = Logger('featurehub_web_eventsource');
@@ -49,9 +51,19 @@ const _featureEvents = [
 /// API keys the client context is sent as the `xfeaturehub` query parameter.
 /// With a client-evaluated API key (containing `*`) the context is never
 /// sent and a context change needs no reconnection.
+///
+/// Each connection is to
+/// `<host>/features/<key>?contextSha=...&sdk_version=2[&xfeaturehub=...]`
+/// ([edgeSdkVersion]); the browser sends `Last-Event-ID` on the reconnections
+/// it makes itself. A connection that ends within [shortConnectionThreshold]
+/// of opening is a failed attempt, whatever it sent: rather than let the
+/// browser reconnect at once, the listener closes it and reconnects under the
+/// reconnect policy, backing off, and giving up for good after
+/// [ReconnectPolicy.maxAttempts].
 class EventSourceRepositoryListener {
   final ClientFeatureRepository _repository;
-  final String _url;
+  final EdgeHost _host;
+  final String _apiKey;
   final bool _clientEvaluated;
   final ReconnectPolicy _reconnectPolicy;
   final Duration? _requestTimeout;
@@ -63,6 +75,20 @@ class EventSourceRepositoryListener {
   Timer? _reconnectTimer;
   int _attempts = 0;
 
+  /// Running until [shortConnectionThreshold] after the current connection
+  /// was started (by this listener, or by the browser reconnecting).
+  Timer? _shortTimer;
+
+  /// True once the current connection has opened.
+  bool _opened = false;
+
+  /// A reset of [_attempts] earned by the open connection, made once it has
+  /// lasted [shortConnectionThreshold].
+  bool _resetDue = false;
+
+  /// Consecutive connections that ended before [shortConnectionThreshold].
+  int _shortConnections = 0;
+
   EventSourceRepositoryListener(
     String url,
     String apiKey,
@@ -72,12 +98,15 @@ class EventSourceRepositoryListener {
     // browsers control the connection timeout themselves
     Duration? connectTimeout,
     this._requestTimeout,
+    // browsers time out their connections themselves
+    Duration? readTimeout,
     // a browser's EventSource can send neither headers nor use a client
     Map<String, String> headers = const {},
     http.Client? client,
   }) : _repository = repository,
        _clientEvaluated = isClientEvaluatedKeys([apiKey]),
-       _url = '$url${url.endsWith('/') ? '' : '/'}features/$apiKey' {
+       _host = EdgeHost(url),
+       _apiKey = apiKey {
     if (headers.isNotEmpty) {
       _log.warning(
         'Browsers cannot send headers with an EventSource: they are not sent '
@@ -123,9 +152,11 @@ class EventSourceRepositoryListener {
   }
 
   /// The URL connected to, including the context for server-evaluated keys.
-  String get connectionUrl => (_clientEvaluated || _xFeaturehubHeader == null)
-      ? _url
-      : '$_url?xfeaturehub=${Uri.encodeQueryComponent(_xFeaturehubHeader!)}';
+  String get connectionUrl => _host.streamUrl(
+    _apiKey,
+    xFeatureHubHeader: _clientEvaluated ? null : _xFeaturehubHeader,
+    xfeaturehub: true,
+  );
 
   void _connect() {
     _closed = false;
@@ -134,6 +165,7 @@ class EventSourceRepositoryListener {
 
     final es = web.EventSource(url);
     _es = es;
+    _startShortTimer(es);
 
     for (final type in _featureEvents) {
       es.addEventListener(
@@ -150,7 +182,9 @@ class EventSourceRepositoryListener {
       _openTimer?.cancel();
       _openTimer = null;
       // the failed attempts start again only once FeatureHub has sent
-      // something (_message, _config), not when a connection merely opens
+      // something (_message, _config), not when a connection merely opens,
+      // and only once the connection has lasted (_earnReset)
+      _opened = true;
     }).toJS;
     es.onerror = ((web.Event _) => _error(es)).toJS;
 
@@ -172,9 +206,34 @@ class EventSourceRepositoryListener {
     return data.isA<JSString>() ? (data as JSString).toDart : null;
   }
 
+  /// Starts timing a connection of [es], from its request (measured from the
+  /// request rather than the open, so slow response headers do not make a
+  /// long connection look short).
+  void _startShortTimer(web.EventSource es) {
+    _shortTimer?.cancel();
+    _opened = false;
+    _resetDue = false;
+    _shortTimer = Timer(shortConnectionThreshold, () {
+      if (!identical(_es, es)) return;
+      if (_opened) _shortConnections = 0;
+      if (_resetDue) _attempts = 0;
+      _resetDue = false;
+    });
+  }
+
+  /// The open connection has shown it works: reset the failed attempts, once
+  /// it has lasted [shortConnectionThreshold].
+  void _earnReset() {
+    if (_shortTimer?.isActive ?? false) {
+      _resetDue = true;
+    } else {
+      _attempts = 0;
+    }
+  }
+
   void _message(web.EventSource es, String type, web.MessageEvent msg) {
     if (!identical(_es, es)) return;
-    if (featureHubEventShowsConnectionWorks(type)) _attempts = 0;
+    if (featureHubEventShowsConnectionWorks(type)) _earnReset();
     final data = _data(msg);
     _log.fine('Event is $type value $data');
 
@@ -190,7 +249,7 @@ class EventSourceRepositoryListener {
 
   void _config(web.EventSource es, web.MessageEvent msg) {
     if (!identical(_es, es)) return;
-    _attempts = 0;
+    _earnReset();
     final data = _data(msg);
     _log.fine('Config event $data');
     if (featureHubConfigIsStale(data)) {
@@ -203,8 +262,28 @@ class EventSourceRepositoryListener {
   void _error(web.EventSource es) {
     if (!identical(_es, es) || _closed) return;
 
+    // a connection that opened but did not last
+    final short = _opened && (_shortTimer?.isActive ?? false);
+    _shortTimer?.cancel();
+    _shortTimer = null;
+    _opened = false;
+    _resetDue = false;
+
+    if (short && es.readyState != web.EventSource.CLOSED) {
+      // a failure whatever it sent: back off rather than let the browser
+      // reconnect at once
+      _shortConnections++;
+      if (_shortConnections == shortConnectionWarningAfter) {
+        _log.warning(shortConnectionsWarning(_shortConnections));
+      }
+      _disconnect();
+      _scheduleReconnect(_reconnectPolicy.delay);
+      return;
+    }
+
     if (es.readyState != web.EventSource.CLOSED) {
-      // the browser is reconnecting by itself
+      // the browser is reconnecting by itself: time that connection too
+      _startShortTimer(es);
       _log.fine('Lost connection to feature repository, reconnecting');
       if (!_repository.connectionFailed) {
         _repository.notify(SSEResultState.bye, null);
@@ -246,6 +325,10 @@ class EventSourceRepositoryListener {
     _openTimer = null;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
+    _shortTimer?.cancel();
+    _shortTimer = null;
+    _opened = false;
+    _resetDue = false;
     _es?.close();
     _es = null;
   }

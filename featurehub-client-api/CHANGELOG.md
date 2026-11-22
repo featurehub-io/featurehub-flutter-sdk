@@ -4,6 +4,8 @@
 * A rollout strategy with a null or absent `attributes` (e.g. a pure percentage strategy) decodes as an empty list
   rather than failing the whole feature
 * Polls FeatureHub Edge at `/features` (as the other SDKs do), not `/features/` as generated from the API definition
+* `getFeatureStates` takes `sdkVersion`, sent as the `sdk_version` query parameter after `contextSha`, and `hostQuery`,
+  the host's own query parameters, sent first
 
 1.4.0
 =====

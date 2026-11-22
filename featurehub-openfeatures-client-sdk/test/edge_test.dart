@@ -37,6 +37,7 @@ void main() {
         FeatureHubProvider(
           host: host,
           apiKey: 'env/key*slow',
+          mode: FeatureHubUpdateMode.streaming,
           requestTimeout: const Duration(milliseconds: 300),
           connectTimeout: const Duration(seconds: 2),
           reconnectPolicy: const ReconnectPolicy(

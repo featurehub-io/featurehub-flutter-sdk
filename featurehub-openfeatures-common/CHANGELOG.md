@@ -3,6 +3,17 @@ featurehub_openfeatures_common 1.0.0
 This package replaces `featurehub_client_sdk` (whose history follows) as the common basis of the FeatureHub
 OpenFeature providers for Dart.
 
+* Every request to FeatureHub Edge carries `sdk_version=2` (`edgeSdkVersion`), the protocol generation, and the SDK's
+  query parameters come in a fixed order so equal requests have equal URLs for a cache in front of Edge: polling sends
+  `apiKey`, `contextSha`, `sdk_version`; streaming sends `contextSha` (the context's sha256, or `0`) then
+  `sdk_version`, and in browsers `xfeaturehub` last. A host's own query parameters come first, and are not repeated
+* Streaming keeps the last event id and sends it as `Last-Event-ID` when it reconnects (not for a new context), so
+  Edge may hold a quiet connection and end it with a `bye`. A `bye` now resets the count of failed attempts, as it ends
+  a connection cleanly; but a connection that ends within 10 seconds of its request is a failure whatever it sent (a
+  cache replaying a closed stream), backed off and counted towards `maxAttempts`, and three in a row are logged as a
+  warning. In browsers the listener then closes the `EventSource` and reconnects itself, backing off
+* `FeatureHubConnection` (and `FeatureHubTransportTarget`) take a `readTimeout` for streaming connections (`dart:io`);
+  one of 5 minutes or less is warned about, as Edge may send nothing for that long
 * `FeatureHubConfig` is renamed `FeatureHubRestClient`, and the transports are split out (`lib/src/transport/`):
   `FeatureHubSseTransport` and `FeatureHubPollingTransport` (FeatureHub, with a host and API key) and
   `FeatureSnapshotTransport` (your own server, with a `featuresUrl` and no API key), sharing `PollingTransport`.

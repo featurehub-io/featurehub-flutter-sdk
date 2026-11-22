@@ -15,9 +15,14 @@ class FeatureServiceApi {
   Future<List<FeatureEnvironmentCollection>> getFeatureStates(
       List<String> apiKey,
       {Options? options,
-      String? contextSha}) async {
+      String? contextSha,
+      int? sdkVersion,
+      List<QueryParam> hostQuery = const []}) async {
     final response = await apiDelegate.getFeatureStates(apiKey,
-        options: options, contextSha: contextSha);
+        options: options,
+        contextSha: contextSha,
+        sdkVersion: sdkVersion,
+        hostQuery: hostQuery);
 
     if (![200, 236, 400].contains(response.statusCode)) {
       throw ApiException(500,
@@ -83,8 +88,15 @@ class FeatureServiceApiDelegate {
 
   // apiKey required: true nullable: false ext: {}
   // contextSha required: false nullable: false ext: {}
+  // sdkVersion and hostQuery are not generated: keep them if the client is
+  // regenerated. The host's own query parameters (hostQuery) come first, then
+  // apiKey, contextSha and sdk_version, in that order, so equal requests have
+  // equal URLs for a cache in front of Edge.
   Future<ApiResponse> getFeatureStates(List<String> apiKey,
-      {Options? options, String? contextSha}) async {
+      {Options? options,
+      String? contextSha,
+      int? sdkVersion,
+      List<QueryParam> hostQuery = const []}) async {
     // create path and map variables
     // FeatureHub Edge polls at /features (as the other SDKs request), not
     // /features/ as the generator emits from the API definition: keep this if
@@ -92,7 +104,7 @@ class FeatureServiceApiDelegate {
     final __path = '/features';
 
     // query params
-    final queryParams = <QueryParam>[];
+    final queryParams = <QueryParam>[...hostQuery];
     final headerParams = <String, String>{}
       ..addAll(options?.headers?.cast<String, String>() ?? {});
     if (!headerParams.containsKey('Accept')) {
@@ -111,6 +123,9 @@ class FeatureServiceApiDelegate {
           '',
           'contextSha',
           contextSha));
+    }
+    if (sdkVersion != null) {
+      queryParams.add(QueryParam('sdk_version', '$sdkVersion'));
     }
 
     final authNames = <String>[];

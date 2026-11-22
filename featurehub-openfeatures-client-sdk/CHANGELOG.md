@@ -7,6 +7,9 @@
   context reconciliation, streaming (native `EventSource` in browsers),
   polling and passive refresh, with optional HTTP connect and request timeouts.
 - A poll interval of 0 polls once; any other must be at least 5 seconds.
+- A `readTimeout` option for streaming connections (`dart:io` only).
+- The default mode is `activePolling` (every `pollInterval`, 30 seconds by
+  default), for a client- or a server-evaluated key alike.
 - A `catchAndReleaseMode` option (and `release()`), which can be set when the
   provider is created.
 - A `stores` option for feature stores, attached before connecting.
@@ -33,8 +36,6 @@
   initialization.
 - `mode` is `streaming`, `activePolling` or `passivePolling` (previously
   `streaming`, `polling` or `passive`).
-- A server-evaluated API key (without `*`) has no default mode: `mode` must be
-  given. Client-evaluated keys still stream by default.
 - A context change is not a reason to report stale: only a permanent failure
   (the repository's `connectionFailed`) or a stale environment are. The
   provider initializes if the source stopped for good with its first features

@@ -6,12 +6,14 @@ import 'package:http/http.dart' as http;
 import 'package:logging/logging.dart';
 
 import 'transport/api_keys.dart';
+import 'transport/edge_request.dart';
 import 'transport/featurehub_transport.dart'
     show
         decodeFeatureHubEventData,
         defaultReconnectPolicy,
         featureHubConfigIsStale,
         featureHubEventShowsConnectionWorks;
+import 'transport/streaming_limits.dart';
 import 'repository.dart';
 
 final _log = Logger('featurehub_io_eventsource');
@@ -29,14 +31,24 @@ final _log = Logger('featurehub_io_eventsource');
 /// With a client-evaluated API key (containing `*`) the server sends every
 /// feature's rollout strategies, which the repository applies locally, so the
 /// client context is never sent and a context change needs no reconnection.
+///
+/// Each connection is to `<host>/features/<key>?contextSha=...&sdk_version=2`
+/// ([edgeSdkVersion]): the event source keeps the last event id and sends it
+/// as `Last-Event-ID` when it reconnects, so Edge may hold the connection
+/// with nothing to send and then say `bye`, which ends it cleanly. A new
+/// context is a new event source, so it never sends the old context's id. A
+/// connection that ends within [shortConnectionThreshold] of opening is a
+/// failed attempt, whatever it sent.
 class EventSourceRepositoryListener {
   final ClientFeatureRepository _repository;
   StreamSubscription<Event>? _subscription;
-  final String _url;
+  final EdgeHost _host;
+  final String _apiKey;
   final bool _clientEvaluated;
   final ReconnectPolicy _reconnectPolicy;
   final Duration? _connectTimeout;
   final Duration? _requestTimeout;
+  final Duration? _readTimeout;
 
   /// Sent when connecting, for example for a proxy or gateway.
   final Map<String, String> _headers;
@@ -62,17 +74,33 @@ class EventSourceRepositoryListener {
     this._reconnectPolicy = defaultReconnectPolicy,
     this._connectTimeout,
     this._requestTimeout,
+    this._readTimeout,
     this._headers = const {},
     this._client,
   }) : _repository = repository,
        _clientEvaluated = isClientEvaluatedKeys([apiKey]),
-       _url = '$url${url.endsWith('/') ? '' : '/'}features/$apiKey' {
+       _host = EdgeHost(url),
+       _apiKey = apiKey {
+    final readTimeout = _readTimeout;
+    if (readTimeout != null && readTimeout <= quietConnectionLimit) {
+      _log.warning(
+        'featurehub: a streaming read timeout of $readTimeout is too short: '
+        'FeatureHub Edge may send nothing for up to '
+        '${quietConnectionLimit.inMinutes} minutes, and each quiet connection '
+        'will be dropped as a failure.',
+      );
+    }
     if (doInit ?? true) {
       init();
     }
   }
 
   bool get closed => _closed;
+
+  /// The URL connected to: for a server-evaluated key it carries the
+  /// context's `contextSha`.
+  String get connectionUrl =>
+      _host.streamUrl(_apiKey, xFeatureHubHeader: _xFeaturehubHeader);
 
   /// True if the API key is client-evaluated.
   bool get clientEvaluated => _clientEvaluated;
@@ -126,9 +154,10 @@ class EventSourceRepositoryListener {
   Future<void> _init() async {
     final generation = _generation;
     _closed = false;
-    _log.fine('Connecting to $_url');
+    final url = connectionUrl;
+    _log.fine('Connecting to $url');
 
-    final eventStream = await connect(_url);
+    final eventStream = await connect(url);
     if (generation != _generation) {
       // dropped (by a newer context, a retry or close) while connecting:
       // the stream has not been listened to, so it has not opened
@@ -141,6 +170,12 @@ class EventSourceRepositoryListener {
         _log.fine('Event is ${event.event} value ${event.data}');
 
         if (event is EventSourceReconnect) {
+          if (event.consecutiveShortConnections ==
+              shortConnectionWarningAfter) {
+            _log.warning(
+              shortConnectionsWarning(event.consecutiveShortConnections),
+            );
+          }
           // the connection was lost and the event source is reconnecting
           if (!_repository.connectionFailed) {
             _repository.notify(SSEResultState.bye, null);
@@ -197,10 +232,13 @@ class EventSourceRepositoryListener {
       reconnectPolicy: _reconnectPolicy,
       connectTimeout: _connectTimeout,
       requestTimeout: _requestTimeout,
+      readTimeout: _readTimeout,
       // the failed attempts start again only once FeatureHub has sent
-      // something, not when a connection merely opens
+      // something, not when a connection merely opens, and only once the
+      // connection has lasted: a short one is a failure whatever it sent
       resetAttemptsOn: (event) =>
           featureHubEventShowsConnectionWorks(event.event),
+      shortConnectionThreshold: shortConnectionThreshold,
     );
     // only keep it if it has not been dropped while connecting
     if (generation == _generation) _es = es;

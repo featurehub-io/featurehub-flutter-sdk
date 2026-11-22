@@ -83,23 +83,23 @@ void main() {
     );
   });
 
-  test('a server-evaluated key has no default mode', () {
-    expect(
-      () => FeatureHubProvider(host: 'http://x', apiKey: 'lingling/kwong'),
-      throwsA(isA<ArgumentError>().having((e) => e.name, 'name', 'mode')),
-    );
+  // conformance: client-default-mode
+  test('polls by default, for any key', () {
+    for (final key in ['lingling/kwong', 'lingling/kwong*orm']) {
+      final p = FeatureHubProvider(host: 'http://x', apiKey: key);
+      expect(p.mode, fh.FeatureHubUpdateMode.activePolling, reason: key);
+      expect(p.pollInterval, const Duration(seconds: 30), reason: key);
+    }
     for (final mode in fh.FeatureHubUpdateMode.values) {
-      FeatureHubProvider(
-        host: 'http://x',
-        apiKey: 'lingling/kwong',
-        mode: mode,
+      expect(
+        FeatureHubProvider(
+          host: 'http://x',
+          apiKey: 'lingling/kwong',
+          mode: mode,
+        ).mode,
+        mode,
       );
     }
-    // a client-evaluated key streams by default
-    expect(
-      FeatureHubProvider(host: 'http://x', apiKey: 'lingling/kwong*orm').mode,
-      fh.FeatureHubUpdateMode.streaming,
-    );
   });
 
   test('without a host and api key, requires a featuresUrl or stores', () {

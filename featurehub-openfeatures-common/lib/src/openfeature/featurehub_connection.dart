@@ -53,8 +53,9 @@ class FeatureHubConnection {
   /// How the features are fetched. By default [FeatureHubUpdateMode.streaming]
   /// from FeatureHub with a client-evaluated key, and
   /// [FeatureHubUpdateMode.activePolling] from a [featuresUrl] (which is only
-  /// polled), as the providers do. A server-evaluated key has no default: the
-  /// mode must be given.
+  /// polled). A server-evaluated key has no default here: the mode must be
+  /// given. The providers always give one: the client provider polls unless
+  /// told otherwise, and the server provider streams.
   final FeatureHubUpdateMode mode;
   final Duration pollInterval;
 
@@ -78,7 +79,10 @@ class FeatureHubConnection {
   /// by the browser). [requestTimeout] limits how long a polling request may
   /// take, or how long a streaming connection attempt waits for the stream to
   /// open (a streaming attempt that times out is retried according to
-  /// [reconnectPolicy]). Both default to waiting indefinitely.
+  /// [reconnectPolicy]). [readTimeout] limits how long an open streaming
+  /// connection may go without data before it is dropped and reconnected
+  /// (`dart:io` only); FeatureHub may send nothing for up to 5 minutes, so a
+  /// shorter one is warned about. All default to waiting indefinitely.
   ///
   /// [dio] makes the polling requests (to FeatureHub or [featuresUrl]) and
   /// [httpClient] the streaming connections (on `dart:io`), for example
@@ -104,6 +108,7 @@ class FeatureHubConnection {
     ReconnectPolicy reconnectPolicy = defaultReconnectPolicy,
     Duration? connectTimeout,
     Duration? requestTimeout,
+    Duration? readTimeout,
     Dio? dio,
     http.Client? httpClient,
     FeatureHubTransportFactory? transportFactory,
@@ -168,6 +173,7 @@ class FeatureHubConnection {
       reconnectPolicy: reconnectPolicy,
       connectTimeout: connectTimeout,
       requestTimeout: requestTimeout,
+      readTimeout: readTimeout,
       dio: dio,
       httpClient: httpClient,
       sendsContext: !clientEvaluated,

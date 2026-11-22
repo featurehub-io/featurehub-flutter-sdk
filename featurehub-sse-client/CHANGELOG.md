@@ -11,6 +11,12 @@
 - `EventSource.connect` takes an optional `connectTimeout` (for the client it creates when none is supplied;
   `dart:io` only) and `requestTimeout` (how long each connection attempt waits for the server to respond). An attempt
   that times out is a network error (status `0`), retried under the reconnect policy; the initial `connect` throws
+- `EventSource.connect` takes an optional `shortConnectionThreshold`: a connection that opens and ends sooner after
+  its request was sent, cleanly or not, is a failed attempt, and the reset its events earn (`resetAttemptsOn`) is
+  only made once that long has passed. `EventSourceReconnect` says whether the connection was short (`shortConnection`) and how many
+  in a row were (`consecutiveShortConnections`)
+- `EventSource.connect` takes an optional `readTimeout`: an open connection that receives nothing for that long is
+  dropped as a network error and retried under the reconnect policy
 * 1.4.0
 - requires Dart SDK 3.10 or later; upgraded dependencies (http ^1.5.0, collection, http_parser, logging)
 - removed use of http's private `encodingForCharset`, which newer http versions no longer provide

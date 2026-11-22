@@ -44,10 +44,12 @@ void main() {
         'feature',
         'delete_feature',
         'config',
+        // Edge's bye ends a (possibly quiet) connection cleanly
+        'bye',
       ]) {
         expect(featureHubEventShowsConnectionWorks(event), true, reason: event);
       }
-      for (final event in ['bye', 'error', 'failure', 'message', null]) {
+      for (final event in ['error', 'failure', 'message', null]) {
         expect(
           featureHubEventShowsConnectionWorks(event),
           false,

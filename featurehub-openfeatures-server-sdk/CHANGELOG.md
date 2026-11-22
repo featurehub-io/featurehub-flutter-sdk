@@ -5,11 +5,21 @@
 - First release: the FeatureHub provider for the OpenFeature Dart server SDK,
   supporting client- and server-evaluated API keys, streaming, polling and
   passive refresh, with optional HTTP connect and request timeouts.
-- The host, API key and poll interval can come from `FEATUREHUB_EDGE_URL`,
-  `FEATUREHUB_CLIENT_API_KEY` (preferred) or `FEATUREHUB_SERVER_API_KEY`, and
-  `FEATUREHUB_POLL_INTERVAL`. The provider streams unless there is a poll
-  interval. A poll interval of 0 polls once; any other must be at least
-  5 seconds.
+- The host, API key, mode and poll interval can come from
+  `FEATUREHUB_EDGE_URL`, `FEATUREHUB_CLIENT_API_KEY` (preferred) or
+  `FEATUREHUB_SERVER_API_KEY`, `FEATUREHUB_CONNECT_TYPE` (`active`, `passive`
+  or `streaming`) and `FEATUREHUB_CONNECT_INTERVAL` (a duration such as `30s`).
+  The provider streams unless there is a mode or a poll interval. A poll
+  interval of 0 polls once; any other must be at least 5 seconds. Polling
+  takes its request timeout from `FEATUREHUB_POLLING_REQ_TIMEOUT`; streaming
+  its connect and read timeouts from `FEATUREHUB_SSE_CONNECT_TIMEOUT` and
+  `FEATUREHUB_SSE_READ_TIMEOUT`, and, without a `reconnectPolicy`, its delays
+  from `FEATUREHUB_SSE_INITIAL_RETRY_DELAY`, `FEATUREHUB_SSE_MAX_RETRY_DELAY`
+  and `FEATUREHUB_SSE_BACKOFF_MULTIPLIER`. Every duration is one number and a
+  unit (`ms`, `s`, `m`, `h`); an invalid value is an `ArgumentError`.
+- A `readTimeout` option for streaming connections.
+- Without a mode or a poll interval, the provider streams, for a client- or a
+  server-evaluated key alike.
 - A `catchAndReleaseMode` option (and `release()`), which can be set when the
   provider is created.
 - A `stores` option for feature stores, attached before connecting.
@@ -41,9 +51,6 @@
   rejection before any features still fails initialization.
 - `mode` is `streaming`, `activePolling` or `passivePolling` (previously
   `streaming`, `polling` or `passive`).
-- A server-evaluated API key (without `*`) has no default mode: `mode` must be
-  given (or a
-  `FEATUREHUB_POLL_INTERVAL`, which polls). Client-evaluated keys still stream by default.
 - A context change is not a reason to report stale: only a permanent failure
   (the repository's `connectionFailed`) or a stale environment are. The
   provider initializes if the source stopped for good with its first features

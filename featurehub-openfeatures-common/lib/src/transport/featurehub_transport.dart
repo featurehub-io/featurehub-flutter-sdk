@@ -117,16 +117,22 @@ bool featureHubShouldRetryStatus(int statusCode) =>
 
 /// Whether a FeatureHub event (by its `event:` name) shows that a streaming
 /// connection works, so the count of consecutive failed reconnection
-/// attempts starts again: `ack`, `features`, `feature`, `delete_feature` or
-/// `config`. Not merely opening (a 200), and not `bye`, `error` or
-/// `failure`: a server or proxy that accepts connections and drops them at
-/// once must still back off, and use up the maximum attempts.
+/// attempts starts again: `ack`, `features`, `feature`, `delete_feature`,
+/// `config` or `bye`. A `bye` counts because Edge sends one whenever it ends
+/// a connection itself, including a quiet one that delivered nothing else
+/// (for a `Last-Event-ID` that is current). Not merely opening (a 200), and
+/// not `error` or `failure`: a server or proxy that accepts connections and
+/// drops them at once must still back off, and use up the maximum attempts.
+/// Nor anything in a connection that ends within 10 seconds (a short
+/// connection): the reset is only made once a connection has lasted that
+/// long.
 bool featureHubEventShowsConnectionWorks(String? event) => const {
   'ack',
   'features',
   'feature',
   'delete_feature',
   'config',
+  'bye',
 }.contains(event);
 
 /// True if the `data:` of a FeatureHub `config` event says the environment
@@ -187,6 +193,11 @@ class FeatureHubTransportTarget {
   final Duration? connectTimeout;
   final Duration? requestTimeout;
 
+  /// Streaming: how long an open connection may go without receiving
+  /// anything before it is dropped and reconnected. Null waits indefinitely.
+  /// FeatureHub may send nothing for up to 5 minutes, so it should be longer.
+  final Duration? readTimeout;
+
   /// The [Dio] given for HTTP requests (for example configured with a
   /// proxy), if any.
   final Dio? dio;
@@ -212,6 +223,7 @@ class FeatureHubTransportTarget {
     this.reconnectPolicy = defaultReconnectPolicy,
     this.connectTimeout,
     this.requestTimeout,
+    this.readTimeout,
     this.dio,
     this.httpClient,
     this.sendsContext = false,
