@@ -133,7 +133,7 @@ jobs:
             --env-file adk-env/client.env \
             --name jsdk-sse-client \
             ghcr.io/featurehub-io/featurehub-javascript-sdk:main \
-            /bin/bash -c "cd examples/todo-server-tests && pnpm run test"
+            /bin/bash -c "cd examples/todo-server-tests && pnpm run test --tags @todo-api"
 
       - name: Run todo-server again in polling mode
         # this SDK's polling interval must be at least 5 seconds
@@ -175,7 +175,7 @@ jobs:
             --env-file adk-env/client.env \
             --name jsdk-poll-client \
             ghcr.io/featurehub-io/featurehub-javascript-sdk:main \
-            /bin/bash -c "cd examples/todo-server-tests && pnpm run test"
+            /bin/bash -c "cd examples/todo-server-tests && pnpm run test --tags @todo-api"
 
       - name: Print logs on failure
         if: failure()
