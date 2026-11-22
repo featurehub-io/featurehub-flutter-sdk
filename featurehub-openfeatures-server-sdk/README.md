@@ -48,6 +48,21 @@ features change. A provider polls it with `featuresUrl`. Serving features
 this way needs a client-evaluated key, so the example refuses to start with a
 server-evaluated one.
 
+The repository's `Dockerfile` builds the example into an image (build it from
+the repository root), with `/health/liveness` and `/health/readiness` for
+health checks:
+
+```shell
+docker build -t todo-server .
+docker run -p 8099:8099 -e FEATUREHUB_EDGE_URL=http://localhost:8085 \
+  -e FEATUREHUB_CLIENT_API_KEY='default/<environment>/<client-evaluated key>' \
+  todo-server
+```
+
+The `e2e-tests` workflow runs that image against a FeatureHub party server
+and drives it with the JavaScript SDK's todo-server tests, streaming and
+polling.
+
 ## Configuration from the environment
 
 Anything not passed to `FeatureHubProvider` is read from the environment:

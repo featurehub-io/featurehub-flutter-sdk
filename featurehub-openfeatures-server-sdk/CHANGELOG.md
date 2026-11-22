@@ -18,6 +18,8 @@
   and `FEATUREHUB_SSE_BACKOFF_MULTIPLIER`. Every duration is one number and a
   unit (`ms`, `s`, `m`, `h`); an invalid value is an `ArgumentError`.
 - A `readTimeout` option for streaming connections.
+- The example has `/health/liveness`, stops cleanly on `SIGTERM` as well as
+  Ctrl-C, and is built into an image by the repository's `Dockerfile`.
 - Without a mode or a poll interval, the provider streams, for a client- or a
   server-evaluated key alike.
 - A `catchAndReleaseMode` option (and `release()`), which can be set when the

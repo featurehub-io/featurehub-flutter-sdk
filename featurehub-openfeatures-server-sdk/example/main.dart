@@ -301,6 +301,8 @@ Router buildRouter(
       return todoList(client, user);
     })
     ..get('/features', (Request request) => features(request, provider))
+    // the process is up and serving requests, whether or not it has features
+    ..get('/health/liveness', (Request request) => Response.ok('OK'))
     ..get(
       '/health/readiness',
       (Request request) =>
@@ -382,8 +384,11 @@ Future<void> main() async {
   final server = await shelf_io.serve(handler, InternetAddress.anyIPv4, port);
   _log.info('listening on http://${server.address.host}:${server.port}');
 
-  // shut down cleanly on Ctrl-C
-  await ProcessSignal.sigint.watch().first;
+  // shut down cleanly on Ctrl-C, or when a container is stopped (SIGTERM)
+  await Future.any([
+    ProcessSignal.sigint.watch().first,
+    if (!Platform.isWindows) ProcessSignal.sigterm.watch().first,
+  ]);
   _log.info('shutting down');
   await server.close();
   await OpenFeatureAPI.resetInstance();
