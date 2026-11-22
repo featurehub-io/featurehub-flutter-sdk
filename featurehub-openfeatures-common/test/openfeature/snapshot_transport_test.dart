@@ -96,6 +96,8 @@ class _FeatureServer {
   }
 }
 
+const _slow = Timeout(Duration(seconds: 15));
+
 void main() {
   // these tests poll far faster than applications may
   setUpAll(() => minPollingInterval = const Duration(milliseconds: 1));
@@ -183,23 +185,27 @@ void main() {
     },
   );
 
-  test('polls with If-None-Match, and loads features that changed', () async {
-    final c = connect(pollInterval: const Duration(milliseconds: 1500));
-    await c.start(context: mapEvaluationContext({'country': 'nz'}));
-    await ready(c);
-    final etag = '"${server.repository.featuresSha}"';
+  test(
+    'polls with If-None-Match, and loads features that changed',
+    timeout: _slow,
+    () async {
+      final c = connect(pollInterval: const Duration(milliseconds: 1500));
+      await c.start(context: mapEvaluationContext({'country': 'nz'}));
+      await ready(c);
+      final etag = '"${server.repository.featuresSha}"';
 
-    await Future<void>.delayed(const Duration(milliseconds: 1700));
-    expect(server.requests, hasLength(2));
-    expect(server.requests.last.headers.value('if-none-match'), etag);
-    expect(c.repository.evaluate('colour').value, 'green');
+      await Future<void>.delayed(const Duration(milliseconds: 1700));
+      expect(server.requests, hasLength(2));
+      expect(server.requests.last.headers.value('if-none-match'), etag);
+      expect(c.repository.evaluate('colour').value, 'green');
 
-    server.update([_colour(version: 2, nz: 'silver')]);
-    await Future<void>.delayed(const Duration(milliseconds: 1500));
-    expect(server.requests, hasLength(3));
-    expect(c.repository.evaluate('colour').value, 'silver');
-    expect(c.repository.featuresSha, server.repository.featuresSha);
-  }, timeout: const Timeout(Duration(seconds: 15)));
+      server.update([_colour(version: 2, nz: 'silver')]);
+      await Future<void>.delayed(const Duration(milliseconds: 1500));
+      expect(server.requests, hasLength(3));
+      expect(c.repository.evaluate('colour').value, 'silver');
+      expect(c.repository.featuresSha, server.repository.featuresSha);
+    },
+  );
 
   test('a context change fetches the features for it at once', () async {
     final c = connect(pollInterval: const Duration(hours: 1));
@@ -292,7 +298,7 @@ void main() {
     );
   });
 
-  test('a server error is retried at the next poll', () async {
+  test('a server error is retried at the next poll', timeout: _slow, () async {
     server.failWith = 500;
     final c = connect(pollInterval: const Duration(milliseconds: 1100));
     await c.start();
@@ -300,35 +306,43 @@ void main() {
 
     server.failWith = null;
     expect(await ready(c), Readyness.Ready);
-  }, timeout: const Timeout(Duration(seconds: 15)));
+  });
 
-  test('a 408 is a rejection too; only a 429 is retried', () async {
-    server.failWith = 408;
-    final c = connect(pollInterval: const Duration(milliseconds: 1000));
-    await c.start();
-    expect(await ready(c), Readyness.Failed);
-    await Future<void>.delayed(const Duration(milliseconds: 1200));
-    expect(server.requests, hasLength(1));
-  }, timeout: const Timeout(Duration(seconds: 15)));
+  test(
+    'a 408 is a rejection too; only a 429 is retried',
+    timeout: _slow,
+    () async {
+      server.failWith = 408;
+      final c = connect(pollInterval: const Duration(milliseconds: 1000));
+      await c.start();
+      expect(await ready(c), Readyness.Failed);
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+      expect(server.requests, hasLength(1));
+    },
+  );
 
-  test('a 429 is retried at the next poll', () async {
+  test('a 429 is retried at the next poll', timeout: _slow, () async {
     server.failWith = 429;
     final c = connect(pollInterval: const Duration(milliseconds: 1000));
     await c.start();
     expect(c.repository.readyness, Readyness.NotReady);
     server.failWith = null;
     expect(await ready(c), Readyness.Ready);
-  }, timeout: const Timeout(Duration(seconds: 15)));
+  });
 
-  test('a rejection (4xx) fails the repository and stops polling', () async {
-    server.failWith = 401;
-    final c = connect(pollInterval: const Duration(milliseconds: 1000));
-    await c.start();
-    expect(await ready(c), Readyness.Failed);
+  test(
+    'a rejection (4xx) fails the repository and stops polling',
+    timeout: _slow,
+    () async {
+      server.failWith = 401;
+      final c = connect(pollInterval: const Duration(milliseconds: 1000));
+      await c.start();
+      expect(await ready(c), Readyness.Failed);
 
-    await Future<void>.delayed(const Duration(milliseconds: 1200));
-    expect(server.requests, hasLength(1));
-  }, timeout: const Timeout(Duration(seconds: 15)));
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+      expect(server.requests, hasLength(1));
+    },
+  );
 
   test('a response that is not a snapshot leaves it not ready', () async {
     server.body = '<html></html>';

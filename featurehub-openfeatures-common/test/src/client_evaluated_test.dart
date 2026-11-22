@@ -36,9 +36,12 @@ FeatureState _colour() => FeatureState(
       id: 'new-app',
       value: 'purple',
       attributes: [
-        _attr('version', RolloutStrategyAttributeConditional.GREATER_EQUALS, [
-          '2.0.0',
-        ], RolloutStrategyFieldType.SEMANTIC_VERSION),
+        _attr(
+          'version',
+          RolloutStrategyAttributeConditional.GREATER_EQUALS,
+          const ['2.0.0'],
+          RolloutStrategyFieldType.SEMANTIC_VERSION,
+        ),
       ],
     ),
   ],
