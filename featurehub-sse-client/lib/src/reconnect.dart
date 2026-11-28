@@ -26,8 +26,10 @@ class ReconnectPolicy {
   final Duration serverErrorDelay;
 
   /// The maximum number of consecutive reconnection attempts before the event
-  /// source gives up and closes. The count resets whenever a connection is
-  /// successfully opened. `null` means retry forever.
+  /// source gives up and closes. The count resets when a connection opens,
+  /// or, with the event source's `resetAttemptsOn`, when it delivers an event
+  /// showing that it works (with a `shortConnectionThreshold`, only once the
+  /// connection has lasted that long). `null` means retry forever.
   final int? maxAttempts;
 
   /// Each consecutive failed attempt multiplies the delay by this factor.
@@ -98,12 +100,22 @@ class EventSourceReconnect extends Event {
   /// closed the stream.
   final Object? error;
 
+  /// True if the connection that ended had opened, but ended before the
+  /// event source's `shortConnectionThreshold`.
+  final bool shortConnection;
+
+  /// How many connections in a row have ended before the event source's
+  /// `shortConnectionThreshold`, this one included.
+  final int consecutiveShortConnections;
+
   EventSourceReconnect({
     required this.attempt,
     required this.maxAttempts,
     required this.delay,
     this.statusCode,
     this.error,
+    this.shortConnection = false,
+    this.consecutiveShortConnections = 0,
     super.id,
   }) : super(event: "reconnect");
 

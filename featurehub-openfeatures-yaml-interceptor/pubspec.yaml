@@ -1,0 +1,25 @@
+name: featurehub_openfeatures_yaml_interceptor
+version: 1.0.0
+description: Feature values from a local YAML file for the FeatureHub OpenFeature providers, for development and testing.
+repository: https://github.com/featurehub-io/featurehub-flutter-sdk/tree/main/featurehub-openfeatures-yaml-interceptor
+homepage: https://www.featurehub.io
+environment:
+  sdk: ^3.12.2
+# reads local files (dart:io)
+platforms:
+  android:
+  ios:
+  linux:
+  macos:
+  windows:
+dependencies:
+  crypto: ^3.0.6
+  featurehub_client_api:
+    path: ../featurehub-client-api
+  featurehub_openfeatures_common:
+    path: ../featurehub-openfeatures-common
+  logging: ^1.3.0
+  yaml: ^3.1.3
+dev_dependencies:
+  lints: ^6.0.0
+  test: ^1.26.3

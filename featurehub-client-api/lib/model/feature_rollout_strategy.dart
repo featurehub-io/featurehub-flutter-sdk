@@ -53,10 +53,9 @@ class FeatureRolloutStrategy {
   static List<FeatureRolloutStrategyAttribute> fromJson_attributes(
       Map<String, dynamic> json) {
     final _jsonData = json[r'attributes'];
-    if (_jsonData == null) {
-      throw DeserialisationError(json, r'attributes', r'',
-          'attributes field is null and is required to have a value');
-    }
+    // attributes is nullable (a pure percentage strategy has none), and other
+    // FeatureHub SDKs may write null: decode it as an empty list. Keep this if
+    // the client is regenerated.
     return (_jsonData == null)
         ? []
         : ((dynamic data) {

@@ -4,6 +4,7 @@ import "dart:async";
 import "dart:convert";
 
 import "package:featurehub_sse_client/featurehub_sse_client.dart";
+import "package:featurehub_sse_client/src/limits.dart";
 import "package:featurehub_sse_client/src/decoder.dart";
 import "package:featurehub_sse_client/src/encoder.dart";
 import "package:http/http.dart" as http;
@@ -27,7 +28,19 @@ Future<List<Event>> _decode(Object input, {EventSourceDecoder? decoder}) {
       .toList();
 }
 
+const _eventStream = {"content-type": "text/event-stream"};
+
 void main() {
+  // these tests reconnect far faster than applications may
+  setUpAll(() {
+    minReconnectDelay = Duration.zero;
+    minServerRetryDelay = Duration.zero;
+  });
+  tearDownAll(() {
+    minReconnectDelay = defaultMinReconnectDelay;
+    minServerRetryDelay = defaultMinServerRetryDelay;
+  });
+
   group("encoder", () {
     test("vectors", () {
       var encoder = EventSourceEncoder();
@@ -220,10 +233,14 @@ void main() {
           Future.delayed(const Duration(milliseconds: 20), () {
             first.addError(Exception("connection dropped"));
           });
-          return http.StreamedResponse(first.stream, 200);
+          return http.StreamedResponse(
+            first.stream,
+            200,
+            headers: _eventStream,
+          );
         }
         reconnected.complete();
-        return http.StreamedResponse(second.stream, 200);
+        return http.StreamedResponse(second.stream, 200, headers: _eventStream);
       });
 
       final es = await EventSource.connect(
@@ -252,7 +269,7 @@ void main() {
       final body = StreamController<List<int>>();
       final client = MockClient.streaming((request, _) async {
         requests.add(request);
-        return http.StreamedResponse(body.stream, 200);
+        return http.StreamedResponse(body.stream, 200, headers: _eventStream);
       });
 
       await EventSource.connect(

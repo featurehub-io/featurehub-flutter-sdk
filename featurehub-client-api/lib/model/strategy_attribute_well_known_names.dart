@@ -10,7 +10,8 @@ enum StrategyAttributeWellKnownNames {
   platform,
   userkey,
   session,
-  version
+  version,
+  fhubWhenActive
 }
 
 extension StrategyAttributeWellKnownNamesExtension
@@ -26,7 +27,8 @@ extension StrategyAttributeWellKnownNamesExtension
     'platform': StrategyAttributeWellKnownNames.platform,
     'userkey': StrategyAttributeWellKnownNames.userkey,
     'session': StrategyAttributeWellKnownNames.session,
-    'version': StrategyAttributeWellKnownNames.version
+    'version': StrategyAttributeWellKnownNames.version,
+    'fhubWhenActive': StrategyAttributeWellKnownNames.fhubWhenActive
   };
   static Map<StrategyAttributeWellKnownNames, String> toMap = {
     StrategyAttributeWellKnownNames.device: 'device',
@@ -34,7 +36,8 @@ extension StrategyAttributeWellKnownNamesExtension
     StrategyAttributeWellKnownNames.platform: 'platform',
     StrategyAttributeWellKnownNames.userkey: 'userkey',
     StrategyAttributeWellKnownNames.session: 'session',
-    StrategyAttributeWellKnownNames.version: 'version'
+    StrategyAttributeWellKnownNames.version: 'version',
+    StrategyAttributeWellKnownNames.fhubWhenActive: 'fhubWhenActive'
   };
 
   static StrategyAttributeWellKnownNames? fromJson(dynamic data) =>

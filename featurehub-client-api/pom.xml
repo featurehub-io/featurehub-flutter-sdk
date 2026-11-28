@@ -107,7 +107,7 @@
             <phase>generate-sources</phase>
             <configuration>
               <output>${project.basedir}</output>
-              <inputSpec>http://api.dev.featurehub.io/edge/1.1.8.yaml</inputSpec>
+              <inputSpec>http://api.dev.featurehub.io/edge/1.2.0.yaml</inputSpec>
               <generatorName>dart2-api</generatorName>
               <enablePostProcessFile>true</enablePostProcessFile>
               <additionalProperties>
