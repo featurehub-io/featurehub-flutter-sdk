@@ -60,12 +60,12 @@ a SHA-256 of their sorted `id:version`s under `<prefix>_<environment id>_sha`.
   (`WATCH`/`MULTI`/`EXEC`): if another process wrote first, the two sets are
   merged so that a newer version of a feature is never replaced by an older
   one, and the write is retried.
+- **Removing features:** a feature deleted in FeatureHub is removed from
+  Redis, even if another process wrote first. When a full set from
+  FeatureHub leaves out a feature that this process last saw in Redis, the
+  feature is removed. A feature that another process added since is kept.
 - **Every `refreshInterval`** the store compares the SHA with the one it last
   saw, and loads the features if another process has changed them.
-
-As in the TypeScript store, a deletion is skipped if another process has
-written since this one last read Redis; the other processes receive the same
-deletion from FeatureHub.
 
 ## Testing
 

@@ -418,4 +418,58 @@ void main() {
       repo.shutdown();
     });
   });
+
+  group('a removed feature', () {
+    FeatureState chago(int version, String value) => FeatureState(
+      id: 'chago',
+      key: 'chago',
+      type: FeatureValueType.STRING,
+      version: version,
+      value: value,
+    );
+    FeatureState uni() => FeatureState(
+      id: 'uni',
+      key: 'uni',
+      type: FeatureValueType.BOOLEAN,
+      version: 1,
+      value: true,
+    );
+
+    for (final (how, remove) in [
+      (
+        'missing from a full set',
+        (ClientFeatureRepository r) =>
+            r.notify(SSEResultState.features, [uni()]),
+      ),
+      (
+        'deleted',
+        (ClientFeatureRepository r) =>
+            r.notify(SSEResultState.deleteFeature, chago(1, 'x').toJson()),
+      ),
+    ]) {
+      test('$how: a holder already held no longer exists, and hears when it '
+          'comes back', () async {
+        repo.notify(SSEResultState.features, [chago(1, 'tofu'), uni()]);
+        final holder = repo.feature('chago');
+        final values = <Object?>[];
+        final sub = holder.featureUpdateStream.listen(
+          (h) => values.add(h.exists ? h.value : null),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        remove(repo);
+        await Future<void>.delayed(Duration.zero);
+        expect(holder.exists, false);
+        expect(holder.value, isNull);
+        expect(repo.featureStates.map((f) => f.key), ['uni']);
+
+        repo.notify(SSEResultState.feature, chago(2, 'char-siu').toJson());
+        await Future<void>.delayed(Duration.zero);
+        expect(holder.value, 'char-siu');
+        expect(identical(repo.feature('chago'), holder), true);
+        expect(values, ['tofu', null, 'char-siu']);
+        await sub.cancel();
+      });
+    }
+  });
 }

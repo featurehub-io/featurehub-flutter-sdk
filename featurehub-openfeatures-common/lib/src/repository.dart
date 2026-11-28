@@ -134,6 +134,14 @@ class _FeatureStateBaseHolder implements FeatureStateHolder {
     return applied.matched ? applied.value : _value;
   }
 
+  /// The feature no longer exists: this holder (which the application may
+  /// hold) stays the key's, without a feature, until it comes back.
+  void _removed() {
+    _featureState = null;
+    _value = null;
+    _listeners!.add(this);
+  }
+
   set featureState(FeatureState fs) {
     _featureState = fs;
     final oldValue = _value;
@@ -800,9 +808,11 @@ class ClientFeatureRepository {
   bool _featureUpdate(FeatureState feature) {
     var holder = _features[feature.key];
 
-    if (holder == null || holder.key == null) {
-      holder = _FeatureStateBaseHolder(holder, this);
-    } else {
+    if (holder == null) {
+      holder = _FeatureStateBaseHolder(null, this);
+    } else if (holder.key != null) {
+      // (a holder with no feature, only asked for or removed, is the one the
+      // application may hold: it takes the feature as it is)
       if (holder.version != null) {
         // a server-evaluated feature can change value, or matched strategy,
         // without changing version when the context changes; and a feature
@@ -859,19 +869,23 @@ class ClientFeatureRepository {
 
   /// Removes the features whose keys are not in [keys] (keys only asked
   /// for, which have no feature yet, are kept). Returns true if any were.
+  /// Their holders stay, without a feature, and hear of the removal.
   bool _removeMissing(Set<String> keys) {
     final missing = [
-      for (final MapEntry(:key, :value) in _features.entries)
-        if (value._featureState != null && !keys.contains(key)) key,
+      for (final holder in _features.values)
+        if (holder._featureState case final fs? when !keys.contains(fs.key))
+          holder,
     ];
-    for (final key in missing) {
-      _features.remove(key);
+    for (final holder in missing) {
+      holder._removed();
     }
     return missing.isNotEmpty;
   }
 
   void _deleteFeature(({String key, String? id}) feature) {
-    if (_features.remove(feature.key) != null) {
+    final holder = _features[feature.key];
+    if (holder != null && holder._featureState != null) {
+      holder._removed();
       _updateFeaturesSha();
       _featuresChanged();
     }
@@ -885,6 +899,12 @@ class ClientFeatureRepository {
       f.shutdown();
     }
     _features.clear();
+    // the next environment starts afresh: its first features are not caught,
+    // and nothing caught from this one is released into it
+    _hasReceivedInitialState = false;
+    _initialStateResolved = false;
+    _catchReleaseStates.clear();
+    _caughtFullSetKeys = null;
     _updateFeaturesSha();
     if (_readynessState == Readyness.Ready) _setReadyness(Readyness.Stale);
     if (_readynessState == Readyness.Stale) _setReadyness(Readyness.NotReady);

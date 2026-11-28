@@ -56,13 +56,14 @@ class FakeRedis implements RedisCommands {
   Future<void> close() async => closed = true;
 }
 
-FeatureState _feature(String id, int version, {String? value}) => FeatureState(
-  id: id,
-  key: 'key-$id',
-  version: version,
-  type: FeatureValueType.STRING,
-  value: value ?? '$id-v$version',
-);
+FeatureState _feature(String id, int version, {String? value, String? key}) =>
+    FeatureState(
+      id: id,
+      key: key ?? 'key-$id',
+      version: version,
+      type: FeatureValueType.STRING,
+      value: value ?? '$id-v$version',
+    );
 
 const _apiKey = 'default/env-1/key*secret';
 const _featuresKey = 'featurehub_env-1';
@@ -219,6 +220,29 @@ void main() {
       expect(versions, {'a': 5, 'b': 2});
     });
 
+    test('missing a feature removes it, though no version changed', () async {
+      repo.notify(SSEResultState.features, [
+        _feature('a', 1),
+        _feature('b', 1),
+      ]);
+      await _settle();
+      repo.notify(SSEResultState.features, [_feature('b', 1)]);
+      await _settle();
+      expect(stored().map((f) => f.id), ['b']);
+      expect(redis.data[_shaKey], ClientFeatureRepository.computeSha(stored()));
+    });
+
+    test('missing one another process added since keeps it', () async {
+      repo.notify(SSEResultState.features, [_feature('a', 1)]);
+      await _settle();
+      // a newer process wrote a feature this one has not heard of yet
+      external([_feature('a', 1), _feature('kwong', 1)]);
+      repo.notify(SSEResultState.features, [_feature('a', 2)]);
+      await _settle();
+      final versions = {for (final f in stored()) f.id: f.version};
+      expect(versions, {'a': 2, 'kwong': 1});
+    });
+
     test('is retried when another process writes during the write', () async {
       var interrupted = false;
       redis.beforeExec = () {
@@ -295,19 +319,26 @@ void main() {
       expect(stored().map((f) => f.id), ['b']);
     });
 
-    test(
-      'is skipped if another process wrote since this one last read',
-      () async {
-        // as in the TypeScript SDK: another process having written first looks
-        // like newer data, and a deletion has no newer version to keep, so it
-        // is skipped; the other processes receive the same deletion from
-        // FeatureHub
-        external([_feature('a', 1), _feature('b', 1)]);
-        repo.notify(SSEResultState.deleteFeature, _feature('a', 1));
-        await _settle();
-        expect(stored().map((f) => f.id), unorderedEquals(['a', 'b']));
-      },
-    );
+    test('is removed even if another process wrote first', () async {
+      // the deletion comes from FeatureHub: it holds whatever else was
+      // written
+      external([_feature('a', 1), _feature('b', 1)]);
+      repo.notify(SSEResultState.deleteFeature, _feature('a', 1));
+      await _settle();
+      expect(stored().map((f) => f.id), ['b']);
+    });
+
+    test('leaves a feature made again with the same key', () async {
+      external([_feature('juad', 1, key: 'chago')]);
+      await store.refresh();
+      external([_feature('tofu', 1, key: 'chago')]);
+      repo.notify(
+        SSEResultState.deleteFeature,
+        _feature('juad', 1, key: 'chago'),
+      );
+      await _settle();
+      expect(stored().map((f) => f.id), ['tofu']);
+    });
 
     test('that is not stored changes nothing', () async {
       external([_feature('a', 1)]);

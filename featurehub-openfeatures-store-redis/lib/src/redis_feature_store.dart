@@ -30,7 +30,9 @@ const redisStoreSource = 'redis-store';
 /// `<prefix>_<environment id>_sha` a SHA-256 of their ids and versions.
 /// Writes use optimistic locking (`WATCH`/`MULTI`/`EXEC`), merging by
 /// version when another process wrote first, so a newer feature is never
-/// replaced by an older one.
+/// replaced by an older one. A deleted feature is removed, as is one missing
+/// from a full set that this process last saw in Redis (one another process
+/// has added since is kept).
 ///
 /// Only client-evaluated API keys are supported: features evaluated by
 /// FeatureHub for one context must not be shared with others. Redis Cluster
@@ -55,6 +57,10 @@ class RedisFeatureStore implements FeatureStore {
   StreamSubscription<RawFeatureUpdate>? _subscription;
   Timer? _timer;
   String? _lastSha;
+
+  /// The features this process last read from or wrote to Redis: what a
+  /// full set's missing features are judged against.
+  List<FeatureState>? _known;
   bool _active = false;
 
   /// Redis operations run one at a time.
@@ -207,7 +213,7 @@ class RedisFeatureStore implements FeatureStore {
     final Future<void> Function() handler = switch (update) {
       FeaturesReceived(:final features) => () => _processUpdates(features),
       FeatureReceived(:final feature) => () => _processUpdate(feature),
-      FeatureDeleted(:final key) => () => _deleteFeature(key),
+      FeatureDeleted(:final key, :final id) => () => _deleteFeature(key, id),
     };
     _serial(handler).catchError((Object e, StackTrace s) {
       _log.warning('RedisFeatureStore: unable to store $update', e, s);
@@ -230,6 +236,7 @@ class RedisFeatureStore implements FeatureStore {
   Future<void> _loadFromRedis() async {
     final features = await _readFeatures();
     if (features == null) return;
+    _known = features;
     _target!.repository.notify(
       SSEResultState.features,
       features,
@@ -245,26 +252,26 @@ class RedisFeatureStore implements FeatureStore {
     await _loadFromRedis();
   }
 
-  // ---- versions
+  // ---- merging
 
   static int _version(FeatureState f) => f.version;
 
-  static bool _anyIncomingIsNewer(
-    List<FeatureState> incoming,
-    List<FeatureState> existing,
-  ) {
-    final versions = {for (final f in existing) f.id: _version(f)};
-    return incoming.any((f) => _version(f) > (versions[f.id] ?? -1));
-  }
-
-  /// Keeps the higher-versioned copy of each feature.
+  /// [stored] (what Redis holds) with [incoming] applied: each incoming
+  /// feature replaces an older copy (or is added), and the features with an
+  /// id in [removed] are dropped. A feature only in Redis, which another
+  /// process wrote, is kept.
   static List<FeatureState> _merge(
     List<FeatureState> incoming,
-    List<FeatureState> existing,
-  ) {
-    final merged = {for (final f in existing) f.id: f};
+    List<FeatureState> stored, {
+    Set<String> removed = const {},
+  }) {
+    final merged = {
+      for (final f in stored)
+        if (!removed.contains(f.id)) f.id: f,
+    };
     for (final f in incoming) {
-      if (_version(f) > (merged[f.id] == null ? -1 : _version(merged[f.id]!))) {
+      final existing = merged[f.id];
+      if (existing == null || _version(f) > _version(existing)) {
         merged[f.id] = f;
       }
     }
@@ -273,31 +280,28 @@ class RedisFeatureStore implements FeatureStore {
 
   // ---- writing
 
-  Future<void> _storeFeatures(List<FeatureState> features) async {
-    var toWrite = features;
-    var sha = ClientFeatureRepository.computeSha(toWrite);
-
+  /// Writes [incoming] (and removes [removed]) into what Redis holds,
+  /// merging with whatever another process wrote, and retrying when one
+  /// writes meanwhile.
+  Future<void> _storeFeatures(
+    List<FeatureState> incoming, {
+    Set<String> removed = const {},
+  }) async {
     for (var attempt = 0; attempt < retryUpdateCount; attempt++) {
       await _redis.watch(_shaKey);
       final current = await _redis.get(_shaKey);
+      final stored = current == null ? null : await _readFeatures();
+      final toWrite = stored == null
+          ? incoming
+          : _merge(incoming, stored, removed: removed);
+      final sha = ClientFeatureRepository.computeSha(toWrite);
 
       if (current == sha) {
+        // nothing to change (ours are the same, or all older)
         await _redis.unwatch();
         _lastSha = sha;
+        _known = toWrite;
         return;
-      }
-
-      if (current != null && current != _lastSha) {
-        // another process has written since we last did: check versions
-        final stored = await _readFeatures();
-        if (stored != null) {
-          if (!_anyIncomingIsNewer(toWrite, stored)) {
-            await _redis.unwatch();
-            return; // ours are all stale
-          }
-          toWrite = _merge(toWrite, stored);
-          sha = ClientFeatureRepository.computeSha(toWrite);
-        }
       }
 
       final written = await _redis.setAll({
@@ -306,6 +310,7 @@ class RedisFeatureStore implements FeatureStore {
       });
       if (written) {
         _lastSha = sha;
+        _known = toWrite;
         return;
       }
 
@@ -319,33 +324,33 @@ class RedisFeatureStore implements FeatureStore {
     );
   }
 
-  Future<void> _processUpdates(List<FeatureState> features) async {
-    final sha = ClientFeatureRepository.computeSha(features);
-    final stored = await _redis.get(_shaKey);
-    if (sha == stored) return;
-
-    if (stored != null) {
-      final existing = await _readFeatures();
-      if (existing != null && !_anyIncomingIsNewer(features, existing)) return;
-    }
-    await _storeFeatures(features);
+  /// A full set: the features this process last saw in Redis and that are
+  /// missing from it no longer exist (one another process added since is
+  /// not among them, so it is kept).
+  Future<void> _processUpdates(List<FeatureState> features) {
+    final ids = {for (final f in features) f.id};
+    return _storeFeatures(
+      features,
+      removed: {
+        for (final f in _known ?? const <FeatureState>[])
+          if (!ids.contains(f.id)) f.id,
+      },
+    );
   }
 
-  Future<void> _processUpdate(FeatureState feature) async {
-    final stored = await _readFeatures();
-    if (stored != null) {
-      final existing = stored.where((f) => f.id == feature.id).firstOrNull;
-      if (existing != null && _version(existing) >= _version(feature)) return;
-    }
-    await _storeFeatures([
-      ...?stored?.where((f) => f.id != feature.id),
-      feature,
-    ]);
-  }
+  Future<void> _processUpdate(FeatureState feature) =>
+      _storeFeatures([feature]);
 
-  Future<void> _deleteFeature(String key) async {
+  /// FeatureHub deleted the feature: it is removed by its id (or, without
+  /// one, by its key), so a feature made again with the key is not.
+  Future<void> _deleteFeature(String key, String? id) async {
     final stored = await _readFeatures();
-    if (stored == null || !stored.any((f) => f.key == key)) return;
-    await _storeFeatures(stored.where((f) => f.key != key).toList());
+    if (stored == null) return;
+    final removed = {
+      for (final f in stored)
+        if (id != null ? f.id == id : f.key == key) f.id,
+    };
+    if (removed.isEmpty) return;
+    await _storeFeatures(const [], removed: removed);
   }
 }

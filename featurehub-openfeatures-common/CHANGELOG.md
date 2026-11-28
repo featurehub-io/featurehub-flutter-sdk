@@ -25,6 +25,9 @@ OpenFeature providers for Dart.
 * A polling response to a request sent before the context changed is dropped, so it is never taken as the new
   context's features. Once closed, the streaming listeners and polling make no more requests: a context change, a
   `retry()` or a passive refresh no longer opens a new connection
+* `shutdownFeatures()` resets catch and release, so the next environment's first features are not held back and nothing
+  caught from the previous one is released into it. A feature removed (missing from a full set, or deleted) keeps its
+  holder, which no longer exists and hears of the removal, and of the feature coming back
 * `FeatureStoreTarget` gains `sendsContext` and `contextHeader` (the context the provider starts with), and
   `FeatureStoreTarget.contextKey`, so a store can keep each context's features apart
 * `FeatureHubConnection` (and `FeatureHubTransportTarget`) take a `readTimeout` for streaming connections (`dart:io`);

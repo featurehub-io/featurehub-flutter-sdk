@@ -328,4 +328,27 @@ void main() {
       );
     });
   });
+
+  test('swapping environments (shutdownFeatures) does not catch the new '
+      "environment's first features", () async {
+    // the first environment's features came from FeatureHub, so the mode is
+    // active; an update for it is caught
+    repo.notify(SSEResultState.features, [
+      _flag(1, false),
+    ], source: featureHubEdgeSource);
+    repo.notify(SSEResultState.feature, _flag(2, true).toJson());
+
+    repo.shutdownFeatures();
+    expect(repo.readyness, Readyness.NotReady);
+
+    repo.notify(SSEResultState.features, [
+      _flag(1, true, key: 'juad'),
+    ], source: featureHubEdgeSource);
+    expect(repo.readyness, Readyness.Ready);
+    expect(repo.getFlag('juad'), true, reason: 'not held back');
+
+    // nothing caught from the first environment comes back on release
+    await repo.release();
+    expect(repo.feature('flag').exists, false);
+  });
 }
