@@ -12,6 +12,10 @@ OpenFeature providers for Dart.
   a connection cleanly; but a connection that ends within 10 seconds of its request is a failure whatever it sent (a
   cache replaying a closed stream), backed off and counted towards `maxAttempts`, and three in a row are logged as a
   warning. In browsers the listener then closes the `EventSource` and reconnects itself, backing off
+* `FeatureHubFeatureUpdater` changes a feature's value or lock through Edge (`PUT <host>/features/<apiKey>/<key>`), for
+  tests and test tools: `update(key, FeatureUpdate.value(...) / .clear() / .lock(...))` returns a `FeatureUpdateResult`
+  (`applied`, `unchanged`, `invalid`, `forbidden`, `notFound`, `notPossible`, `unavailable` with its `Retry-After`, or
+  `failed`) and never throws for a status or network error. Both providers export it
 * `FeatureHubConnection` streams by default for a server-evaluated key too (it no longer requires a `mode`). It holds
   features for one context at a time: `contextChangePending` (and `contextChangeStartedAt`) say a context change has
   not delivered the new context's features yet, and `setContext` for that same context waits for them again. The

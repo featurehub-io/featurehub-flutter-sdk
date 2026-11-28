@@ -17,6 +17,9 @@
   to their defaults with `providerNotReady`, until the features arrive. Once
   FeatureHub has stopped for good, the last features serve only the context
   they belong to: any other context gets defaults with `providerNotReady`.
+- Exports `FeatureHubFeatureUpdater` (with `FeatureUpdate` and `FeatureUpdateResult`), which changes features' values
+  and locks through FeatureHub Edge, for tests. The example is now FeatureHub's end-to-end todo-server tests, as
+  standard Dart tests, with the provider and the updater as their harness.
 - A `catchAndReleaseMode` option (and `release()`), which can be set when the
   provider is created.
 - A `stores` option for feature stores, attached before connecting.

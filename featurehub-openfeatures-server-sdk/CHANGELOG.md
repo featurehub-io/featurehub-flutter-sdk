@@ -29,6 +29,8 @@
   `PROVIDER_NOT_READY`, and the next waits again. Once FeatureHub has stopped
   for good, the last features serve only the context they belong to: any
   other context gets its default with `PROVIDER_NOT_READY`.
+- Exports `FeatureHubFeatureUpdater` (with `FeatureUpdate` and `FeatureUpdateResult`), which changes features' values
+  and locks through FeatureHub Edge, for tests.
 - A `catchAndReleaseMode` option (and `release()`), which can be set when the
   provider is created.
 - A `stores` option for feature stores, attached before connecting.

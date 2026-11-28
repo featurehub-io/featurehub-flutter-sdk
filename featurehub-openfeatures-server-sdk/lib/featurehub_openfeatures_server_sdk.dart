@@ -19,6 +19,10 @@ library;
 export 'package:featurehub_openfeatures_common/featurehub_openfeatures_common.dart'
     show
         defaultReconnectPolicy,
+        FeatureHubFeatureUpdater,
+        FeatureUpdate,
+        FeatureUpdateOutcome,
+        FeatureUpdateResult,
         FeatureHubUpdateMode,
         FeatureSnapshot,
         FeatureStore,

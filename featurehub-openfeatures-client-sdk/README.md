@@ -30,7 +30,8 @@ await api.setProviderAndWait(
 final enabled = api.getClient().getBooleanValue('new-checkout', false);
 ```
 
-See [`example/main.dart`](example/main.dart).
+The [example](example/README.md) uses the provider, with `FeatureHubFeatureUpdater`, as the harness for
+FeatureHub's end-to-end todo-server tests.
 
 ## API keys
 

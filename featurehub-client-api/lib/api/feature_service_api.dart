@@ -63,17 +63,15 @@ class FeatureServiceApi {
           'Invalid response code ${response.statusCode} returned from API');
     }
 
-    if (response.statusCode == 204) {
+    // 200 and 201: applied; 202: nothing changed (not generated: keep this if
+    // the client is regenerated, which treats every success as an error)
+    if (response.statusCode < 300) {
       return;
     }
 
     final __body = response.body;
-    if (response.statusCode >= 400) {
-      throw ApiException(response.statusCode,
-          __body == null ? null : await decodeBodyBytes(__body));
-    }
-
-    throw ApiException(500, 'Invalid response received for 204 based API');
+    throw ApiException(response.statusCode,
+        __body == null ? null : await decodeBodyBytes(__body));
   }
 
   ///

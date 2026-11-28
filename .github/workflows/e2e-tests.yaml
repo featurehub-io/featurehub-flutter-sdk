@@ -1,8 +1,11 @@
 name: e2e-tests
 
 # end to end tests: runs the OpenFeature server provider's example todo server (Dockerfile,
-# featurehub-openfeatures-server-sdk/example/) against a FeatureHub party server and drives it with the JavaScript
-# SDK's todo-server tests, once streaming and once polling.
+# featurehub-openfeatures-server-sdk/example/) against a FeatureHub party server and drives it with the todo-server
+# tests (featurehub-sdk-docs specs/todo-server-tests.yaml), once streaming and once polling: the JavaScript SDK's
+# cucumber tests, and this repository's own Dart ones (featurehub-openfeatures-client-sdk/example/), which also check
+# the client provider and its feature updater (FeatureHubFeatureUpdater). The Dart tests run a third time reading their
+# features from the todo server's GET /features (FEATUREHUB_SNAPSHOT_URL).
 #
 # It starts on every pull request (and each push to one), but waits for approval before running anything: the job uses
 # the `e2e` environment, whose required reviewers approve it from the pull request's checks or the Actions tab. Waiting
@@ -135,6 +138,21 @@ jobs:
             ghcr.io/featurehub-io/featurehub-javascript-sdk:main \
             /bin/bash -c "cd examples/todo-server-tests && pnpm run test --tags @todo-api"
 
+      - name: Run the Dart todo-server tests against streaming
+        # the client provider streams too; every scenario, the featurehub-only ones (the feature updater and locking)
+        # included
+        timeout-minutes: 10
+        run: |
+          docker run --rm \
+            --network ${{ job.container.network }} \
+            -v $PWD:/repo \
+            -w /repo/featurehub-openfeatures-client-sdk \
+            -e APP_SERVER_URL=http://todo-server:8099 \
+            --env-file adk-env/client.env \
+            --name dart-sse-client \
+            dart:3.12 \
+            sh -c "dart pub get && dart test example/todo_server_test.dart -r expanded"
+
       - name: Run todo-server again in polling mode
         # this SDK's polling interval must be at least 5 seconds
         run: |
@@ -177,6 +195,38 @@ jobs:
             ghcr.io/featurehub-io/featurehub-javascript-sdk:main \
             /bin/bash -c "cd examples/todo-server-tests && pnpm run test --tags @todo-api"
 
+      - name: Run the Dart todo-server tests against polling
+        # FEATUREHUB_CONNECT_INTERVAL: the todo server's interval, which the client provider polls at too
+        timeout-minutes: 10
+        run: |
+          docker run --rm \
+            --network ${{ job.container.network }} \
+            -v $PWD:/repo \
+            -w /repo/featurehub-openfeatures-client-sdk \
+            -e APP_SERVER_URL=http://todo-server:8099 \
+            -e FEATUREHUB_CONNECT_INTERVAL=5s \
+            --env-file adk-env/client.env \
+            --name dart-poll-client \
+            dart:3.12 \
+            sh -c "dart pub get && dart test example/todo_server_test.dart -r expanded -t todo-api"
+
+      - name: Run the Dart todo-server tests reading features from the todo server
+        # the client provider polls the todo server's GET /features (featuresUrl) instead of Edge, so each change
+        # goes FeatureHub -> todo server -> tests; changes are still made through Edge
+        timeout-minutes: 10
+        run: |
+          docker run --rm \
+            --network ${{ job.container.network }} \
+            -v $PWD:/repo \
+            -w /repo/featurehub-openfeatures-client-sdk \
+            -e APP_SERVER_URL=http://todo-server:8099 \
+            -e FEATUREHUB_CONNECT_INTERVAL=5s \
+            -e FEATUREHUB_SNAPSHOT_URL=http://todo-server:8099/features \
+            --env-file adk-env/client.env \
+            --name dart-snapshot-client \
+            dart:3.12 \
+            sh -c "dart pub get && dart test example/todo_server_test.dart -r expanded -t todo-api"
+
       - name: Print logs on failure
         if: failure()
         run: |
@@ -187,4 +237,6 @@ jobs:
 
       - name: Tear down
         if: always()
-        run: docker rm -f todo-server featurehub-setup jsdk-sse-client jsdk-poll-client 2>/dev/null || true
+        run: >-
+          docker rm -f todo-server featurehub-setup jsdk-sse-client jsdk-poll-client dart-sse-client dart-poll-client
+          dart-snapshot-client 2>/dev/null || true
