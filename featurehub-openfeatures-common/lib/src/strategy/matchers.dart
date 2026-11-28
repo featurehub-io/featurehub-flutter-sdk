@@ -93,13 +93,24 @@ class StringMatcher implements StrategyMatcher {
 
 final _dateOnly = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$');
 
-/// Parses a supplied date the way JavaScript's `new Date(string)` does for
-/// ISO formats: a date-only value is UTC, a date-time without an offset is
-/// local time. Returns the instant in UTC, or null if it cannot be parsed.
-DateTime? _parseDate(Object value) {
+/// The only date-time strings accepted (rollout-strategies.yaml
+/// matchers.iso_date_time), matched case-insensitively after trimming.
+final _isoDateTimePattern = RegExp(
+  r'^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$',
+  caseSensitive: false,
+);
+final _hasOffset = RegExp(r'(Z|[+-]\d{2}:?\d{2})$', caseSensitive: false);
+
+/// A date or date-time as an instant in UTC: a [DateTime] as it is, or a
+/// string that is ISO-8601 in the accepted form. A date alone is midnight
+/// UTC, and a date-time without an offset is UTC, never local time. Null for
+/// anything else (a number, `15/06/2020`, `2020-06-15 10:00:00`).
+DateTime? parseIsoDateTime(Object value) {
   if (value is DateTime) return value.toUtc();
   if (value is! String) return null;
-  final dateOnly = _dateOnly.firstMatch(value);
+  final text = value.trim().toUpperCase();
+  if (!_isoDateTimePattern.hasMatch(text)) return null;
+  final dateOnly = _dateOnly.firstMatch(text);
   if (dateOnly != null) {
     return DateTime.utc(
       int.parse(dateOnly.group(1)!),
@@ -107,20 +118,27 @@ DateTime? _parseDate(Object value) {
       int.parse(dateOnly.group(3)!),
     );
   }
-  return DateTime.tryParse(value)?.toUtc();
+  return DateTime.tryParse(
+    _hasOffset.hasMatch(text) ? text : '${text}Z',
+  )?.toUtc();
 }
+
+/// [utc] truncated to the whole second.
+DateTime truncateToSecond(DateTime utc) =>
+    utc.subtract(Duration(microseconds: utc.microsecondsSinceEpoch % 1000000));
 
 String _isoDate(DateTime utc) => utc.toIso8601String().substring(0, 10);
 
-String _isoDateTime(DateTime utc) =>
-    '${utc.toIso8601String().substring(0, 19)}Z';
+/// [utc] as `YYYY-MM-DDTHH:MM:SSZ` (fractions of a second dropped).
+String isoDateTimeToSecond(DateTime utc) =>
+    '${utc.toUtc().toIso8601String().substring(0, 19)}Z';
 
 class DateMatcher extends StringMatcher {
   const DateMatcher();
 
   @override
   bool match(Object suppliedValue, FeatureRolloutStrategyAttribute attr) {
-    final parsed = _parseDate(suppliedValue);
+    final parsed = parseIsoDateTime(suppliedValue);
     if (parsed == null) return false;
     return matchString(_isoDate(parsed), attr);
   }
@@ -138,20 +156,19 @@ class DateTimeMatcher extends StringMatcher {
 
   @override
   bool match(Object suppliedValue, FeatureRolloutStrategyAttribute attr) {
-    final parsed = _parseDate(suppliedValue);
+    final parsed = parseIsoDateTime(suppliedValue);
     if (parsed == null) return false;
-    return matchString(_isoDateTime(parsed), attr);
+    return matchString(isoDateTimeToSecond(parsed), attr);
   }
 
+  /// Each value that is an ISO-8601 date or date-time is normalised as the
+  /// supplied value is (UTC, to the second); any other is used as it is.
   @override
-  List<String> attrToStringValues(FeatureRolloutStrategyAttribute attr) => attr
-      .values
-      .where((v) => v != null)
-      .map(
-        (v) =>
-            v is DateTime ? _isoDateTime(v.toUtc()) : jsToString(v as Object),
-      )
-      .toList();
+  List<String> attrToStringValues(FeatureRolloutStrategyAttribute attr) =>
+      attr.values.where((v) => v != null).map((v) {
+        final parsed = parseIsoDateTime(v as Object);
+        return parsed != null ? isoDateTimeToSecond(parsed) : jsToString(v);
+      }).toList();
 }
 
 class NumberMatcher implements StrategyMatcher {

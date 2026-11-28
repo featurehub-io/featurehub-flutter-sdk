@@ -21,11 +21,25 @@ class InvalidContextException implements Exception {
   String toString() => 'InvalidContextException: $message';
 }
 
-/// Attribute keys FeatureHub treats specially (recognised case-insensitively):
-/// the `StrategyAttributeWellKnownNames` of the FeatureHub Edge API
-/// definition (device, country, platform, userkey, session, version).
-final _featureHubKeys = StrategyAttributeWellKnownNamesExtension.fromMap.keys
-    .toSet();
+/// The strategy-only attribute name: FeatureHub sets it in a strategy, and
+/// the application can never supply it, so a context key with this name (in
+/// any case) is dropped.
+const fhubWhenActiveKey = 'fhubWhenActive';
+
+/// Attribute keys FeatureHub treats specially (recognised case-insensitively,
+/// written lowercase): the `StrategyAttributeWellKnownNames` of the FeatureHub
+/// Edge API definition (device, country, platform, userkey, session, version),
+/// but for [fhubWhenActiveKey], which is not a context key.
+final _featureHubKeys = {
+  for (final name in StrategyAttributeWellKnownNamesExtension.fromMap.keys)
+    if (name.toLowerCase() != fhubWhenActiveKey.toLowerCase())
+      name.toLowerCase(),
+};
+
+/// A date-time as it is sent: UTC ISO-8601 to the second,
+/// `YYYY-MM-DDTHH:MM:SSZ` (any fraction of a second dropped).
+String wireDateTime(DateTime value) =>
+    '${value.toUtc().toIso8601String().substring(0, 19)}Z';
 
 /// An OpenFeature evaluation context mapped onto FeatureHub's context model.
 class MappedContext {
@@ -67,7 +81,7 @@ class MappedContext {
   }
 
   static String _toWire(Object value) =>
-      value is DateTime ? value.toUtc().toIso8601String() : jsToString(value);
+      value is DateTime ? wireDateTime(value) : jsToString(value);
 }
 
 bool _isPrimitive(Object? v) =>
@@ -82,6 +96,9 @@ bool _isPrimitive(Object? v) =>
 /// - FeatureHub's well-known keys, the `StrategyAttributeWellKnownNames` of
 ///   the Edge API definition (`device`, `country`, `platform`, `session`,
 ///   `version`), are recognised case-insensitively and written lowercase.
+/// - `fhubWhenActive` (in any case) is dropped: it is a strategy-only name,
+///   and its time comes from the clock, never the context.
+/// - A date-time is sent as UTC ISO-8601 to the second ([wireDateTime]).
 /// - Everything else passes through as a custom attribute; null values are
 ///   skipped.
 ///
@@ -97,10 +114,9 @@ MappedContext mapEvaluationContext(Map<String, Object?>? context) {
       if (value == null) continue;
 
       final lower = key.toLowerCase();
+      if (lower == fhubWhenActiveKey.toLowerCase()) continue;
       if (lower == 'targetingkey' || lower == 'userkey') {
-        userkey = value is DateTime
-            ? value.toUtc().toIso8601String()
-            : jsToString(value);
+        userkey = value is DateTime ? wireDateTime(value) : jsToString(value);
       } else if (_isPrimitive(value) ||
           (value is List && value.every(_isPrimitive))) {
         attributes[_featureHubKeys.contains(lower) ? lower : key] = value;

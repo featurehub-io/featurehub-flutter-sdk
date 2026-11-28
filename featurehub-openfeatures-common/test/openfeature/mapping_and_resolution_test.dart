@@ -59,6 +59,32 @@ void main() {
       ]);
     });
 
+    // conformance: when-active (the context half)
+    test('a context fhubWhenActive, in any case, is dropped', () {
+      final mapped = mapEvaluationContext({
+        'targetingKey': 'lingling',
+        'fhubWhenActive': '2020-01-01T00:00:00Z',
+        'FHUBWHENACTIVE': '2020-01-01T00:00:00Z',
+        'shop': 'kwong pastry',
+      });
+      expect(mapped.attributes, {'shop': 'kwong pastry'});
+      expect(mapped.header, 'shop=kwong%20pastry,userkey=lingling');
+    });
+
+    // conformance: date-time-wire-value
+    test('a date-time is sent as UTC to the second', () {
+      final mapped = mapEvaluationContext({
+        'targetingKey': 'orm',
+        'since': DateTime.utc(2026, 11, 17, 2, 47, 28, 456),
+        'local': DateTime.fromMillisecondsSinceEpoch(0),
+      });
+      expect(
+        mapped.header,
+        'local=1970-01-01T00%3A00%3A00Z,since=2026-11-17T02%3A47%3A28Z,'
+        'userkey=orm',
+      );
+    });
+
     test('the well-known keys are the Edge API\'s, so email is not one', () {
       expect(StrategyAttributeWellKnownNamesExtension.fromMap.keys.toSet(), {
         'device',
@@ -67,6 +93,7 @@ void main() {
         'userkey',
         'session',
         'version',
+        'fhubWhenActive',
       });
       final mapped = mapEvaluationContext({
         'Version': '2.0.0',

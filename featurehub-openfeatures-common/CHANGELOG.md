@@ -22,6 +22,12 @@ OpenFeature providers for Dart.
   resolution helpers gain `ResolutionReason.stale`, `FeatureHubResolution.asStale` and `contextPendingResolution`. Once
   the source has stopped for good, `contextUnavailable` says the context is not the one whose features are held
   (`contextUnavailableResolution`)
+* `fhubWhenActive`: a strategy attribute with that name compares the clock with its UTC date-time, to the second, using
+  its conditional (EQUALS, NOT_EQUALS, GREATER, GREATER_EQUALS, LESS, LESS_EQUALS; any other never matches), whatever
+  its type; a context key of that name is dropped. `ApplyFeature` takes a `clock`, so tests can fix the time
+* Date-times are UTC to the second: a context date-time is sent as `YYYY-MM-DDTHH:MM:SSZ`; DATE and DATETIME accept
+  only ISO-8601 (`2021-05-05 10:00:00Z` and numbers are not date-times), read one without an offset as UTC, never local
+  time, and DATETIME compares its values to the second too
 * A polling response to a request sent before the context changed is dropped, so it is never taken as the new
   context's features. Once closed, the streaming listeners and polling make no more requests: a context change, a
   `retry()` or a passive refresh no longer opens a new connection

@@ -48,16 +48,24 @@ class Applied {
   static const notMatched = Applied(false, null, null);
 }
 
+DateTime _systemClock() => DateTime.now();
+
 /// Evaluates a feature's rollout strategies against a context, as the
 /// FeatureHub server does for server-evaluated API keys. Used for
 /// client-evaluated API keys (those containing `*`).
+///
+/// [clock] gives the current time (by default the machine's), which
+/// `fhubWhenActive` compares against and which a DATE or DATETIME attribute
+/// the context does not supply uses: tests can fix it.
 class ApplyFeature {
   final PercentageCalculator _percentageCalculator;
   final MatcherRepository _matcherRepository;
+  final DateTime Function() _clock;
 
   const ApplyFeature({
     this._percentageCalculator = const Murmur3PercentageCalculator(),
     this._matcherRepository = const MatcherRegistry(),
+    this._clock = _systemClock,
   });
 
   /// Applies [strategies] (in order) for the feature value [featureValueId].
@@ -71,6 +79,10 @@ class ApplyFeature {
     if (context == null || strategies == null || strategies.isEmpty) {
       return Applied.notMatched;
     }
+
+    // the clock is read once for the evaluation, and only if needed
+    DateTime? clockReading;
+    DateTime now() => clockReading ??= _clock().toUtc();
 
     int? percentage;
     String? percentageKey;
@@ -107,7 +119,7 @@ class ApplyFeature {
         // if the user's percentage is within this strategy's percentage
         if (percentage <= useBasePercentage + rsiPercentage) {
           if (hasAttributes) {
-            if (_matchAttribute(context, rsi)) {
+            if (_matchAttribute(context, rsi, now)) {
               return Applied(true, rsi.value, rsi.id, split: true);
             }
           } else {
@@ -124,7 +136,7 @@ class ApplyFeature {
 
       if ((rsiPercentage == null || rsiPercentage == 0) &&
           hasAttributes &&
-          _matchAttribute(context, rsi)) {
+          _matchAttribute(context, rsi, now)) {
         // nothing to do with a percentage
         return Applied(true, rsi.value, rsi.id);
       }
@@ -132,6 +144,8 @@ class ApplyFeature {
 
     return Applied.notMatched;
   }
+
+  static const _fhubWhenActive = 'fhubwhenactive';
 
   /// The key used for the percentage calculation: the context's default
   /// percentage key, or the named attributes joined with `$`.
@@ -170,20 +184,61 @@ class ApplyFeature {
     return jsToString(value);
   }
 
-  bool _matchAttribute(StrategyContext context, FeatureRolloutStrategy rsi) {
+  /// The `fhubWhenActive` attribute ([attr], whose type is ignored)
+  /// compared with the clock: true if the conditional holds between the
+  /// clock and its date-time, both to the second
+  /// (rollout-strategies.yaml algorithm.well_known_attributes.fhubWhenActive).
+  static bool whenActive(FeatureRolloutStrategyAttribute attr, DateTime now) {
+    final clock = truncateToSecond(now.toUtc());
+    final times = [
+      for (final v in attr.values)
+        if (v != null)
+          if (parseIsoDateTime(v as Object) case final t?) truncateToSecond(t),
+    ];
+    if (times.isEmpty) return false;
+    return switch (attr.conditional) {
+      RolloutStrategyAttributeConditional.EQUALS => times.any(
+        (t) => clock == t,
+      ),
+      RolloutStrategyAttributeConditional.NOT_EQUALS => !times.any(
+        (t) => clock == t,
+      ),
+      RolloutStrategyAttributeConditional.GREATER => times.any(clock.isAfter),
+      RolloutStrategyAttributeConditional.GREATER_EQUALS => times.any(
+        (t) => !clock.isBefore(t),
+      ),
+      RolloutStrategyAttributeConditional.LESS => times.any(clock.isBefore),
+      RolloutStrategyAttributeConditional.LESS_EQUALS => times.any(
+        (t) => !clock.isAfter(t),
+      ),
+      // INCLUDES, EXCLUDES, STARTS_WITH, ENDS_WITH, REGEX: never a match
+      _ => false,
+    };
+  }
+
+  bool _matchAttribute(
+    StrategyContext context,
+    FeatureRolloutStrategy rsi,
+    DateTime Function() now,
+  ) {
     for (final attr in rsi.attributes) {
+      // strategy-only: the clock, never the context
+      if (attr.fieldName.toLowerCase() == _fhubWhenActive) {
+        if (!whenActive(attr, now())) return false;
+        continue;
+      }
+
       Object? suppliedValues = context.getAttr(attr.fieldName);
 
       if (suppliedValues == null ||
           (suppliedValues is List &&
               suppliedValues.isEmpty &&
               attr.fieldName.toLowerCase() == 'now')) {
-        final now = DateTime.now().toUtc();
         switch (attr.type) {
           case RolloutStrategyFieldType.DATE:
-            suppliedValues = [now.toIso8601String().substring(0, 10)];
+            suppliedValues = [now().toIso8601String().substring(0, 10)];
           case RolloutStrategyFieldType.DATETIME:
-            suppliedValues = [now.toIso8601String()];
+            suppliedValues = [isoDateTimeToSecond(now())];
           default:
             break;
         }

@@ -10,13 +10,20 @@ class FeatureEnvironmentCollection {
 
   List<FeatureState> features;
 
+  /// The polling interval, in seconds, the server would like clients to use
+  /// for this environment, overriding the configured one; null if none.
+  /// Only sent to SDKs that send `sdk_version` 2 or later, and never below 5.
+  int? pollInterval;
+
   // id required: true nullable: false default:  inherited: false container false
   // features required: true nullable: false default:  inherited: false container true
-  FeatureEnvironmentCollection({required this.id, required this.features});
+  // pollInterval required: false nullable: true default:  inherited: false container false
+  FeatureEnvironmentCollection(
+      {required this.id, required this.features, this.pollInterval});
 
   @override
   String toString() {
-    return 'FeatureEnvironmentCollection[id=$id, features=$features, ]';
+    return 'FeatureEnvironmentCollection[id=$id, features=$features, pollInterval=$pollInterval, ]';
   }
 
   static String fromJson_id(Map<String, dynamic> json) {
@@ -42,15 +49,24 @@ class FeatureEnvironmentCollection {
           }(_jsonData));
   }
 
+  static int? fromJson_pollInterval(Map<String, dynamic> json) {
+    final _jsonData = json[r'pollInterval'];
+    return _jsonData is num ? _jsonData.toInt() : null;
+  }
+
   FeatureEnvironmentCollection.fromJson(Map<String, dynamic> json)
       : this.id = fromJson_id(json),
-        this.features = fromJson_features(json);
+        this.features = fromJson_features(json),
+        this.pollInterval = fromJson_pollInterval(json);
 
   Map<String, dynamic> toJson() {
     final json = <String, dynamic>{};
     json[r'id'] = id;
     json[r'features'] =
         ((v) => v.map((FeatureState v) => v.toJson()).toList())(features);
+    if (pollInterval != null) {
+      json[r'pollInterval'] = pollInterval;
+    }
     return json;
   }
 
@@ -89,7 +105,8 @@ class FeatureEnvironmentCollection {
     if (__other is FeatureEnvironmentCollection &&
         runtimeType == __other.runtimeType) {
       return id == __other.id &&
-          const ListEquality().equals(features, __other.features);
+          const ListEquality().equals(features, __other.features) &&
+          pollInterval == __other.pollInterval;
     }
 
     return false;
@@ -103,12 +120,15 @@ class FeatureEnvironmentCollection {
 
     hashCode = hashCode * 31 + const ListEquality().hash(features);
 
+    hashCode = hashCode * 31 + pollInterval.hashCode;
+
     return hashCode;
   }
 
   FeatureEnvironmentCollection copyWith({
     String? id,
     List<FeatureState>? features,
+    int? pollInterval,
   }) {
     final _copy_id = id ?? this.id;
 
@@ -121,6 +141,7 @@ class FeatureEnvironmentCollection {
     return FeatureEnvironmentCollection(
       id: _copy_id,
       features: _copy_features,
+      pollInterval: pollInterval ?? this.pollInterval,
     );
   }
 }
