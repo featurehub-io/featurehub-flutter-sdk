@@ -22,7 +22,8 @@ void main() {
   setUp(() async {
     edge = spawnHybridUri('edge_server.dart');
     fromEdge = StreamQueue(edge.stream);
-    host = 'http://127.0.0.1:${await fromEdge.next}';
+    // a number from the VM: a double when compiled to WebAssembly
+    host = 'http://127.0.0.1:${(await fromEdge.next as num).toInt()}';
   });
 
   tearDown(() async {

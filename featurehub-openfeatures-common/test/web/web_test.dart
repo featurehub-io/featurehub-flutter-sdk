@@ -44,6 +44,11 @@ const _percentages = {
   'user9': 442587,
 };
 
+/// The hybrid server's port: a number from the VM, which arrives as a double
+/// when compiled to WebAssembly (JSON numbers are JavaScript numbers).
+Future<int> _port(StreamQueue<Object?> messages) async =>
+    (await messages.next as num).toInt();
+
 void main() {
   test('murmur3 matches TypeScript in the browser', () {
     _murmur.forEach((key, hash) => expect(murmur3String(key), hash));
@@ -65,7 +70,7 @@ void main() {
     tearDown(() => server.sink.close());
 
     test('accepts gzip-compressed responses', () async {
-      final host = 'http://127.0.0.1:${await messages.next}';
+      final host = 'http://127.0.0.1:${await _port(messages)}';
       final repo = ClientFeatureRepository();
       await FeatureHubRestClient(host, ['a/b/c'], repo).request();
 
@@ -88,7 +93,7 @@ void main() {
     setUp(() async {
       server = spawnHybridUri('sse_server.dart');
       messages = StreamQueue(server.stream);
-      host = 'http://127.0.0.1:${await messages.next}';
+      host = 'http://127.0.0.1:${await _port(messages)}';
     });
 
     tearDown(() => server.sink.close());

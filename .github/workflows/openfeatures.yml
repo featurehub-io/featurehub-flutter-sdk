@@ -8,12 +8,14 @@ on:
       - 'featurehub-sse-client/**'
       - 'featurehub-client-api/**'
       - '.github/workflows/openfeatures.yml'
+      - '.github/scripts/check-web-imports.sh'
   pull_request:
     paths:
       - 'featurehub-openfeatures-*/**'
       - 'featurehub-sse-client/**'
       - 'featurehub-client-api/**'
       - '.github/workflows/openfeatures.yml'
+      - '.github/scripts/check-web-imports.sh'
   workflow_dispatch:
 
 permissions:
@@ -71,7 +73,7 @@ jobs:
       # the minimum supported SDK
       - name: Verify formatting
         if: matrix.sdk == '3.12'
-        run: dart format --output=none --set-exit-if-changed lib test
+        run: dart format --output=none --set-exit-if-changed lib test $(test -d tool && echo tool)
 
       - name: Analyze
         run: dart analyze --fatal-infos
@@ -88,3 +90,34 @@ jobs:
           matrix.package == 'featurehub-openfeatures-common' ||
           matrix.package == 'featurehub-openfeatures-client-sdk'
         run: dart test -p chrome
+
+      # the client SDK, and the common package it is built on, must stay
+      # compatible with WebAssembly: tool/wasm_check.dart pulls in their
+      # public libraries (and those of featurehub_sse_client and
+      # featurehub_client_api) with their browser variants, and must compile
+      - name: Build for WebAssembly
+        if: >-
+          matrix.package == 'featurehub-openfeatures-common' ||
+          matrix.package == 'featurehub-openfeatures-client-sdk'
+        run: dart compile wasm tool/wasm_check.dart -o build/wasm_check.wasm
+
+      # the compilers accept some things that only fail when they run (dart:io,
+      # numbers from JavaScript arriving as doubles): the browser tests again,
+      # compiled to WebAssembly
+      - name: Run tests (Chrome, WebAssembly)
+        if: >-
+          matrix.package == 'featurehub-openfeatures-common' ||
+          matrix.package == 'featurehub-openfeatures-client-sdk'
+        run: dart test -p chrome -c dart2wasm
+
+  web-imports:
+    name: Web and WebAssembly imports
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # dart2js and dart2wasm both accept an unconditional dart:io import, which
+      # only fails at runtime: no library the client SDK builds into a browser
+      # may have one
+      - name: Check imports
+        run: .github/scripts/check-web-imports.sh
