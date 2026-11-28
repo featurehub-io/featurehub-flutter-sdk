@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:crypto/crypto.dart';
 import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_openfeatures_common/featurehub.dart';
 import 'package:logging/logging.dart';
@@ -256,7 +255,6 @@ class ClientFeatureRepository {
 
   bool get _catchActive => _catchAndReleaseMode && _initialStateResolved;
 
-  String _featuresSha = computeSha(const []);
   // indexed by id (not key)
   final Map<String?, FeatureState> _catchReleaseStates = {};
   final List<_InterceptorHolder> _featureValueInterceptors = [];
@@ -356,30 +354,6 @@ class ClientFeatureRepository {
       _featuresChangedListeners.stream;
 
   void _featuresChanged() => _featuresChangedListeners.add(this);
-
-  /// The [computeSha] of the features the repository holds.
-  ///
-  /// It is computed again whenever features arrive, a feature is updated or
-  /// deleted, and when caught features are released, however they arrive
-  /// (streaming, polling or a store). In catch and release mode it describes
-  /// the features applied, not those held back. It identifies the features
-  /// only for client-evaluated API keys, which every client receives alike
-  /// (with a server-evaluated key, the features differ by context).
-  ///
-  /// A transport can send it as an `ETag`, or compare it with a snapshot's
-  /// [FeatureSnapshot.sha] to see whether the features have changed.
-  String get featuresSha => _featuresSha;
-
-  void _updateFeaturesSha() => _featuresSha = computeSha(featureStates);
-
-  /// The SHA-256 (hex) of [features]' `id:version`s, sorted by id and joined
-  /// with `|`, as every FeatureHub SDK computes it (for example for the
-  /// Redis store's `_sha` key).
-  static String computeSha(Iterable<FeatureState> features) {
-    final sorted = [...features]..sort((a, b) => a.id.compareTo(b.id));
-    final input = sorted.map((f) => '${f.id}:${f.version}').join('|');
-    return sha256.convert(utf8.encode(input)).toString();
-  }
 
   /// Every feature change as it arrives, before catch and release handling,
   /// with its source: for stores that keep a copy of the features (see
@@ -490,7 +464,6 @@ class ClientFeatureRepository {
               _triggerNewStateAvailable();
             }
             if (source == featureHubEdgeSource) _initialStateResolved = true;
-            _updateFeaturesSha();
             _fullSetReceived();
           }
           break;
@@ -503,7 +476,6 @@ class ClientFeatureRepository {
             _caughtFullSetKeys?.add(feature.key);
           } else {
             if (_featureUpdate(feature)) {
-              _updateFeaturesSha();
               _featuresChanged();
               _triggerNewStateAvailable();
             }
@@ -592,11 +564,20 @@ class ClientFeatureRepository {
   /// feature's value is returned as is. A registered value interceptor that
   /// matches takes precedence (unless the feature is locked and the
   /// interceptor may not override locks).
-  EvaluatedFeature evaluate(String key, {StrategyContext? context}) {
+  ///
+  /// [now] is the time a strategy is evaluated at (by default the
+  /// [applyFeature]'s clock), and [interceptors] false leaves the value
+  /// interceptors out: a server SDK's snapshot store evaluates that way.
+  EvaluatedFeature evaluate(
+    String key, {
+    StrategyContext? context,
+    DateTime? now,
+    bool interceptors = true,
+  }) {
     final fs = _features[key]?._featureState;
 
     final locked = fs?.l == true;
-    for (final vi in _featureValueInterceptors) {
+    for (final vi in interceptors ? _featureValueInterceptors : const []) {
       if (locked && !vi.allowLockOverride) continue;
       final vm = vi.match(key, fs);
       if (vm.matched) {
@@ -626,88 +607,19 @@ class ClientFeatureRepository {
     }
 
     // client-evaluated: apply the strategies to the context ourselves
-    final applied = applyFeature.apply(strategies, key, fs.id, context);
+    final applied = applyFeature.apply(
+      strategies,
+      key,
+      fs.id,
+      context,
+      now: now,
+    );
     return EvaluatedFeature(
       key: key,
       featureState: fs,
       value: applied.matched ? applied.value : fs.value,
       strategyId: applied.matched ? applied.strategyId : null,
       split: applied.matched && applied.split,
-    );
-  }
-
-  /// The features the repository holds, with their [featuresSha], for a
-  /// server to pass on to its own clients (which load them with
-  /// [loadFeatureSnapshot]).
-  ///
-  /// With a [context] (an OpenFeature evaluation context, in map form, see
-  /// [mapEvaluationContext]), each feature's strategies are applied to it, as
-  /// FeatureHub does for a server-evaluated API key: the features have the
-  /// value for that context, no strategies, and `v` the id of the strategy
-  /// that matched (null if none did). Features without strategies are as
-  /// delivered.
-  ///
-  /// With no context (null or empty), the caller decides with
-  /// [includeStrategies]:
-  ///
-  /// - false (the default): the features are evaluated as for an empty
-  ///   context, so no strategy is exposed.
-  /// - true: the features are as delivered by FeatureHub (copies, rollout
-  ///   strategies included), for clients that evaluate them locally. That
-  ///   exposes every strategy and its values, so only do it for trusted
-  ///   clients.
-  ///
-  /// Value interceptors are not applied: they override values locally, so
-  /// they are not passed on.
-  ///
-  /// Throws an [InvalidContextException] if [context] holds a value
-  /// FeatureHub cannot represent.
-  FeatureSnapshot featureSnapshot({
-    Map<String, Object?>? context,
-    bool includeStrategies = false,
-  }) {
-    final noContext = context == null || context.isEmpty;
-    final strategyContext = noContext && includeStrategies
-        ? null
-        : mapEvaluationContext(context ?? const {}).strategyContext;
-    final features = [
-      for (final fs in featureStates)
-        strategyContext == null
-            ? fs.copyWith()
-            : _evaluatedFor(fs, strategyContext),
-    ];
-    return FeatureSnapshot(_featuresSha, features);
-  }
-
-  /// Loads the features in [data] as a full set (features not in it are
-  /// removed), as if FeatureHub had sent them: for a transport of your own,
-  /// for example one fetching the features from your own server's API, which
-  /// returns [featureSnapshot].
-  ///
-  /// [data] is a [FeatureSnapshot], its JSON form (a map or a JSON string),
-  /// or a list of features (as [FeatureState]s or their JSON). Returns the
-  /// snapshot loaded. Throws a [FormatException] if [data] is none of these,
-  /// leaving the repository unchanged.
-  FeatureSnapshot loadFeatureSnapshot(dynamic data) {
-    final snapshot = FeatureSnapshot.from(data);
-    notify(SSEResultState.features, snapshot.features);
-    return snapshot;
-  }
-
-  FeatureState _evaluatedFor(FeatureState fs, StrategyContext context) {
-    final strategies = fs.strategies;
-    if (strategies == null || strategies.isEmpty) return fs.copyWith();
-    final applied = applyFeature.apply(strategies, fs.key, fs.id, context);
-    return FeatureState(
-      id: fs.id,
-      key: fs.key,
-      l: fs.l,
-      version: fs.version,
-      type: fs.type,
-      value: applied.matched ? applied.value : fs.value,
-      v: applied.matched ? applied.strategyId : null,
-      fp: fs.fp == null ? null : Map.of(fs.fp!),
-      environmentId: fs.environmentId,
     );
   }
 
@@ -803,7 +715,6 @@ class ClientFeatureRepository {
       updated = _removeMissing(fullSetKeys) || updated;
     }
     if (updated) {
-      _updateFeaturesSha();
       _featuresChanged();
     }
 
@@ -893,7 +804,6 @@ class ClientFeatureRepository {
     final holder = _features[feature.key];
     if (holder != null && holder._featureState != null) {
       holder._removed();
-      _updateFeaturesSha();
       _featuresChanged();
     }
   }
@@ -912,7 +822,6 @@ class ClientFeatureRepository {
     _initialStateResolved = false;
     _catchReleaseStates.clear();
     _caughtFullSetKeys = null;
-    _updateFeaturesSha();
     if (_readynessState == Readyness.Ready) _setReadyness(Readyness.Stale);
     if (_readynessState == Readyness.Stale) _setReadyness(Readyness.NotReady);
   }

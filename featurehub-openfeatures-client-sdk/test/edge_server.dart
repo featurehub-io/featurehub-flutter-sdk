@@ -7,7 +7,7 @@
 //
 // It also serves your own server's features API, as the server SDK example
 // does: `GET /api/features` gives a feature snapshot evaluated for the
-// context in the query parameters, with its SHA as the ETag and 304 for a
+// context in the query parameters, with an ETag of them and 304 for a
 // matching If-None-Match. Sending it 'log' sends back those requests.
 import 'dart:convert';
 import 'dart:io';
@@ -51,12 +51,33 @@ Future<void> hybridMain(StreamChannel<Object?> channel) async {
     if (request.uri.path == '/api/features') {
       final params = request.uri.queryParametersAll;
       final userkey = params['userkey']?.single;
+      // the features as the server SDK's snapshot store would give them for
+      // this context (the bundle has no strategies), with an ETag of their
+      // versions and the context
+      final delivered = bundle(userkey == null ? null : 'userkey=$userkey');
       final repository = fh.ClientFeatureRepository()
-        ..notify(
-          SSEResultState.features,
-          bundle(userkey == null ? null : 'userkey=$userkey'),
-        );
-      final etag = '"${repository.featuresSha}"';
+        ..notify(SSEResultState.features, delivered);
+      final context = fh.mapEvaluationContext({
+        for (final MapEntry(:key, :value) in params.entries)
+          key: value.length == 1 ? value.single : value,
+      }).strategyContext;
+      final features = [
+        for (final f in delivered)
+          if (repository.evaluate(f.key, context: context, interceptors: false)
+              case final e)
+            FeatureState(
+              id: f.id,
+              key: f.key,
+              l: f.l,
+              version: f.version,
+              type: f.type,
+              value: e.value,
+              v: e.strategyId,
+            ),
+      ];
+      repository.shutdown();
+      final etag =
+          '"${userkey ?? ''}|${features.map((f) => '${f.id}:${f.version}').join('|')}"';
       final ifNoneMatch = request.headers.value('if-none-match');
       final notModified = ifNoneMatch == etag;
       log.add({
@@ -70,17 +91,11 @@ Future<void> hybridMain(StreamChannel<Object?> channel) async {
       } else {
         response.headers.contentType = ContentType.json;
         response.write(
-          jsonEncode(
-            repository.featureSnapshot(
-              context: {
-                for (final MapEntry(:key, :value) in params.entries)
-                  key: value.length == 1 ? value.single : value,
-              },
-            ),
-          ),
+          jsonEncode({
+            'features': [for (final f in features) f.toJson()],
+          }),
         );
       }
-      repository.shutdown();
       await response.close();
       return;
     }

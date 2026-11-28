@@ -42,13 +42,18 @@
 - An `interceptors` option for value interceptors, e.g. local YAML overrides.
 - A failed initialization starts nothing for an invalid context, and closes the
   stores when FeatureHub does not become ready.
-- Exports `FeatureSnapshot`. The example serves the features to its own
-  clients from `GET /features`, evaluated for the context in the query
-  parameters (with none, as for an empty context, or, if
-  `serveStrategiesWithoutContext` is set, as they are, rollout strategies
-  included, for clients that evaluate them locally), with the features' SHA
-  as the ETag
-  (`304` on a matching `If-None-Match`).
+- `FeatureSnapshotStore`, a feature store that serves the provider's features
+  to your own server's clients (`featureSnapshot`, `etagFor`): evaluated for
+  each request's context, without value interceptors, or with no context, as
+  your code chooses with `includeStrategies` (by default evaluated as for an
+  empty context; with `includeStrategies: true` as delivered, strategies
+  included, for clients that evaluate locally). Each snapshot's sha covers its
+  features, its form and its context; its ETag adds a count of the moments a
+  value can change with the clock (`"<sha>_t<count>"`), so a client never
+  keeps a value after its time. It refuses to attach to a server-evaluated
+  key. The example serves `GET /features` from one.
+- `featuresSha`, the SHA of features' ids and versions that every FeatureHub
+  SDK computes (the Redis store's), and `snapshotSha`.
 - A `featuresUrl` option, instead of a host and API key: the provider polls
   (or passively refreshes) the features from another server's API, by default
   without a context, evaluating their strategies locally for each request

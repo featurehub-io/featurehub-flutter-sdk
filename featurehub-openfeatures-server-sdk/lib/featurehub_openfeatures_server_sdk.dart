@@ -34,4 +34,6 @@ export 'package:featurehub_openfeatures_common/featurehub_openfeatures_common.da
 export 'package:featurehub_sse_client/featurehub_sse_client.dart'
     show ReconnectPolicy;
 
+export 'src/feature_snapshot_store.dart';
 export 'src/featurehub_provider.dart';
+export 'src/features_sha.dart';

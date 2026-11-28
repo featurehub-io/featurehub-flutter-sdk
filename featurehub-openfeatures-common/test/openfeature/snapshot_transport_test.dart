@@ -62,6 +62,41 @@ class _FeatureServer {
   void update(List<FeatureState> features) =>
       repository.notify(SSEResultState.features, features);
 
+  /// This fake's ETag: it changes whenever a feature's version does (a real
+  /// server's comes from the server SDK's snapshot store).
+  String get etag =>
+      '"${repository.featureStates.map((f) => '${f.id}-${f.version}').join('.')}"';
+
+  /// The features for [context], evaluated by the repository (as the server
+  /// SDK's snapshot store does), or as they are, strategies included.
+  List<FeatureState> snapshotFor(
+    Map<String, Object?> context, {
+    required bool asDelivered,
+  }) {
+    if (asDelivered && context.isEmpty) {
+      return [for (final f in repository.featureStates) f.copyWith()];
+    }
+    final strategyContext = mapEvaluationContext(context).strategyContext;
+    FeatureState evaluated(FeatureState f) {
+      final e = repository.evaluate(
+        f.key,
+        context: strategyContext,
+        interceptors: false,
+      );
+      return FeatureState(
+        id: f.id,
+        key: f.key,
+        l: f.l,
+        version: f.version,
+        type: f.type,
+        value: e.value,
+        v: e.strategyId,
+      );
+    }
+
+    return [for (final f in repository.featureStates) evaluated(f)];
+  }
+
   Future<void> _handle(HttpRequest request) async {
     requests.add(request);
     final held = hold;
@@ -74,7 +109,7 @@ class _FeatureServer {
       return;
     }
 
-    final etag = '"${repository.featuresSha}"';
+    final etag = this.etag;
     response.headers.set('etag', etag);
     if (request.headers.value('if-none-match') == etag) {
       response.statusCode = 304;
@@ -83,12 +118,12 @@ class _FeatureServer {
     }
 
     final params = request.uri.queryParametersAll;
-    final snapshot = repository.featureSnapshot(
-      context: {
+    final snapshot = FeatureSnapshot(
+      null,
+      snapshotFor({
         for (final MapEntry(:key, :value) in params.entries)
           key: value.length == 1 ? value.single : value,
-      },
-      includeStrategies: rawWithoutContext,
+      }, asDelivered: rawWithoutContext),
     );
     response.headers.contentType = ContentType.json;
     response.write(body ?? jsonEncode(snapshot));
@@ -152,7 +187,6 @@ void main() {
     expect(await ready(c), Readyness.Ready);
     expect(c.repository.evaluate('colour').value, 'green');
     expect(c.repository.evaluate('colour').strategyId, 'nz');
-    expect(c.repository.featuresSha, server.repository.featuresSha);
 
     final request = server.requests.single;
     expect(request.uri.path, '/api/features');
@@ -192,7 +226,7 @@ void main() {
       final c = connect(pollInterval: const Duration(milliseconds: 1500));
       await c.start(context: mapEvaluationContext({'country': 'nz'}));
       await ready(c);
-      final etag = '"${server.repository.featuresSha}"';
+      final etag = server.etag;
 
       await Future<void>.delayed(const Duration(milliseconds: 1700));
       expect(server.requests, hasLength(2));
@@ -203,7 +237,6 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 1500));
       expect(server.requests, hasLength(3));
       expect(c.repository.evaluate('colour').value, 'silver');
-      expect(c.repository.featuresSha, server.repository.featuresSha);
     },
   );
 
@@ -271,10 +304,7 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 350));
       await c.refreshIfStale();
       expect(server.requests, hasLength(2));
-      expect(
-        server.requests.last.headers.value('if-none-match'),
-        '"${server.repository.featuresSha}"',
-      );
+      expect(server.requests.last.headers.value('if-none-match'), server.etag);
 
       // no polling of its own
       await Future<void>.delayed(const Duration(milliseconds: 400));

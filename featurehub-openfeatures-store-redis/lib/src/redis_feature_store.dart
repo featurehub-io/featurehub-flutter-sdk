@@ -3,6 +3,8 @@ import 'dart:convert';
 
 import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_openfeatures_common/featurehub_openfeatures_common.dart';
+import 'package:featurehub_openfeatures_server_sdk/featurehub_openfeatures_server_sdk.dart'
+    show featuresSha;
 import 'package:logging/logging.dart';
 
 import 'redis_commands.dart';
@@ -294,7 +296,7 @@ class RedisFeatureStore implements FeatureStore {
       final toWrite = stored == null
           ? incoming
           : _merge(incoming, stored, removed: removed);
-      final sha = ClientFeatureRepository.computeSha(toWrite);
+      final sha = featuresSha(toWrite);
 
       if (current == sha) {
         // nothing to change (ours are the same, or all older)

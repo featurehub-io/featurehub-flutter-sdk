@@ -14,7 +14,7 @@ final _log = Logger('featurehub_snapshot_client');
 
 /// Fetches the features from your own server rather than from FeatureHub:
 /// from an API that serves a [FeatureSnapshot], such as the server SDK
-/// example's `GET /features` (see [ClientFeatureRepository.featureSnapshot]).
+/// example's `GET /features` (built by the server SDK's snapshot store).
 /// [FeatureSnapshotTransport] polls (or passively refreshes) through it.
 ///
 /// - With [sendContext], the repository's client context is sent as query
@@ -128,8 +128,13 @@ class FeatureSnapshotClient {
       return;
     }
     if (status == 200) {
-      final snapshot = repository.loadFeatureSnapshot(response.data);
-      _etag = response.headers.value('etag') ?? '"${snapshot.sha}"';
+      // decoded here (a format error leaves the repository as it was), and
+      // given to the repository as a full set; no SHA is computed
+      final snapshot = FeatureSnapshot.from(response.data);
+      repository.notify(SSEResultState.features, snapshot.features);
+      final sha = snapshot.sha;
+      // the server's ETag; else the body's sha; with neither, none
+      _etag = response.headers.value('etag') ?? (sha == null ? null : '"$sha"');
       _etagUrl = uri;
       _nextRequest = started.add(interval);
       return;

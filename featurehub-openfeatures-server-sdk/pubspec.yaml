@@ -10,6 +10,7 @@ platforms:
   macos:
   windows:
 dependencies:
+  crypto: ^3.0.2
   dio: ^5.0.1
   featurehub_client_api:
     path: ../featurehub-client-api

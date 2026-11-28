@@ -14,6 +14,9 @@ dependencies:
     path: ../featurehub-client-api
   featurehub_openfeatures_common:
     path: ../featurehub-openfeatures-common
+  # the SHA of the features (featuresSha) belongs to the server SDK
+  featurehub_openfeatures_server_sdk:
+    path: ../featurehub-openfeatures-server-sdk
   logging: ^1.3.0
   redis: ^4.1.0
 dev_dependencies:

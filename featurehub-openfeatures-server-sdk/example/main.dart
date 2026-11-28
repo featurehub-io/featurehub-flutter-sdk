@@ -24,9 +24,11 @@
 // serveStrategiesWithoutContext (below) is set: then they are served as they
 // are, rollout strategies included, for clients that evaluate them locally (a
 // provider with sendContext: false). That exposes every strategy, so only
-// set it for trusted clients. Its ETag is the
-// features' SHA, so a client sending it back in If-None-Match gets a 304
-// until the features change. A client provider polls it with
+// set it for trusted clients. The snapshots come from a FeatureSnapshotStore
+// attached to the provider. Its ETag identifies the features, the context and
+// (where a strategy depends on the time) the moment, so a client sending it
+// back in If-None-Match gets a 304 until the features, or their values for its
+// context, change. A client provider polls it with
 // FeatureHubProvider(featuresUrl: '<this server>/features'). It needs a
 // client-evaluated key (FEATUREHUB_CLIENT_API_KEY): with a server-evaluated
 // one FeatureHub evaluates the features for this server's single context, so
@@ -191,46 +193,52 @@ bool ifNoneMatch(Request request, String etag) {
 /// exposes a strategy.
 const serveStrategiesWithoutContext = false;
 
-/// Serves the features evaluated for the context in the query parameters.
-/// With none, [includeStrategies] decides: the features as they are,
-/// strategies included, or evaluated as for an empty context (see
-/// [ClientFeatureRepository.featureSnapshot]). Their SHA is the ETag: 304 if
-/// the client already has them.
+/// Serves the features evaluated for the context in the query parameters,
+/// from [snapshots]. With none, [includeStrategies] decides: the features as
+/// they are, strategies included, or evaluated as for an empty context (see
+/// [FeatureSnapshotStore.featureSnapshot]). 304 if the client already has
+/// them (its If-None-Match is the store's ETag).
 Response features(
   Request request,
-  FeatureHubProvider provider, {
+  FeatureSnapshotStore snapshots, {
   bool includeStrategies = serveStrategiesWithoutContext,
 }) {
-  final repository = provider.repository;
-  if (repository == null) return Response(503);
-
-  // the features evaluated for one context change only when the features do
-  // (the SHA is of their ids and versions), and the context is in the URL,
-  // so the SHA validates each URL's response
-  final etag = '"${repository.featuresSha}"';
   const caching = {'cache-control': 'no-cache'};
-  if (ifNoneMatch(request, etag)) {
-    return Response.notModified(headers: {'etag': etag, ...caching});
-  }
-
-  final FeatureSnapshot snapshot;
+  final context = queryContext(request);
+  // the time is read once, for the ETag and the snapshot alike
+  final now = DateTime.now();
   try {
-    snapshot = repository.featureSnapshot(
-      context: queryContext(request),
+    final etag = snapshots.etagFor(
+      context: context,
       includeStrategies: includeStrategies,
+      now: now,
     );
+    if (ifNoneMatch(request, etag)) {
+      return Response.notModified(headers: {'etag': etag, ...caching});
+    }
+    final served = snapshots.featureSnapshot(
+      context: context,
+      includeStrategies: includeStrategies,
+      now: now,
+    );
+    return Response.ok(
+      jsonEncode(served.snapshot),
+      headers: {
+        'content-type': 'application/json',
+        'etag': served.etag,
+        ...caching,
+      },
+    );
+  } on FeatureSnapshotNotReady {
+    return Response(503);
   } on InvalidContextException catch (e) {
     return Response.badRequest(body: e.message);
   }
-  return Response.ok(
-    jsonEncode(snapshot),
-    headers: {'content-type': 'application/json', 'etag': etag, ...caching},
-  );
 }
 
 Router buildRouter(
   FeatureClient client,
-  FeatureHubProvider provider,
+  FeatureSnapshotStore snapshots,
   bool Function() ready,
 ) {
   Future<Response> helloWorld(Request request, String name) async =>
@@ -300,7 +308,7 @@ Router buildRouter(
     ..get('/todo/<user>', (Request request, String user) {
       return todoList(client, user);
     })
-    ..get('/features', (Request request) => features(request, provider))
+    ..get('/features', (Request request) => features(request, snapshots))
     // the process is up and serving requests, whether or not it has features
     ..get('/health/liveness', (Request request) => Response.ok('OK'))
     ..get(
@@ -339,9 +347,11 @@ Future<void> main() async {
   // the provider reads FEATUREHUB_EDGE_URL, FEATUREHUB_CLIENT_API_KEY (or
   // FEATUREHUB_SERVER_API_KEY), FEATUREHUB_CONNECT_TYPE and
   // FEATUREHUB_CONNECT_INTERVAL
+  // GET /features serves snapshots of the provider's features
+  final snapshots = FeatureSnapshotStore();
   final FeatureHubProvider provider;
   try {
-    provider = FeatureHubProvider();
+    provider = FeatureHubProvider(stores: [snapshots]);
   } on ArgumentError catch (e) {
     stderr.writeln(e.message);
     exit(1);
@@ -379,7 +389,7 @@ Future<void> main() async {
   final handler = const Pipeline()
       .addMiddleware(logRequests())
       .addMiddleware(cors())
-      .addHandler(buildRouter(client, provider, () => ready).call);
+      .addHandler(buildRouter(client, snapshots, () => ready).call);
 
   final server = await shelf_io.serve(handler, InternetAddress.anyIPv4, port);
   _log.info('listening on http://${server.address.host}:${server.port}');

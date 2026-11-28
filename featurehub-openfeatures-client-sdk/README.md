@@ -90,9 +90,9 @@ await api.setProviderAndWait(
   (`providerFatal`), after them it reports `stale` for good.
 - With `sendContext: false` no context is sent. The server must then serve
   the features with their strategies when there is no context (on a Dart
-  server, `featureSnapshot(includeStrategies: true)`), and they are
-  evaluated locally. A server that evaluates them for an empty context
-  instead gives every feature's default value.
+  server, `FeatureSnapshotStore.featureSnapshot(includeStrategies: true)`),
+  and they are evaluated locally. A server that evaluates them for an empty
+  context instead gives every feature's default value.
 - A server on another origin must allow the `If-None-Match` header in its
   CORS preflight and expose the `ETag` header. The example does both.
 

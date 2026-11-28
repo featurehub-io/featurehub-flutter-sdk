@@ -91,26 +91,9 @@ handling requests for different users, you must use a client-evaluated key.
 
 A server can pass its features on to its own clients, for example a web
 application whose API gives the browser its features rather than the browser
-connecting to FeatureHub. On the server, `featureSnapshot` gives the
-features and their SHA (`repository.featuresSha`):
-
-```dart
-// in a request handler, with a client-evaluated key
-final snapshot = repository.featureSnapshot(
-  context: {'targetingKey': userId, 'country': 'nz'},
-);
-return Response.ok(jsonEncode(snapshot), headers: {'content-type': 'application/json'});
-```
-
-With a context (an OpenFeature evaluation context, as a map), each feature is
-evaluated for it as FeatureHub does for a server-evaluated key: the features
-have that context's values, no strategies, and `v` the id of the strategy
-that matched. The client only ever sees its own values. Without a context
-(none, or an empty one) your code chooses with `includeStrategies`: by
-default the features are evaluated as for an empty context; with
-`includeStrategies: true` they are given as they are, strategies included,
-for clients that evaluate them locally, so only do that for trusted clients.
-Value interceptors are not applied.
+connecting to FeatureHub. Building those snapshots is the server SDK's job:
+attach a `FeatureSnapshotStore` to the server provider, and answer each
+request from it (see the server SDK's README). This package only reads them.
 
 Each API key can give different features, so a server may serve its clients
 features from one key and use another for its own flags: one connection (or
@@ -124,15 +107,15 @@ key. A `FeatureHubConnection` with one (and no API key) uses the
 parameters and the last `ETag` as `If-None-Match`, and loads each snapshot
 as a full set of features.
 
-To load a snapshot yourself, for example in a transport of your own (see
-`transportFactory`), `repository.loadFeatureSnapshot` takes what the server
-returned: the snapshot, its JSON as a map or a string, or just a list of
-features. It loads them as a full set, and `repository.featuresSha` then
-identifies them (for example as an `ETag`).
+To read a snapshot yourself, for example in a transport of your own (see
+`transportFactory`), `FeatureSnapshot.from` takes what the server returned:
+the snapshot, its JSON as a map or a string, or just a list of features.
+Give its features to the repository as a full set:
 
 ```dart
 final response = await http.get(Uri.parse('https://my.app/api/features'));
-repository.loadFeatureSnapshot(response.body);
+final snapshot = FeatureSnapshot.from(response.body);
+repository.notify(SSEResultState.features, snapshot.features);
 ```
 
 Read detailed documentation on FeatureHub [here](https://docs.featurehub.io)

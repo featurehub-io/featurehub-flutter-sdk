@@ -92,8 +92,8 @@ OpenFeature providers for Dart.
   initialize before them) rather than waiting for a reconnection that never comes
 * `FeatureHubConnection`'s `mode` defaults to `activePolling` with a `featuresUrl` (as the providers do), and to
   `streaming` otherwise
-* `ClientFeatureRepository.loadFeatureSnapshot` replaces `FeatureHubRestClient.loadFeatureSnapshot`, for custom
-  transports too; `FeatureHubRestClient.featuresSha` is removed (use `ClientFeatureRepository.featuresSha`)
+* `FeatureHubRestClient.loadFeatureSnapshot` and `FeatureHubRestClient.featuresSha` are removed: a transport reading
+  snapshots decodes them with `FeatureSnapshot.from` and notifies the features as a full set
 * `environmentIdFromApiKey` accepts a null key (giving the placeholder id)
 * Requires Dart 3.12.2 or later
 * Removed analytics: `logAnalyticsEvent`, the `analyticsEvent` stream, `AnalyticsEvent` and the Google Analytics
@@ -143,13 +143,11 @@ OpenFeature providers for Dart.
   TypeScript SDK does); previously it could only lengthen it
 * Polling now polls at every interval: each poll was timed from the previous response rather than its request, so
   the next one was taken as still fresh and skipped, and polling happened every other interval
-* `ClientFeatureRepository.featureSnapshot({context, includeStrategies})` gives the features and their SHA (a
-  `FeatureSnapshot`), for a server to pass on to its own clients: with an OpenFeature context, each feature evaluated
-  for it as for a server-evaluated key (no strategies, `v` the matched strategy). Without one (none, or empty), the
-  caller chooses: evaluated as for an empty context (the default), or with `includeStrategies: true` as delivered,
-  strategies included, for clients that evaluate locally.
-  `ClientFeatureRepository.loadFeatureSnapshot(data)` loads a snapshot (or its JSON, or a list of features) into the
-  repository as a full set of features
+* The repository builds no snapshots and computes no SHA of its features: serving snapshots belongs to the server
+  SDK (its `FeatureSnapshotStore`), as does the features' SHA (`featuresSha`). `FeatureSnapshot` is what the
+  snapshot client reads; its `sha` is the server's, null if it sent none, and never computed.
+  `ClientFeatureRepository.evaluate` takes `now` (the time strategies are evaluated at) and `interceptors: false`
+  (to leave the value interceptors out), as the snapshot store evaluates
 * A percentage rollout strategy matched locally resolves with the reason `SPLIT` (as the Go SDK does); other
   matches stay `TARGETING_MATCH`, including strategies the server applied
 * A feature with no value set resolves to the code default with the reason `DISABLED` (as the Go SDK does), rather
@@ -160,10 +158,6 @@ OpenFeature providers for Dart.
   server's features API is not required to send `236`
 * The well-known context keys are taken from the Edge API's `StrategyAttributeWellKnownNames` (device, country,
   platform, userkey, session, version); `email` is no longer treated as one, so it keeps the case it is given
-* `ClientFeatureRepository.featuresSha`: a SHA-256 of the repository's features' sorted `id:version`s, computed
-  whenever features arrive, are updated or deleted, or are released; it identifies the features for client-evaluated
-  API keys. `ClientFeatureRepository.computeSha`
-  is the same calculation, as every FeatureHub SDK does it (moved from the Redis store)
 * `FeatureHubRestClient`: a 4xx response (FeatureHub rejecting the API key) marks the repository failed and the connection
   dead, so no further requests are made and polling stops, as streaming does. Previously only 400 and 404 were checked,
   and only when errors were returned as responses: by default the request threw and the repository was never marked

@@ -64,8 +64,8 @@ enum FeatureHubUpdateMode {
 /// [ClientFeatureRepository.markEnvironmentStale] and stop. Other config
 /// events are ignored.
 ///
-/// [FeatureSnapshot.from] reads the snapshots your own server serves (see
-/// [ClientFeatureRepository.featureSnapshot]).
+/// [FeatureSnapshot.from] reads the snapshots your own server serves (built
+/// by the server SDK's snapshot store).
 abstract interface class FeatureHubTransport {
   /// Starts fetching features. The returned future may complete before any
   /// arrive: initialization waits (up to its timeout) for the repository to

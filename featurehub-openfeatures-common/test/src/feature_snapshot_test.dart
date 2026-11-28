@@ -40,162 +40,45 @@ FeatureState _flag() => FeatureState(
 FeatureState _byKey(FeatureSnapshot s, String key) =>
     s.features.singleWhere((f) => f.key == key);
 
+// The core SDK only reads snapshots (feature-snapshot-protocol.yaml
+// encoding.feature_snapshot.decoding); the server SDK's snapshot store
+// builds them.
 void main() {
-  late ClientFeatureRepository repo;
+  group('FeatureSnapshot.from', () {
+    final features = [_colour(), _flag()];
+    const sha =
+        '5da6ce2616ad4cb03d94d3308a7557f2805d2de9624a63985ab267e449641876';
 
-  setUp(() {
-    repo = ClientFeatureRepository();
-    repo.notify(SSEResultState.features, [_colour(), _flag()]);
-  });
-  tearDown(() => repo.shutdown());
-
-  group('featureSnapshot', () {
-    test('without a context, evaluates as for an empty one by default', () {
-      for (final s in [
-        repo.featureSnapshot(),
-        repo.featureSnapshot(context: {}),
-      ]) {
-        expect(s.sha, repo.featuresSha);
-        final colour = _byKey(s, 'colour');
-        expect(colour.value, 'blue');
-        expect(colour.v, isNull);
-        expect(colour.strategies, isNull);
+    test('keeps the sha the server sent', () {
+      final json = {
+        'sha': sha,
+        'features': [for (final f in features) f.toJson()],
+      };
+      for (final data in [json, jsonEncode(json)]) {
+        final snapshot = FeatureSnapshot.from(data);
+        expect(snapshot.sha, sha);
+        expect(_byKey(snapshot, 'colour').toJson(), _colour().toJson());
       }
     });
 
-    test('a context is evaluated even when strategies are asked for', () {
-      final colour = _byKey(
-        repo.featureSnapshot(
-          context: {'country': 'nz'},
-          includeStrategies: true,
-        ),
-        'colour',
-      );
-      expect(colour.value, 'green');
-      expect(colour.strategies, isNull);
-    });
-
-    test('without a context, gives the features as they are if asked', () {
-      final s = repo.featureSnapshot(includeStrategies: true);
-      expect(
-        repo
-            .featureSnapshot(context: {}, includeStrategies: true)
-            .features
-            .map((f) => f.toJson()),
-        s.features.map((f) => f.toJson()),
-      );
-      expect(s.sha, repo.featuresSha);
-      expect(s.features.map((f) => f.toJson()), [
-        _colour().toJson(),
-        _flag().toJson(),
-      ]);
-
-      // copies: changing them does not change the repository
-      _byKey(s, 'colour').value = 'red';
-      expect(repo.feature('colour').stringValue, 'blue');
-    });
-
-    test('with a context, evaluates the strategies for it', () {
-      final s = repo.featureSnapshot(context: {'country': 'nz'});
-      expect(s.sha, repo.featuresSha);
-
-      final colour = _byKey(s, 'colour');
-      expect(colour.value, 'green');
-      expect(colour.v, 'nz');
-      expect(colour.strategies, isNull);
-      expect(colour.version, 2);
-      expect(colour.fp, {'owner': 'ui'});
-      expect(colour.environmentId, 'env');
-
-      expect(_byKey(s, 'flag').toJson(), _flag().toJson());
-    });
-
-    test('with a context no strategy matches, gives the default value', () {
-      final colour = _byKey(
-        repo.featureSnapshot(context: {'targetingKey': 'fred'}),
-        'colour',
-      );
-      expect(colour.value, 'blue');
-      expect(colour.v, isNull);
-      expect(colour.strategies, isNull);
-    });
-
-    test('ignores value interceptors', () {
-      repo.addValueInterceptor(_Override());
-      expect(repo.feature('flag').booleanValue, false);
-      expect(_byKey(repo.featureSnapshot(context: {}), 'flag').value, true);
-    });
-
-    test('rejects a context FeatureHub cannot represent', () {
-      expect(
-        () => repo.featureSnapshot(
-          context: {
-            'nested': {'a': 1},
-          },
-        ),
-        throwsA(isA<InvalidContextException>()),
-      );
-    });
-  });
-
-  group('loadFeatureSnapshot', () {
-    late ClientFeatureRepository client;
-
-    setUp(() => client = ClientFeatureRepository());
-    tearDown(() => client.shutdown());
-
-    test('loads a snapshot, as it would arrive from a server API', () {
-      final served = jsonEncode(
-        repo.featureSnapshot(context: {'country': 'nz'}),
-      );
-
-      final loaded = client.loadFeatureSnapshot(served);
-      expect(loaded.sha, repo.featuresSha);
-      expect(client.readyness, Readyness.Ready);
-      expect(client.feature('colour').stringValue, 'green');
-      expect(client.evaluate('colour').strategyId, 'nz');
-      expect(client.feature('flag').booleanValue, true);
-      // the same features, so the same SHA
-      expect(client.featuresSha, repo.featuresSha);
-      expect(client.featuresSha, loaded.sha);
-    });
-
-    test('accepts the snapshot, its JSON map, or a list of features', () {
-      final snapshot = repo.featureSnapshot(includeStrategies: true);
+    test('computes none when it sent none', () {
       for (final data in [
-        snapshot,
-        snapshot.toJson(),
-        jsonDecode(jsonEncode(snapshot)),
-        snapshot.features,
-        jsonDecode(jsonEncode(snapshot.features)),
+        {
+          'features': [for (final f in features) f.toJson()],
+        },
+        {'sha': 42, 'features': <Object>[]},
+        features,
+        jsonEncode(features),
       ]) {
-        final loaded = client.loadFeatureSnapshot(data);
-        expect(loaded.sha, repo.featuresSha, reason: '$data');
-        expect(client.featuresSha, repo.featuresSha, reason: '$data');
+        expect(FeatureSnapshot.from(data).sha, isNull, reason: '$data');
       }
-    });
-
-    test('a client-evaluated repository evaluates loaded strategies', () {
-      client.loadFeatureSnapshot(
-        repo.featureSnapshot(includeStrategies: true).toJson(),
-      );
       expect(
-        client
-            .evaluate('colour', context: MapStrategyContext({'country': 'nz'}))
-            .value,
-        'green',
+        FeatureSnapshot(null, features).toJson().containsKey('sha'),
+        false,
       );
     });
 
-    test('a full set: features not in it are removed', () {
-      client.loadFeatureSnapshot(repo.featureSnapshot(includeStrategies: true));
-      client.loadFeatureSnapshot([_flag()]);
-      expect(client.feature('colour').exists, false);
-      expect(client.feature('flag').exists, true);
-    });
-
-    test('rejects anything else, leaving the repository as it was', () {
-      client.loadFeatureSnapshot([_flag()]);
+    test('rejects anything else', () {
       for (final data in [
         42,
         'not json',
@@ -205,12 +88,11 @@ void main() {
         ],
       ]) {
         expect(
-          () => client.loadFeatureSnapshot(data),
+          () => FeatureSnapshot.from(data),
           throwsFormatException,
           reason: '$data',
         );
       }
-      expect(client.feature('flag').exists, true);
     });
   });
 
@@ -252,10 +134,4 @@ void main() {
     expect(evaluated.strategyId, 'all');
     repo.shutdown();
   });
-}
-
-class _Override extends ValueInterceptor {
-  @override
-  ValueMatch matched(String key, FeatureState? featureState) =>
-      key == 'flag' ? const ValueMatch(true, false) : ValueMatch.none;
 }

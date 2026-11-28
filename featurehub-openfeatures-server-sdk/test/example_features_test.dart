@@ -45,10 +45,15 @@ class _Store implements FeatureStore {
 
 void main() {
   late FeatureHubProvider provider;
+  late FeatureSnapshotStore snapshots;
 
   setUp(() async {
     // the environment is not read, so only the store gives features
-    provider = FeatureHubProvider(environment: const {}, stores: [_Store()]);
+    snapshots = FeatureSnapshotStore();
+    provider = FeatureHubProvider(
+      environment: const {},
+      stores: [_Store(), snapshots],
+    );
     await provider.initializeProvider(const EvaluationContext(attributes: {}));
   });
   tearDown(() => provider.shutdownProvider());
@@ -59,7 +64,7 @@ void main() {
   }) async {
     final response = example.features(
       Request('GET', Uri.parse('http://localhost/features$query')),
-      provider,
+      snapshots,
       includeStrategies: includeStrategies,
     );
     expect(response.statusCode, 200);

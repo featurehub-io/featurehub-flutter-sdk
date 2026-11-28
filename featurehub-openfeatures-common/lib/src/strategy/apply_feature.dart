@@ -68,21 +68,23 @@ class ApplyFeature {
     this._clock = _systemClock,
   });
 
-  /// Applies [strategies] (in order) for the feature value [featureValueId].
+  /// Applies [strategies] (in order) for the feature value [featureValueId],
+  /// at [now] (by default the clock's time, read once for the call).
   /// Returns the first strategy that matches, or [Applied.notMatched].
   Applied apply(
     List<FeatureRolloutStrategy>? strategies,
     String key,
     String featureValueId,
-    StrategyContext? context,
-  ) {
+    StrategyContext? context, {
+    DateTime? now,
+  }) {
     if (context == null || strategies == null || strategies.isEmpty) {
       return Applied.notMatched;
     }
 
     // the clock is read once for the evaluation, and only if needed
     DateTime? clockReading;
-    DateTime now() => clockReading ??= _clock().toUtc();
+    DateTime clock() => clockReading ??= (now ?? _clock()).toUtc();
 
     int? percentage;
     String? percentageKey;
@@ -119,7 +121,7 @@ class ApplyFeature {
         // if the user's percentage is within this strategy's percentage
         if (percentage <= useBasePercentage + rsiPercentage) {
           if (hasAttributes) {
-            if (_matchAttribute(context, rsi, now)) {
+            if (_matchAttribute(context, rsi, clock)) {
               return Applied(true, rsi.value, rsi.id, split: true);
             }
           } else {
@@ -136,7 +138,7 @@ class ApplyFeature {
 
       if ((rsiPercentage == null || rsiPercentage == 0) &&
           hasAttributes &&
-          _matchAttribute(context, rsi, now)) {
+          _matchAttribute(context, rsi, clock)) {
         // nothing to do with a percentage
         return Applied(true, rsi.value, rsi.id);
       }

@@ -35,18 +35,60 @@ final enabled = await client.getBooleanFlag(
 [FeatureHub Python SDK example](https://github.com/featurehub-io/featurehub-python-sdk/tree/main/example),
 which evaluates features for the user in each request. It also serves the
 features to its own clients from `GET /features`, evaluated for the context
-in the query parameters (for example `/features?targetingKey=fred&country=nz`)
-with `featureSnapshot`. With no query parameters, what it serves is the
-server's choice, set by `serveStrategiesWithoutContext` in the example (the
-`includeStrategies` option of `featureSnapshot`): by default the features
-evaluated as for an empty context, or, if set, the features as they are,
-rollout strategies included, for clients that evaluate them locally (a
-provider with `sendContext: false`). That exposes every strategy, so set it
-only for trusted clients. The response's ETag is the features' SHA, so a client
-that sends it back in `If-None-Match` gets a `304 Not Modified` until the
-features change. A provider polls it with `featuresUrl`. Serving features
-this way needs a client-evaluated key, so the example refuses to start with a
-server-evaluated one.
+in the query parameters (for example `/features?targetingKey=fred&country=nz`),
+from a `FeatureSnapshotStore` (see below). With no query parameters, what it
+serves is the server's choice, set by `serveStrategiesWithoutContext` in the
+example. A provider polls it with `featuresUrl`.
+
+## Serving features to your own clients
+
+A `FeatureSnapshotStore` turns the provider's features into snapshots for
+your own server's clients. Give it to the provider's `stores`, and answer
+each request from it:
+
+```dart
+final snapshots = FeatureSnapshotStore();
+final provider = FeatureHubProvider(stores: [snapshots]);
+
+// in the request handler, with the request's context (for example from its
+// query parameters)
+final now = DateTime.now();
+final etag = snapshots.etagFor(context: context, now: now);
+// a simple check: the example's ifNoneMatch also handles lists and weak tags
+if (request.headers['if-none-match'] == etag) {
+  return Response.notModified(headers: {'etag': etag});
+}
+final served = snapshots.featureSnapshot(context: context, now: now);
+return Response.ok(
+  jsonEncode(served.snapshot),
+  headers: {'content-type': 'application/json', 'etag': served.etag},
+);
+```
+
+- **With a context** (an OpenFeature evaluation context, as a map), each
+  feature is evaluated for it, as FeatureHub does for a server-evaluated key:
+  the client gets that context's values, no strategies, and `v` the id of the
+  strategy that matched. Value interceptors are not applied.
+- **With no context** your code chooses with `includeStrategies`. By default
+  the features are evaluated as for an empty context. With
+  `includeStrategies: true` they are served as delivered, strategies
+  included, for clients that evaluate them locally (a provider with
+  `sendContext: false`). That exposes every strategy and its values, so do it
+  only for trusted clients. A server that keeps the default cannot serve
+  clients that evaluate locally: they send no context, and get every
+  feature's default value.
+- **Send the ETag the store gives** (`served.etag`, or `etagFor` to check
+  `If-None-Match` without evaluating anything). It identifies the features,
+  the context and, when a strategy depends on the time, how many of its
+  moments have passed, so a client is told the features changed when a
+  value changes with the clock alone. Read the time once per request and
+  pass it to both, as above.
+- Before the store has features, both throw `FeatureSnapshotNotReady`
+  (answer 503); an invalid context throws `InvalidContextException`
+  (answer 400).
+- **It needs a client-evaluated key.** With a server-evaluated key FeatureHub
+  evaluates the features for this server's own context, so every client
+  would get its values: the store refuses to attach, and is never ready.
 
 The repository's `Dockerfile` builds the example into an image (build it from
 the repository root), with `/health/liveness` and `/health/readiness` for
@@ -107,7 +149,7 @@ then required. FeatureHub settings in the environment are ignored.
 
 By default no context is sent, so the other server must serve the features
 with their strategies when there is no context
-(`featureSnapshot(context: ..., includeStrategies: true)`). A server that
+(`FeatureSnapshotStore.featureSnapshot(includeStrategies: true)`). A server that
 evaluates them for an empty context instead (the default) gives this
 provider every feature's default value, whatever the context. Each
 resolution then evaluates them against its own context, as for a
@@ -163,13 +205,18 @@ final own = FeatureHubProvider(host: edgeUrl, apiKey: serverKey);
 await api.setProviderForDomainAndWait('vanilla', own, providerId: 'featurehub-vanilla');
 
 // the features served to the server's clients (GET /features)
-final served = FeatureHubProvider(host: edgeUrl, apiKey: browserKey);
+final snapshots = FeatureSnapshotStore();
+final served = FeatureHubProvider(
+  host: edgeUrl,
+  apiKey: browserKey,
+  stores: [snapshots],
+);
 await api.setProviderForDomainAndWait('pistachio', served, providerId: 'featurehub-pistachio');
 
 final client = api.getClient('todo-server', domain: 'vanilla');
 
-// in the GET /features handler, snapshot the served provider's repository
-final snapshot = served.repository!.featureSnapshot(context: queryContext(request));
+// in the GET /features handler, from the served provider's snapshot store
+final snapshot = snapshots.featureSnapshot(context: queryContext(request));
 ```
 
 - **Give each provider a distinct `providerId`.** The OpenFeature SDK

@@ -42,6 +42,7 @@ void main() {
 
   late HttpServer server;
   late ClientFeatureRepository features;
+  late FeatureSnapshotStore snapshots;
   final queries = <String>[];
 
   String url() => 'http://127.0.0.1:${server.port}/features';
@@ -50,15 +51,16 @@ void main() {
     queries.clear();
     features = ClientFeatureRepository()
       ..notify(SSEResultState.features, [_colour]);
+    snapshots = FeatureSnapshotStore();
+    await snapshots.attach(FeatureStoreTarget(repository: features));
     server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     server.listen((request) async {
       queries.add(request.uri.query);
       final params = request.uri.queryParameters;
       // with no context, the strategies, for local evaluation
-      final snapshot = features.featureSnapshot(
-        context: params,
-        includeStrategies: true,
-      );
+      final snapshot = snapshots
+          .featureSnapshot(context: params, includeStrategies: true)
+          .snapshot;
       request.response
         ..headers.contentType = ContentType.json
         ..write(jsonEncode(snapshot));
@@ -69,6 +71,7 @@ void main() {
   tearDown(() async {
     await OpenFeatureAPI.resetInstance();
     await server.close(force: true);
+    await snapshots.close();
     features.shutdown();
   });
 

@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'package:featurehub_client_api/api.dart';
 import 'package:featurehub_openfeatures_common/featurehub_openfeatures_common.dart';
 import 'package:featurehub_openfeatures_store_redis/featurehub_openfeatures_store_redis.dart';
+import 'package:featurehub_openfeatures_server_sdk/featurehub_openfeatures_server_sdk.dart'
+    show featuresSha;
 import 'package:test/test.dart';
 
 /// An in-memory Redis with WATCH semantics.
@@ -86,7 +88,7 @@ void main() {
       _featuresKey,
       jsonEncode(features.map((f) => f.toJson()).toList()),
     );
-    redis.set(_shaKey, ClientFeatureRepository.computeSha(features));
+    redis.set(_shaKey, featuresSha(features));
   }
 
   List<FeatureState> stored() =>
@@ -111,7 +113,7 @@ void main() {
     // computed by the TypeScript SDK's store
     test('matches the other SDKs', () {
       expect(
-        ClientFeatureRepository.computeSha([
+        featuresSha([
           FeatureState(
             id: 'f3c1a2b4-1d2e-4c5b-9a8b-7c6d5e4f3a2b',
             key: 'a',
@@ -134,7 +136,7 @@ void main() {
         'ffef4b48076b58be67b0abe8baa76b13915242208613701a2d3a8328e3eb4ef1',
       );
       expect(
-        ClientFeatureRepository.computeSha([
+        featuresSha([
           FeatureState(
             id: 'only',
             key: 'o',
@@ -145,7 +147,7 @@ void main() {
         '03a55f20ac287349c236160cf813e321e0084e7c2cdef7cabf43374a85a971a8',
       );
       expect(
-        ClientFeatureRepository.computeSha([]),
+        featuresSha([]),
         'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
       );
     });
@@ -191,7 +193,7 @@ void main() {
       ]);
       await _settle();
       expect(stored().map((f) => f.id), unorderedEquals(['a', 'b']));
-      expect(redis.data[_shaKey], ClientFeatureRepository.computeSha(stored()));
+      expect(redis.data[_shaKey], featuresSha(stored()));
     });
 
     test('is not written when Redis already has it', () async {
@@ -229,7 +231,7 @@ void main() {
       repo.notify(SSEResultState.features, [_feature('b', 1)]);
       await _settle();
       expect(stored().map((f) => f.id), ['b']);
-      expect(redis.data[_shaKey], ClientFeatureRepository.computeSha(stored()));
+      expect(redis.data[_shaKey], featuresSha(stored()));
     });
 
     test('missing one another process added since keeps it', () async {
