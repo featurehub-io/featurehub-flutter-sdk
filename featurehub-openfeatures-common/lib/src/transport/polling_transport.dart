@@ -75,6 +75,8 @@ abstract class PollingTransport implements FeatureHubTransport {
     // one request at a time; a forced request waits for the current one
     final previous = _inFlight ?? Future<void>.value();
     final next = previous.then((_) async {
+      // closed: no more requests, whatever asks (a context change, a read)
+      if (_closed) return;
       final retryAfter = _retryAfter;
       if (!force && retryAfter != null && DateTime.now().isBefore(retryAfter)) {
         return;

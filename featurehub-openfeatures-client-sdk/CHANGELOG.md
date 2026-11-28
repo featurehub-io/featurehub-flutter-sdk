@@ -8,6 +8,9 @@
   polling and passive refresh, with optional HTTP connect and request timeouts.
 - A poll interval of 0 polls once; any other must be at least 5 seconds.
 - A `readTimeout` option for streaming connections (`dart:io` only).
+- Stores are told whether the features are evaluated for a context, and the
+  context the provider starts with, so a store keeps each context's features
+  apart.
 - The default mode is `passivePolling` (reading a flag refreshes features
   older than `pollInterval`, 30 seconds by default), for a client- or a
   server-evaluated key alike.

@@ -22,6 +22,11 @@ OpenFeature providers for Dart.
   resolution helpers gain `ResolutionReason.stale`, `FeatureHubResolution.asStale` and `contextPendingResolution`. Once
   the source has stopped for good, `contextUnavailable` says the context is not the one whose features are held
   (`contextUnavailableResolution`)
+* A polling response to a request sent before the context changed is dropped, so it is never taken as the new
+  context's features. Once closed, the streaming listeners and polling make no more requests: a context change, a
+  `retry()` or a passive refresh no longer opens a new connection
+* `FeatureStoreTarget` gains `sendsContext` and `contextHeader` (the context the provider starts with), and
+  `FeatureStoreTarget.contextKey`, so a store can keep each context's features apart
 * `FeatureHubConnection` (and `FeatureHubTransportTarget`) take a `readTimeout` for streaming connections (`dart:io`);
   one of 5 minutes or less is warned about, as Edge may send nothing for that long
 * `FeatureHubConfig` is renamed `FeatureHubRestClient`, and the transports are split out (`lib/src/transport/`):

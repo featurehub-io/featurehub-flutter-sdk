@@ -503,6 +503,61 @@ void main() {
     await connection.close();
   });
 
+  test(
+    'polling: a response for the previous context is not taken as the new one',
+    () async {
+      final connection = FeatureHubConnection(
+        host: edge.host,
+        apiKey: 'a/b/c',
+        mode: FeatureHubUpdateMode.passivePolling,
+        pollInterval: const Duration(milliseconds: 1),
+      );
+      await connection.start(
+        context: mapEvaluationContext({'targetingKey': 'ling'}),
+      );
+      await connection.waitForReady(const Duration(seconds: 5));
+      expect(connection.repository.evaluate('colour').value, 'ling');
+
+      // a refresh for ling is still in flight when the context changes
+      edge.delay = const Duration(milliseconds: 300);
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      final refresh = connection.refreshIfStale();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(edge.requests, hasLength(2), reason: 'the refresh was sent');
+
+      final readiness = await connection.setContext(
+        mapEvaluationContext({'targetingKey': 'orm'}),
+        const Duration(seconds: 5),
+      );
+      expect(readiness, Readyness.Ready);
+      expect(connection.contextChangePending, false);
+      expect(connection.repository.evaluate('colour').value, 'orm');
+      await refresh;
+      await connection.close();
+    },
+  );
+
+  test('polling: once closed, nothing makes a request', () async {
+    final connection = FeatureHubConnection(
+      host: edge.host,
+      apiKey: 'a/b/c',
+      mode: FeatureHubUpdateMode.passivePolling,
+      pollInterval: const Duration(milliseconds: 1),
+    );
+    await connection.start(
+      context: mapEvaluationContext({'targetingKey': 'ling'}),
+    );
+    await connection.close();
+    final count = edge.requests.length;
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+    await connection.refreshIfStale();
+    await connection.setContext(
+      mapEvaluationContext({'targetingKey': 'orm'}),
+      const Duration(milliseconds: 100),
+    );
+    expect(edge.requests, hasLength(count));
+  });
+
   test('passive: only fetches when stale', () async {
     final connection = FeatureHubConnection(
       host: edge.host,

@@ -145,6 +145,88 @@ void main() {
     });
   });
 
+  group('a server-evaluated key', () {
+    const serverKey = 'default/env/key';
+    FeatureStoreTarget contextTarget(
+      ClientFeatureRepository repository,
+      String user,
+    ) {
+      final context = mapEvaluationContext({'targetingKey': user});
+      return FeatureStoreTarget(
+        repository: repository,
+        host: _host,
+        apiKey: serverKey,
+        sendsContext: true,
+        contextHeader: context.header,
+      );
+    }
+
+    /// Starts [repository] for [user], as the connection does after the
+    /// stores attach.
+    void startFor(ClientFeatureRepository repository, String user) {
+      mapEvaluationContext({
+        'targetingKey': user,
+      }).applyTo(repository.clientContext);
+      repository.clientContext.build();
+    }
+
+    test('loads only the features stored for its own context', () async {
+      await store.attach(contextTarget(repo, 'ling'));
+      startFor(repo, 'ling');
+      repo.notify(SSEResultState.features, [
+        _feature('a', 1, key: 'colour', value: 'chago'),
+      ]);
+      await _pump();
+      await store.close();
+
+      // another user starts: the features stored for ling are not theirs
+      final orm = ClientFeatureRepository();
+      final ormStore = LocalSessionStore(storage: storage);
+      await ormStore.attach(contextTarget(orm, 'orm'));
+      expect(orm.readyness, Readyness.NotReady);
+      expect(orm.evaluate('colour').exists, false);
+      await ormStore.close();
+      orm.shutdown();
+
+      // ling again starts with them
+      final again = ClientFeatureRepository();
+      final lingStore = LocalSessionStore(storage: storage);
+      await lingStore.attach(contextTarget(again, 'ling'));
+      expect(again.evaluate('colour').value, 'chago');
+      await lingStore.close();
+      again.shutdown();
+    });
+
+    test(
+      'after a context change, features are stored for the new one',
+      () async {
+        await store.attach(contextTarget(repo, 'ling'));
+        startFor(repo, 'ling');
+        repo.notify(SSEResultState.features, [
+          _feature('a', 1, key: 'colour', value: 'chago'),
+        ]);
+        await _pump();
+
+        startFor(repo, 'orm');
+        repo.notify(SSEResultState.features, [
+          _feature('a', 2, key: 'colour', value: 'fiona'),
+        ]);
+        await _pump();
+        await store.close();
+
+        expect(storage.items, hasLength(2), reason: 'one per context');
+        for (final (user, colour) in [('ling', 'chago'), ('orm', 'fiona')]) {
+          final next = ClientFeatureRepository();
+          final s = LocalSessionStore(storage: storage);
+          await s.attach(contextTarget(next, user));
+          expect(next.evaluate('colour').value, colour, reason: user);
+          await s.close();
+          next.shutdown();
+        }
+      },
+    );
+  });
+
   group('browser storage', () {
     for (final (name, storage, make) in [
       ('sessionStorage', web.window.sessionStorage, () => LocalSessionStore()),

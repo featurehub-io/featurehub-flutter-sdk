@@ -334,6 +334,8 @@ final class FeatureHubProvider
             host: host,
             apiKey: apiKey,
             featuresUrl: featuresUrl,
+            sendsContext: !clientEvaluated,
+            contextHeader: initialContext?.header,
           ),
         );
       } catch (e, s) {

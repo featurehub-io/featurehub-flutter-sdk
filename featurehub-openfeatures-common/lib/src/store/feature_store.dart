@@ -1,4 +1,5 @@
 import '../transport/api_keys.dart';
+import '../transport/edge_request.dart';
 import '../repository.dart';
 
 /// What a [FeatureStore] is attached to: a repository, and the FeatureHub
@@ -22,12 +23,29 @@ class FeatureStoreTarget {
   /// features from there rather than from FeatureHub.
   final String? featuresUrl;
 
+  /// True if the features are evaluated for a context (a server-evaluated
+  /// key, or a features server sent the context): they belong to that
+  /// context, not to the environment.
+  final bool sendsContext;
+
+  /// When [sendsContext], the context the provider starts with, as its
+  /// `x-featurehub` header (null for none): the features a store loads must
+  /// be this context's.
+  final String? contextHeader;
+
   const FeatureStoreTarget({
     required this.repository,
     this.host,
     this.apiKey,
     this.featuresUrl,
+    this.sendsContext = false,
+    this.contextHeader,
   });
+
+  /// A short, stable name for the context with [header] (an `x-featurehub`
+  /// header, null for none), for a store that keeps each context's features
+  /// apart.
+  static String contextKey(String? header) => contextShaOf(header);
 
   /// True if the provider connects to FeatureHub (it has a [host] and an
   /// [apiKey]).

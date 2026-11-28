@@ -48,12 +48,18 @@ class WebFeatureStorage implements FeatureStorage {
 /// update from FeatureHub is written to storage. It stores the same data, in
 /// the same format, as the FeatureHub TypeScript SDK's store.
 ///
-/// For a server-evaluated API key, the features stored are those evaluated
-/// for the context at the time; until FeatureHub answers, a later context
-/// starts with those.
+/// For a server-evaluated API key (or a features server sent the context),
+/// the features are evaluated for a context, so each context's are stored
+/// apart (the storage key ends `?contextSha=<context>`): a start loads only
+/// the features stored for the context it starts with.
 class LocalSessionStore implements FeatureStore {
   final FeatureStorage _storage;
   String? _storageKey;
+
+  /// The environment's storage key, before any context.
+  String? _baseKey;
+  ClientFeatureRepository? _repository;
+  bool _perContext = false;
   Map<String, FeatureState> _store = {};
   StreamSubscription<RawFeatureUpdate>? _subscription;
 
@@ -69,7 +75,10 @@ class LocalSessionStore implements FeatureStore {
 
   @override
   Future<void> attach(FeatureStoreTarget target) async {
-    final key = target.featureUrl ?? localSessionStoreDefaultKey;
+    _baseKey = target.featureUrl ?? localSessionStoreDefaultKey;
+    _repository = target.repository;
+    _perContext = target.sendsContext;
+    final key = _keyFor(target.contextHeader);
     _storageKey = key;
     final stored = _load(key);
     _subscription = target.repository.rawFeatureUpdates.listen(_update);
@@ -82,6 +91,11 @@ class LocalSessionStore implements FeatureStore {
       );
     }
   }
+
+  /// The storage key for the features of the context with [header].
+  String _keyFor(String? header) => _perContext
+      ? '$_baseKey?contextSha=${FeatureStoreTarget.contextKey(header)}'
+      : _baseKey!;
 
   Map<String, FeatureState>? _load(String key) {
     try {
@@ -102,6 +116,15 @@ class LocalSessionStore implements FeatureStore {
 
   void _update(RawFeatureUpdate update) {
     if (update.source == localSessionStoreSource) return;
+    if (_perContext) {
+      // the features are for the context they were fetched for: the current
+      // one (a response for an earlier context is dropped before here)
+      final key = _keyFor(_repository?.clientContext.generateHeader());
+      if (key != _storageKey) {
+        _storageKey = key;
+        _store = {};
+      }
+    }
     switch (update) {
       case FeaturesReceived(:final features):
         _store = {for (final f in features) f.id: f};

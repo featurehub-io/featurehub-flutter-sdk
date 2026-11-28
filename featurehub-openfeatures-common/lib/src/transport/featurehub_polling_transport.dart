@@ -33,7 +33,8 @@ final _log = Logger('FeatureHub');
 /// (raised to 5 seconds if it is shorter); one on any other response is
 /// ignored, so a failing gateway cannot make clients poll faster. For a
 /// server-evaluated key the repository's client context is sent as the
-/// `x-featurehub` header.
+/// `x-featurehub` header, and a response to a request sent before the
+/// context changed is dropped.
 class FeatureHubRestClient {
   final List<String> _apiKeys;
   final bool _clientEvaluated;
@@ -285,13 +286,13 @@ class FeatureHubRestClient {
     if (_deadConnection) return _repository;
     if (!force && DateTime.now().isBefore(_cacheTimeout)) return _repository;
 
-    final options = xFeatureHubHeader == null && headers.isEmpty
+    final sentHeader = xFeatureHubHeader;
+    final options = sentHeader == null && headers.isEmpty
         ? null
-        : (Options()
-            ..headers = {...headers, 'x-featurehub': ?xFeatureHubHeader});
+        : (Options()..headers = {...headers, 'x-featurehub': ?sentHeader});
 
     // added to break any caching if we change the header on the client side
-    final sha = contextShaOf(xFeatureHubHeader);
+    final sha = contextShaOf(sentHeader);
 
     final requestedAt = DateTime.now();
     Future<void> fetch() async {
@@ -303,6 +304,13 @@ class FeatureHubRestClient {
           sdkVersion: edgeSdkVersion,
           hostQuery: _hostQuery,
         );
+        // the context changed while this was in flight: its features are
+        // the previous context's, and the forced request the change made
+        // (queued behind this one) brings the new context's
+        if (xFeatureHubHeader != sentHeader) {
+          await response.body?.drain<void>();
+          return;
+        }
         await decodeResponse(response, requestedAt: requestedAt);
       } on ApiException catch (e) {
         // the client throws for error statuses

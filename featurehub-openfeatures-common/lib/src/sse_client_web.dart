@@ -136,17 +136,21 @@ class EventSourceRepositoryListener {
       _initialized = true;
       await _repository.clientContext.registerChangeHandler((header) async {
         _xFeaturehubHeader = header;
+        // closed for good: a context change must not reconnect
+        if (_closed) return;
         // the context is part of the URL, so a change needs a new connection
         _disconnect();
         _connect();
       });
-    } else {
+    } else if (!_closed) {
       _repository.clientContext.build();
     }
   }
 
-  /// Drops the current connection (if any) and connects again.
+  /// Drops the current connection (if any) and connects again, unless it has
+  /// been closed.
   void retry() {
+    if (_closed) return;
     _disconnect();
     _connect();
   }
@@ -159,7 +163,7 @@ class EventSourceRepositoryListener {
   );
 
   void _connect() {
-    _closed = false;
+    if (_closed) return;
     final url = connectionUrl;
     _log.fine('Connecting to $url');
 
@@ -333,6 +337,8 @@ class EventSourceRepositoryListener {
     _es = null;
   }
 
+  /// Closes the connection for good: nothing (a context change, [retry] or
+  /// [init]) opens another.
   void close() {
     _closed = true;
     _disconnect();

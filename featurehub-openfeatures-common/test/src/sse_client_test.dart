@@ -242,6 +242,24 @@ void main() {
     expect(listener.headers.last, contains('fred'));
   });
 
+  test('once closed, a context change or retry does not reconnect', () async {
+    final streams = <PublishSubject<Event>>[];
+    final rep = _MockRepository();
+    final listener = _RecordingSseClient('', '', rep, streams);
+    await listener.init();
+    await Future.delayed(Duration.zero);
+    expect(streams, hasLength(1));
+
+    listener.close();
+    rep.clientContext.userKey('kornaphat').build();
+    listener.retry();
+    await Future.delayed(const Duration(milliseconds: 20));
+
+    expect(streams, hasLength(1), reason: 'no new connection');
+    expect(streams.single.hasListener, false);
+    expect(listener.closed, true);
+  });
+
   test('quick context changes keep only the latest connection', () async {
     final streams = <PublishSubject<Event>>[];
     final rep = _MockRepository();

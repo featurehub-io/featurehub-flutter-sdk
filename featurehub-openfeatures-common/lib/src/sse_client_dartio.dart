@@ -26,7 +26,7 @@ final _log = Logger('featurehub_io_eventsource');
 /// response but a 4xx, which stops it. Whenever the event source stops for
 /// good, the repository is notified of a failure. This listener only closes
 /// the connection when the server reports a failure or the edge is stale, and
-/// opens a new one when the client context changes.
+/// opens a new one when the client context changes, until it is closed.
 ///
 /// With a client-evaluated API key (containing `*`) the server sends every
 /// feature's rollout strategies, which the repository applies locally, so the
@@ -118,6 +118,8 @@ class EventSourceRepositoryListener {
       _initialized = true;
       await _repository.clientContext.registerChangeHandler((header) async {
         _xFeaturehubHeader = header;
+        // closed for good: a context change must not reconnect
+        if (_closed) return;
         // the header is sent when connecting, so a context change needs a
         // new connection
         if (_subscription != null || _es != null) {
@@ -129,15 +131,19 @@ class EventSourceRepositoryListener {
         // ignore: unawaited_futures
         _init();
       });
-    } else {
+    } else if (!_closed) {
       _repository.clientContext
           .build(); // trigger shut and restart via the handler above
     }
   }
 
-  /// Drops the current connection (if any) and connects again.
+  /// Drops the current connection (if any) and connects again, unless it has
+  /// been closed.
   void retry() {
-    _disconnect().then((_) => _init());
+    if (_closed) return;
+    _disconnect().then((_) {
+      if (!_closed) _init();
+    });
   }
 
   bool configEvent(Event event) {
@@ -152,8 +158,8 @@ class EventSourceRepositoryListener {
   }
 
   Future<void> _init() async {
+    if (_closed) return;
     final generation = _generation;
-    _closed = false;
     final url = connectionUrl;
     _log.fine('Connecting to $url');
 
@@ -255,6 +261,8 @@ class EventSourceRepositoryListener {
     await es?.close();
   }
 
+  /// Closes the connection for good: nothing (a context change, [retry] or
+  /// [init]) opens another.
   void close() {
     _closed = true;
     _disconnect();

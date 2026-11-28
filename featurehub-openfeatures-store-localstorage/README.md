@@ -40,8 +40,9 @@ await OpenFeatureAPI.instance.setProviderAndWait(
 - Malformed stored data is ignored, and if storage is unavailable or full the
   application keeps working without it.
 
-With a server-evaluated API key, the stored features are those FeatureHub
-evaluated for the context at the time. Until FeatureHub answers, a later
-start with a different context begins with them.
+With a server-evaluated API key, FeatureHub evaluates the features for a
+context, so each context's features are stored separately. A start loads
+only the features stored for the context it starts with; a different
+context starts without any and waits for FeatureHub.
 
 This package only works in browsers.
