@@ -15,7 +15,7 @@ final _log = Logger('featurehub_polling');
 ///
 /// - [FeatureHubUpdateMode.activePolling]: after each poll finishes,
 ///   successful or not, the next is made the full [currentInterval] (the
-///   poll interval, or a Cache-Control max-age from FeatureHub that replaced
+///   poll interval, or a pollInterval from FeatureHub that replaced
 ///   it) later, measured from the end of the poll: a slow or failing server
 ///   is never polled faster than that, and a failure never becomes a tight
 ///   retry loop.
@@ -27,7 +27,7 @@ final _log = Logger('featurehub_polling');
 /// Requests are made one at a time; a context change forces one at once.
 ///
 /// An [interval] of zero polls once: the first request is made, and no other
-/// (in either mode, whatever a Cache-Control max-age says) except those a
+/// (in either mode, whatever a FeatureHub pollInterval says) except those a
 /// context change forces. Any other interval must be at least 5 seconds.
 abstract class PollingTransport implements FeatureHubTransport {
   final ClientFeatureRepository repository;
@@ -68,7 +68,7 @@ abstract class PollingTransport implements FeatureHubTransport {
   bool get isDead;
 
   /// The wait between active polls: [interval], or what the source asked
-  /// for instead (FeatureHub's Cache-Control max-age).
+  /// for instead (FeatureHub's pollInterval).
   Duration get currentInterval;
 
   Future<void> _request({bool force = false}) {
@@ -111,7 +111,7 @@ abstract class PollingTransport implements FeatureHubTransport {
 
   void _scheduleNext() {
     if (!active || _once || _closed || isDead) return;
-    // the full interval (or the max-age that replaced it), from the end of
+    // the full interval (or the pollInterval that replaced it), from the end of
     // the poll just made
     _timer = Timer(currentInterval, () async {
       _timer = null;

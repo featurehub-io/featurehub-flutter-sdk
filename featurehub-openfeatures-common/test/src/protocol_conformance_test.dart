@@ -77,12 +77,30 @@ void main() {
     late ClientFeatureRepository repo;
     setUp(() => repo = ClientFeatureRepository());
 
-    test('a full set makes it Ready, and is broadcast every time', () async {
+    // conformance: readiness-broadcast
+    test('a full set makes it Ready, broadcast only when it changes', () async {
       final states = await _record(repo);
+      final changed = <String?>[];
+      repo
+          .feature('ling')
+          .featureUpdateStream
+          .listen((h) => changed.add(h.value));
       repo.notify(SSEResultState.features, [_feature('ling')]);
       repo.notify(SSEResultState.features, [_feature('ling')]);
       await _pump();
-      expect(states, [Readyness.Ready, Readyness.Ready]);
+      // a changed feature calls its listeners, but readiness stays Ready
+      repo.notify(SSEResultState.features, [
+        _feature('ling', version: 2, value: 'mango'),
+      ]);
+      await _pump();
+      expect(states, [Readyness.Ready]);
+      expect(changed, ['egg tart', 'mango']);
+
+      // after a context change, the new context's full set is broadcast
+      repo.contextChanging();
+      repo.notify(SSEResultState.features, [_feature('ling', version: 3)]);
+      await _pump();
+      expect(states, [Readyness.Ready, Readyness.Stale, Readyness.Ready]);
     });
 
     test('clearing goes Ready -> Stale -> NotReady', () async {
@@ -144,7 +162,7 @@ void main() {
       ]);
       await _pump();
       expect(repo.evaluate('ling').value, 'mango');
-      expect(states, [Readyness.Stale, Readyness.Stale]);
+      expect(states, [Readyness.Stale], reason: 'still Stale: no broadcast');
     });
 
     test('a failure during a context change stays Stale, not Failed', () {
@@ -450,6 +468,55 @@ void main() {
       );
       repo.notify(SSEResultState.failure, null);
       expect(connection.contextChangePending, false);
+    });
+  });
+
+  // conformance: connection-events
+  group('connection events', () {
+    late ClientFeatureRepository repo;
+    setUp(() => repo = ClientFeatureRepository());
+    tearDown(() => repo.shutdown());
+
+    test('each is broadcast once, after the readiness it changes', () async {
+      repo.notify(SSEResultState.features, [_feature('ling')]);
+      await _pump();
+      final seen = <String>[];
+      repo.readynessStream.skip(1).listen((r) => seen.add('readiness $r'));
+      repo.connectionFailedStream
+          .where((f) => f)
+          .listen((_) => seen.add('failed'));
+      repo.environmentStaleStream
+          .where((s) => s)
+          .listen((_) => seen.add('stale'));
+
+      repo.notify(SSEResultState.failure, null);
+      repo.notify(SSEResultState.failure, null);
+      repo.markEnvironmentStale();
+      repo.markEnvironmentStale();
+      await _pump();
+      expect(seen, ['readiness ${Readyness.Stale}', 'failed', 'stale']);
+    });
+
+    test('a listener added late is told at once', () async {
+      repo.notify(SSEResultState.features, [_feature('ling')]);
+      repo.notify(SSEResultState.failure, null);
+      repo.markEnvironmentStale();
+      await _pump();
+      expect(await repo.connectionFailedStream.first, true);
+      expect(await repo.environmentStaleStream.first, true);
+    });
+
+    test('a listener that throws does not stop the others', () async {
+      final told = <int>[];
+      await runZonedGuarded(() async {
+        repo.connectionFailedStream.where((f) => f).listen((_) {
+          throw StateError('kwong');
+        });
+        repo.connectionFailedStream.where((f) => f).listen((_) => told.add(1));
+        repo.notify(SSEResultState.failure, null);
+        await _pump();
+      }, (_, _) {});
+      expect(told, [1]);
     });
   });
 }

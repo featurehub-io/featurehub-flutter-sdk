@@ -22,6 +22,15 @@ OpenFeature providers for Dart.
   resolution helpers gain `ResolutionReason.stale`, `FeatureHubResolution.asStale` and `contextPendingResolution`. Once
   the source has stopped for good, `contextUnavailable` says the context is not the one whose features are held
   (`contextUnavailableResolution`)
+* Polling takes the server's interval from each environment's `pollInterval` in a 200 or 236 body (the smallest of at
+  least 5 seconds; with none, the configured interval applies again), and no longer reads `Cache-Control` `max-age`.
+  `FeatureHubRestClient.maxAge` is `serverPollInterval`
+* Extra headers named `x-featurehub`, `If-None-Match` or `Last-Event-ID`, in any case, are never sent: those are the
+  SDK's own. A context whose header is empty has `contextSha` `0`
+* Readiness is broadcast only when it changes (the first Ready, Stale -> Ready after a context change), not on every
+  full set; changed features have their own events. A connection failure or a stale environment is broadcast after the
+  readiness change it causes, and `FeatureHubConnection` exposes `connectionFailed`, `environmentStale` and their
+  streams
 * `fhubWhenActive`: a strategy attribute with that name compares the clock with its UTC date-time, to the second, using
   its conditional (EQUALS, NOT_EQUALS, GREATER, GREATER_EQUALS, LESS, LESS_EQUALS; any other never matches), whatever
   its type; a context key of that name is dropped. `ApplyFeature` takes a `clock`, so tests can fix the time

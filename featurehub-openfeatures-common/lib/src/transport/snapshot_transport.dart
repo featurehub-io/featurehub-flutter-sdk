@@ -7,6 +7,7 @@ import 'package:logging/logging.dart';
 import '../feature_snapshot.dart';
 import '../repository.dart';
 import 'featurehub_transport.dart';
+import 'edge_request.dart';
 import 'polling_transport.dart';
 
 final _log = Logger('featurehub_snapshot_client');
@@ -107,7 +108,7 @@ class FeatureSnapshotClient {
       options: Options(
         headers: {
           'accept': 'application/json',
-          ...headers,
+          ...withoutProtocolHeaders(headers),
           'if-none-match': ?etag,
         },
         responseType: ResponseType.plain,

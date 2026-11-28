@@ -221,7 +221,10 @@ class EventSourceRepositoryListener {
   }
 
   Future<Stream<Event>> connect(String url) async {
-    var sourceHeaders = {'content-type': 'application/json', ..._headers};
+    var sourceHeaders = {
+      'content-type': 'application/json',
+      ...withoutProtocolHeaders(_headers),
+    };
     if (_xFeaturehubHeader != null) {
       sourceHeaders['x-featurehub'] = _xFeaturehubHeader!;
     }

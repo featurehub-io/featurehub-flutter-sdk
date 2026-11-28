@@ -25,20 +25,19 @@ void main() {
     );
   });
 
-  test('We correctly decode cache-control headers', () {
-    final response = ApiResponse(236, {
-      'cache-control': ['blah, max-age=20, blah', 'blah'],
-    }, null);
-
-    config.checkForCacheControl(response);
+  test("an environment's pollInterval replaces the timeout", () async {
+    final data = Stream.value(
+      utf8.encode('[{"id": "1", "features": [], "pollInterval": 20}]'),
+    );
+    await config.decodeResponse(ApiResponse(200, {}, data));
     expect(config.timeoutInSeconds, 20);
   });
 
   test('A 236 will stop updating', () async {
-    final data = Stream.value(utf8.encode('[{"id": "1", "features": []}]'));
-    final response = ApiResponse(236, {
-      'cache-control': ['blah, max-age=20, blah', 'blah'],
-    }, data);
+    final data = Stream.value(
+      utf8.encode('[{"id": "1", "features": [], "pollInterval": 20}]'),
+    );
+    final response = ApiResponse(236, {}, data);
     final expireTime = config.whenNextPollAllowed;
 
     expect(expireTime.isBefore(DateTime.now()), true);

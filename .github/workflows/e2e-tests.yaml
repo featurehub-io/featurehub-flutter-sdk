@@ -154,12 +154,13 @@ jobs:
             sh -c "dart pub get && dart test example/todo_server_test.dart -r expanded"
 
       - name: Run todo-server again in polling mode
-        # this SDK's polling interval must be at least 5 seconds
+        # polling test mode (FEATUREHUB_TEST_POLLING, for test processes only) lets it poll every second
         run: |
           docker rm -f todo-server
           docker run -d \
             --network ${{ job.container.network }} \
-            -e FEATUREHUB_CONNECT_INTERVAL=5s \
+            -e FEATUREHUB_TEST_POLLING=true \
+            -e FEATUREHUB_CONNECT_INTERVAL=1s \
             --name todo-server \
             -p 8099:8099 \
             --env-file adk-env/client.env \
@@ -196,7 +197,8 @@ jobs:
             /bin/bash -c "cd examples/todo-server-tests && pnpm run test --tags @todo-api"
 
       - name: Run the Dart todo-server tests against polling
-        # FEATUREHUB_CONNECT_INTERVAL: the todo server's interval, which the client provider polls at too
+        # FEATUREHUB_CONNECT_INTERVAL: the todo server's interval, which the client provider polls at too (in test
+        # mode, as the todo server does)
         timeout-minutes: 10
         run: |
           docker run --rm \
@@ -204,7 +206,8 @@ jobs:
             -v $PWD:/repo \
             -w /repo/featurehub-openfeatures-client-sdk \
             -e APP_SERVER_URL=http://todo-server:8099 \
-            -e FEATUREHUB_CONNECT_INTERVAL=5s \
+            -e FEATUREHUB_TEST_POLLING=true \
+            -e FEATUREHUB_CONNECT_INTERVAL=1s \
             --env-file adk-env/client.env \
             --name dart-poll-client \
             dart:3.12 \
@@ -220,7 +223,8 @@ jobs:
             -v $PWD:/repo \
             -w /repo/featurehub-openfeatures-client-sdk \
             -e APP_SERVER_URL=http://todo-server:8099 \
-            -e FEATUREHUB_CONNECT_INTERVAL=5s \
+            -e FEATUREHUB_TEST_POLLING=true \
+            -e FEATUREHUB_CONNECT_INTERVAL=1s \
             -e FEATUREHUB_SNAPSHOT_URL=http://todo-server:8099/features \
             --env-file adk-env/client.env \
             --name dart-snapshot-client \

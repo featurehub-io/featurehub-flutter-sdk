@@ -238,6 +238,25 @@ class FeatureHubConnection {
         .timeout(timeout, onTimeout: () => repository.readyness);
   }
 
+  /// True once the connection has failed for good
+  /// ([ClientFeatureRepository.connectionFailed]).
+  bool get connectionFailed => repository.connectionFailed;
+
+  /// True once FeatureHub has said the environment is stale
+  /// ([ClientFeatureRepository.environmentStale]).
+  bool get environmentStale => repository.environmentStale;
+
+  /// Emits false, then true once the connection fails for good: told at
+  /// once to a listener added later, and after the readiness change it
+  /// causes. With [environmentStaleStream], the only reliable signal that
+  /// the source has stopped (readiness may already be Stale for a context
+  /// change).
+  Stream<bool> get connectionFailedStream => repository.connectionFailedStream;
+
+  /// Emits false, then true once the environment is stale (as
+  /// [connectionFailedStream]).
+  Stream<bool> get environmentStaleStream => repository.environmentStaleStream;
+
   /// True while a context change is in progress: the features are sent the
   /// context ([clientEvaluated] is false), the context has changed, and the
   /// new context's features have not arrived yet. The features held are then

@@ -101,26 +101,18 @@ void main() {
       });
     }
 
+    const atOrAfter = RolloutStrategyAttributeConditional.GREATER_EQUALS;
+
     test('its type is ignored', () {
-      expect(
-        _applies([
-          _attr(RolloutStrategyAttributeConditional.GREATER_EQUALS, [
-            _t,
-          ], type: RolloutStrategyFieldType.STRING),
-        ], '2026-12-02T00:00:00Z'),
-        true,
-      );
+      final attr = _attr(atOrAfter, [
+        _t,
+      ], type: RolloutStrategyFieldType.STRING);
+      expect(_applies([attr], '2026-12-02T00:00:00Z'), true);
     });
 
     test('its name is case-insensitive', () {
-      expect(
-        _applies([
-          _attr(RolloutStrategyAttributeConditional.GREATER_EQUALS, [
-            _t,
-          ], fieldName: 'FHUBWHENACTIVE'),
-        ], '2026-12-02T00:00:00Z'),
-        true,
-      );
+      final attr = _attr(atOrAfter, [_t], fieldName: 'FHUBWHENACTIVE');
+      expect(_applies([attr], '2026-12-02T00:00:00Z'), true);
     });
 
     test('the context cannot supply it', () {

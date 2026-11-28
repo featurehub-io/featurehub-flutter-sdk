@@ -8,6 +8,11 @@ import 'dart:io' show Platform;
 
 import 'package:featurehub_client_api/api.dart' show FeatureState;
 import 'package:featurehub_openfeatures_client_sdk/featurehub_openfeatures_client_sdk.dart';
+// polling test mode (FEATUREHUB_TEST_POLLING) is for test processes such as
+// this one, and is not part of the SDK's API
+// ignore: implementation_imports
+import 'package:featurehub_openfeatures_common/src/transport/polling_limits.dart'
+    show enablePollingTestMode, pollingTestModeRequested;
 import 'package:http/http.dart' as http;
 import 'package:openfeature_dart_client_sdk/openfeature_dart_client_sdk.dart';
 import 'package:test/test.dart';
@@ -57,13 +62,20 @@ class HarnessConfig {
         'permissions), and APP_SERVER_URL for the todo server',
       );
     }
+    // test mode allows a poll interval below 5 seconds
+    final testMode = pollingTestModeRequested(env['FEATUREHUB_TEST_POLLING']);
+    if (testMode) enablePollingTestMode();
+    final minimum = testMode ? Duration.zero : const Duration(seconds: 5);
     final interval = read('FEATUREHUB_CONNECT_INTERVAL');
     final pollInterval = interval == null ? null : parseDuration(interval);
     if (interval != null &&
-        (pollInterval == null || pollInterval < const Duration(seconds: 5))) {
+        (pollInterval == null ||
+            pollInterval <= Duration.zero ||
+            pollInterval < minimum)) {
       throw StateError(
         'FEATUREHUB_CONNECT_INTERVAL must be a duration of at least 5s, such '
-        'as 5s or 30s, not "$interval"',
+        'as 5s or 30s (any above 0 with FEATUREHUB_TEST_POLLING=true), not '
+        '"$interval"',
       );
     }
     return HarnessConfig(

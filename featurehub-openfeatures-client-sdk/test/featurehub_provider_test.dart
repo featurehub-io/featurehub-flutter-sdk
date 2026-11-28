@@ -137,6 +137,23 @@ void main() {
     expect(p.clientEvaluated, true);
   });
 
+  // conformance: provider-initialisation-outcomes
+  test('Stale at the deadline without the source stopping is a timeout, '
+      'not fatal', () async {
+    final p = FeatureHubProvider(
+      transportFactory: (target) => _WhoTransport(target, changing: true),
+      waitForReady: const Duration(milliseconds: 100),
+    );
+    final events = <ProviderEvent>[];
+    final sub = p.events.listen(events.add);
+    await p.initialize(EvaluationContext(targetingKey: 'kornaphat'));
+    await Future<void>.delayed(Duration.zero);
+    expect(events.map((e) => e.type), [ProviderEventType.error]);
+    expect(events.single.errorCode, ErrorCode.general);
+    await sub.cancel();
+  });
+
+  // conformance: provider-stale-on-first-response
   test(
     'a stale environment is ready, then stale, and keeps resolving',
     () async {
@@ -620,7 +637,11 @@ class _WhoTransport implements fh.FeatureHubTransport {
   /// Report the environment stale after the first features.
   final bool stale;
 
-  _WhoTransport(this.target, {this.stale = false});
+  /// Leave readiness Stale after the first features, as a context change in
+  /// progress does, without the source stopping.
+  final bool changing;
+
+  _WhoTransport(this.target, {this.stale = false, this.changing = false});
 
   Future<void> _deliver() async {
     await Future<void>.delayed(Duration.zero);
@@ -634,6 +655,7 @@ class _WhoTransport implements fh.FeatureHubTransport {
       ),
     ]);
     if (stale) target.repository.markEnvironmentStale();
+    if (changing) target.repository.contextChanging();
   }
 
   @override

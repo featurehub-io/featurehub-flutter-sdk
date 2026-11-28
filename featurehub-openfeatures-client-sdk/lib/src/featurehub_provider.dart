@@ -361,9 +361,12 @@ final class FeatureHubProvider
     await connection.start(context: initialContext);
     final readiness = await connection.waitForReady(waitForReady);
 
-    // Stale: features held, but the source stopped for good with them (READY,
-    // then STALE)
-    if (readiness != fh.Readyness.Ready && readiness != fh.Readyness.Stale) {
+    // Stale with the source stopped for good: it stopped with the first
+    // features (READY, then STALE). Stale only because a context change is in
+    // progress is not ready: a timeout (providers.initialisation)
+    final stopped = connection.connectionFailed || connection.environmentStale;
+    if (readiness != fh.Readyness.Ready &&
+        !(readiness == fh.Readyness.Stale && stopped)) {
       final fatal = readiness == fh.Readyness.Failed;
       _emit(
         ProviderEventType.error,

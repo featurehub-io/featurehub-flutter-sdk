@@ -179,7 +179,9 @@ void main() {
     });
   });
 
-  group('max-age', () {
+  // conformance: polling-poll-interval, polling-poll-interval-only-on-success,
+  // polling-minimum-interval (featurehub_edge.polling.poll_interval.examples)
+  group('pollInterval', () {
     late FeatureHubRestClient client;
 
     setUp(() {
@@ -187,33 +189,69 @@ void main() {
         server.host,
         ['lingling/kwong*pastry'],
         _Repository(),
-        interval: const Duration(seconds: 30),
+        interval: const Duration(seconds: 60),
       );
     });
 
-    test('below the minimum is raised to it', () {
-      client.decodeCacheControl(['max-age=1']);
-      expect(client.maxAge, const Duration(seconds: 5));
-      client.decodeCacheControl(['max-age=12']);
-      expect(client.maxAge, const Duration(seconds: 12));
-    });
-
-    test('is only read from a 200 or 236', () async {
-      for (final status in [304, 429, 502, 503]) {
-        await client.decodeResponse(
-          ApiResponse(status, {
-            'cache-control': ['max-age=7'],
-          }, null),
+    Future<void> respond(int status, List<int?> intervals) =>
+        client.decodeResponse(
+          ApiResponse(
+            status,
+            {
+              'cache-control': ['max-age=7'],
+            },
+            Stream.value(
+              utf8.encode(
+                jsonEncode([
+                  for (final (i, seconds) in intervals.indexed)
+                    {'id': 'env-$i', 'features': [], 'pollInterval': seconds},
+                ]),
+              ),
+            ),
+          ),
         );
-        expect(client.maxAge, isNull, reason: '$status');
-      }
-      // (a 429 is a 4xx: the client is dead, but a 200 is still decoded)
-      await client.decodeResponse(
-        ApiResponse(200, {
-          'cache-control': ['max-age=7'],
-        }, Stream.value(utf8.encode('[{"id": "env", "features": []}]'))),
-      );
-      expect(client.maxAge, const Duration(seconds: 7));
-    });
+
+    for (final (intervals, expected) in [
+      ([30], 30),
+      ([120], 120),
+      ([45, 20, null], 20),
+      ([3, 40], 40),
+      ([5], 5),
+      ([4, 5], 5),
+      (<int?>[1], 60),
+      (<int?>[], 60),
+    ]) {
+      test('$intervals gives ${expected}s', () async {
+        await respond(200, intervals);
+        expect(client.timeoutInSeconds, expected);
+      });
+    }
+
+    test(
+      'a full response without one returns to the configured interval',
+      () async {
+        await respond(200, [30]);
+        expect(client.serverPollInterval, const Duration(seconds: 30));
+        await respond(200, []);
+        expect(client.serverPollInterval, isNull);
+        expect(client.timeoutInSeconds, 60);
+      },
+    );
+
+    test(
+      'only a 200 or 236 body changes it; Cache-Control never does',
+      () async {
+        for (final status in [304, 429, 502, 503]) {
+          await client.decodeResponse(
+            ApiResponse(status, {
+              'cache-control': ['max-age=7'],
+            }, null),
+          );
+          expect(client.serverPollInterval, isNull, reason: '$status');
+        }
+        await respond(236, [12]);
+        expect(client.serverPollInterval, const Duration(seconds: 12));
+      },
+    );
   });
 }

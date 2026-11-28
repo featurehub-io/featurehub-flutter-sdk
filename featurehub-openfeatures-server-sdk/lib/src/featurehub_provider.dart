@@ -3,6 +3,10 @@ import 'dart:io' show Platform;
 
 import 'package:dio/dio.dart';
 import 'package:featurehub_openfeatures_common/featurehub_openfeatures_common.dart';
+// test mode is not part of common's API, so applications cannot reach it
+// ignore: implementation_imports
+import 'package:featurehub_openfeatures_common/src/transport/polling_limits.dart'
+    show enablePollingTestMode, minPollingInterval, pollingTestModeRequested;
 import 'package:featurehub_sse_client/featurehub_sse_client.dart'
     show ReconnectPolicy;
 import 'package:http/http.dart' as http;
@@ -175,6 +179,8 @@ class FeatureHubProvider
   /// [connectTypeVariable], setting it chooses active polling.
   static const connectIntervalVariable = 'FEATUREHUB_CONNECT_INTERVAL';
 
+  static const _testPollingVariable = 'FEATUREHUB_TEST_POLLING';
+
   /// The environment variable read for [requestTimeout] when polling.
   static const pollingRequestTimeoutVariable = 'FEATUREHUB_POLLING_REQ_TIMEOUT';
 
@@ -262,6 +268,11 @@ class FeatureHubProvider
   }) {
     final env = FeatureHubEnvironment(environment ?? Platform.environment);
     String? setting(String name) => env[name];
+    // for test processes only (featurehub-protocol.yaml
+    // polling_transport.interval.test_mode); deliberately undocumented
+    if (pollingTestModeRequested(setting(_testPollingVariable))) {
+      enablePollingTestMode();
+    }
 
     final resolvedUrl = _nonEmpty(featuresUrl);
     if (resolvedUrl != null &&
@@ -310,7 +321,7 @@ class FeatureHubProvider
       interval = env.duration(connectIntervalVariable);
       if (interval != null &&
           interval != Duration.zero &&
-          interval < const Duration(seconds: 5)) {
+          interval < minPollingInterval) {
         throw ArgumentError(
           '$connectIntervalVariable must be 0 (connect once) or at least 5s, '
           'not "${setting(connectIntervalVariable)}"',
@@ -567,9 +578,12 @@ class FeatureHubProvider
     await connection.start(context: initialContext);
     final readiness = await connection.waitForReady(waitForReady);
 
-    // Stale: features held, but the source stopped for good with them (READY,
-    // then STALE)
-    if (readiness != Readyness.Ready && readiness != Readyness.Stale) {
+    // Stale with the source stopped for good: it stopped with the first
+    // features (READY, then STALE). Stale only because a context change is in
+    // progress is not ready: a timeout (providers.initialisation)
+    final stopped = connection.connectionFailed || connection.environmentStale;
+    if (readiness != Readyness.Ready &&
+        !(readiness == Readyness.Stale && stopped)) {
       final fatal = readiness == Readyness.Failed;
       final message = fatal
           ? _rejected(connection)

@@ -309,10 +309,11 @@ class ClientFeatureRepository {
       'featurehub: this environment has gone stale and will not receive '
       'further updates.',
     );
-    _environmentStaleListeners.add(true);
     // the features held are the last there will be; before any features
-    // readiness is unchanged
+    // readiness is unchanged. Readiness is broadcast first, so a listener
+    // told of the event finds it already Stale (repository.connection_events)
     if (_readynessState == Readyness.Ready) _setReadyness(Readyness.Stale);
+    _environmentStaleListeners.add(true);
   }
 
   /// A context change is in progress (the providers call this before asking
@@ -324,7 +325,12 @@ class ClientFeatureRepository {
     if (_readynessState == Readyness.Ready) _setReadyness(Readyness.Stale);
   }
 
+  /// Readiness is broadcast only when it changes (the initial Ready, Stale ->
+  /// Ready after a context change, ...): a full set that leaves it Ready, as
+  /// every poll does, broadcasts nothing. Changed features have their own
+  /// events ([featuresChangedStream], each feature's updates).
   void _setReadyness(Readyness readyness) {
+    if (_readynessState == readyness) return;
     _readynessState = readyness;
     _broadcastReadynessState();
   }
@@ -441,7 +447,6 @@ class ClientFeatureRepository {
           // once: later failures change nothing
           if (connectionFailed || _connectionFailedListeners.isClosed) break;
           _initialStateResolved = true;
-          _connectionFailedListeners.add(true);
           if (!_hasReceivedInitialState) {
             // before any full set of features: final
             if (_readynessState == Readyness.NotReady) {
@@ -451,6 +456,8 @@ class ClientFeatureRepository {
             // the features keep being resolved, but are no longer updated
             _setReadyness(Readyness.Stale);
           }
+          // after the readiness broadcast (repository.connection_events)
+          _connectionFailedListeners.add(true);
           break;
         case SSEResultState.features:
           // not a list is not a full set: removing every feature not in it

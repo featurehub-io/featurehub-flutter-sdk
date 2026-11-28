@@ -29,9 +29,11 @@ final _log = Logger('FeatureHub');
 /// - Anything else (5xx, network errors, timeouts) is thrown, and a later
 ///   request may succeed.
 ///
-/// A `Cache-Control: max-age` on a `200` or `236` replaces the poll interval
-/// (raised to 5 seconds if it is shorter); one on any other response is
-/// ignored, so a failing gateway cannot make clients poll faster. For a
+/// The environments' `pollInterval` in a `200` or `236` body replaces the poll
+/// interval: the smallest of at least 5 seconds (any below is ignored); with
+/// none, the configured interval applies again. No other response changes
+/// it, and the `Cache-Control` header is never read for it (it is for HTTP
+/// caches). For a
 /// server-evaluated key the repository's client context is sent as the
 /// `x-featurehub` header, and a response to a request sent before the
 /// context changed is dropped.
@@ -47,7 +49,11 @@ class FeatureHubRestClient {
   bool _deadConnection = false;
   DateTime _cacheTimeout;
 
-  /// How long a response is fresh: the poll interval, or a max-age.
+  /// The configured poll interval.
+  final Duration _configured;
+
+  /// How long a response is fresh: the poll interval, or FeatureHub's
+  /// pollInterval that replaced it.
   Duration _freshFor;
 
   /// The longest a request may take, from sending it to reading the whole
@@ -114,6 +120,7 @@ class FeatureHubRestClient {
            ),
          ),
        ),
+       _configured = interval ?? Duration(seconds: timeout),
        _freshFor = interval ?? Duration(seconds: timeout),
        _cacheTimeout = DateTime.now()
            .subtract(Duration(seconds: 1)) // allow for immediate polling
@@ -131,11 +138,12 @@ class FeatureHubRestClient {
   /// each feature's rollout strategies and they are evaluated locally.
   bool get clientEvaluated => _clientEvaluated;
 
-  Duration? _maxAge;
+  Duration? _serverInterval;
 
-  /// The last `Cache-Control: max-age` FeatureHub gave, which replaces the
-  /// poll interval; null if it has given none.
-  Duration? get maxAge => _maxAge;
+  /// The polling interval FeatureHub asked for in its last full response
+  /// (its environments' `pollInterval`), which replaces the configured one;
+  /// null if it asked for none.
+  Duration? get serverPollInterval => _serverInterval;
 
   bool get isConnectionDead => _deadConnection;
   int get timeoutInSeconds => _freshFor.inSeconds;
@@ -198,31 +206,28 @@ class FeatureHubRestClient {
     return features;
   }
 
-  void decodeCacheControl(List<String> cacheControlHeader) {
-    final reg = RegExp(r'max-age=(\d+)', caseSensitive: false);
-
-    for (var header in cacheControlHeader) {
-      final match = reg.firstMatch(header);
-      if (match != null && match.group(0) != null) {
-        try {
-          var cacheAge = int.parse(match.group(0).toString().substring(8));
-          if (cacheAge > 0) {
-            // never poll more often than the minimum, whatever it says
-            final maxAge = atLeastMinimum(Duration(seconds: cacheAge));
-            _freshFor = maxAge;
-            _maxAge = maxAge;
-          }
-        } catch (e) {
-          // ignore an unparseable max-age, keep the existing timeout
-        }
-      }
+  /// The polling interval [body]'s environments ask for (each
+  /// FeatureEnvironmentCollection's `pollInterval`, whole seconds): the
+  /// smallest of at least [minServerPollInterval], or null if there is none.
+  static Duration? pollIntervalOf(Object? body) {
+    if (body is! List) return null;
+    Duration? smallest;
+    for (final environment in body) {
+      if (environment is! Map) continue;
+      final seconds = environment['pollInterval'];
+      if (seconds is! num || seconds != seconds.truncate()) continue;
+      final interval = Duration(seconds: seconds.toInt());
+      if (interval < minServerPollInterval) continue;
+      if (smallest == null || interval < smallest) smallest = interval;
     }
+    return smallest;
   }
 
-  void checkForCacheControl(ApiResponse response) {
-    if (response.headers.containsKey('cache-control')) {
-      decodeCacheControl(response.headers['cache-control']!);
-    }
+  /// Applies FeatureHub's [requested] interval (null: back to the
+  /// configured one).
+  void _applyServerInterval(Duration? requested) {
+    _serverInterval = requested;
+    _freshFor = requested ?? _configured;
   }
 
   /// Loads the features in [response]. The next poll is allowed the timeout
@@ -232,18 +237,16 @@ class FeatureHubRestClient {
     DateTime? requestedAt,
   }) async {
     if (response.statusCode == 200 || response.statusCode == 236) {
-      // only from a response with features: a 304, 4xx or 5xx (perhaps from
-      // a proxy or gateway) must not change how often clients poll
-      checkForCacheControl(response);
-
       final body = response.body;
       if (body == null) {
         throw const FormatException('FeatureHub sent no features');
       }
-      _repository.notify(
-        SSEResultState.features,
-        featuresFromEnvironments(jsonDecode(await utf8.decodeStream(body))),
-      );
+      final decoded = jsonDecode(await utf8.decodeStream(body));
+      final features = featuresFromEnvironments(decoded);
+      // only from a body with features: a 304, 4xx or 5xx (perhaps from a
+      // proxy or gateway) never changes how often clients poll
+      _applyServerInterval(pollIntervalOf(decoded));
+      _repository.notify(SSEResultState.features, features);
 
       if (response.statusCode == 236) {
         // the last features: stop polling, and report the environment stale
@@ -289,7 +292,11 @@ class FeatureHubRestClient {
     final sentHeader = xFeatureHubHeader;
     final options = sentHeader == null && headers.isEmpty
         ? null
-        : (Options()..headers = {...headers, 'x-featurehub': ?sentHeader});
+        : (Options()
+            ..headers = {
+              ...withoutProtocolHeaders(headers),
+              'x-featurehub': ?sentHeader,
+            });
 
     // added to break any caching if we change the header on the client side
     final sha = contextShaOf(sentHeader);
@@ -367,8 +374,8 @@ class FeatureHubPollingTransport extends PollingTransport {
   @override
   bool get isDead => client.isConnectionDead;
 
-  /// FeatureHub's Cache-Control max-age, if it gave one, else the interval
-  /// (with an interval of zero, there is no next poll, whatever max-age says).
+  /// FeatureHub's pollInterval, if it gave one, else the interval (with an
+  /// interval of zero, there is no next poll, whatever pollInterval says).
   @override
-  Duration get currentInterval => client.maxAge ?? interval;
+  Duration get currentInterval => client.serverPollInterval ?? interval;
 }

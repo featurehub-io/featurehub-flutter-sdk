@@ -35,6 +35,9 @@ class _Edge {
   /// A Cache-Control header for polling responses.
   String? cacheControl;
 
+  /// The environment's pollInterval in polling responses, in seconds.
+  int? pollInterval;
+
   String get host => 'http://127.0.0.1:${_server.port}';
 
   Future<void> start() async {
@@ -87,7 +90,11 @@ class _Edge {
       }
       final body = utf8.encode(
         jsonEncode([
-          {'id': 'env', 'features': _features(header)},
+          {
+            'id': 'env',
+            'features': _features(header),
+            'pollInterval': ?pollInterval,
+          },
         ]),
       );
       if (gzipped) {
@@ -111,8 +118,14 @@ class _Edge {
 
 void main() {
   // these tests poll far faster than applications may
-  setUpAll(() => minPollingInterval = const Duration(milliseconds: 1));
-  tearDownAll(() => minPollingInterval = defaultMinPollingInterval);
+  setUpAll(() {
+    minPollingInterval = const Duration(milliseconds: 1);
+    minServerPollInterval = const Duration(seconds: 1);
+  });
+  tearDownAll(() {
+    minPollingInterval = defaultMinPollingInterval;
+    minServerPollInterval = const Duration(seconds: 5);
+  });
 
   late _Edge edge;
 
@@ -162,8 +175,11 @@ void main() {
           headers: {
             'proxy-authorization': 'Basic abc',
             'x-team': 'web',
-            // the SDK's own context header wins
-            'x-featurehub': 'userkey=someone-else',
+            // the SDK's own protocol headers win, in any case
+            // (conformance: extra-headers-precedence)
+            'X-FeatureHub': 'userkey=someone-else',
+            'If-None-Match': '"kwong-pastry"',
+            'LAST-EVENT-ID': 'chago',
           },
           dio: dio,
           httpClient: httpClient,
@@ -177,8 +193,11 @@ void main() {
         final request = edge.requests.last;
         expect(request.headers.value('proxy-authorization'), 'Basic abc');
         expect(request.headers.value('x-team'), 'web');
-        // the context header is still the SDK's own
+        // the context header is still the SDK's own, and the other
+        // protocol headers are not sent from the extra headers
         expect(request.headers['x-featurehub'], ['userkey=fred']);
+        expect(request.headers.value('if-none-match'), isNull);
+        expect(request.headers.value('last-event-id'), isNull);
         if (mode == FeatureHubUpdateMode.streaming) {
           expect(httpClient.sent, greaterThan(0));
           expect(dioRequests, 0);
@@ -215,6 +234,22 @@ void main() {
         );
         expect(edge.requests.length, count);
         await connection.close();
+      });
+
+      test('a client-evaluated key never sends x-featurehub, even as an extra '
+          'header', () async {
+        final connection = FeatureHubConnection(
+          host: edge.host,
+          apiKey: 'a/b/c*d',
+          mode: mode,
+          headers: const {'x-featurehub': 'userkey=ormkorn', 'x-team': 'uni'},
+        );
+        await connection.start();
+        await connection.waitForReady(const Duration(seconds: 5));
+        await connection.close();
+        final request = edge.requests.last;
+        expect(request.headers.value('x-featurehub'), isNull);
+        expect(request.headers.value('x-team'), 'uni');
       });
 
       test('a client-evaluated key never sends the context', () async {
@@ -337,8 +372,9 @@ void main() {
     expect(edge.requests, hasLength(3));
   });
 
-  test('a Cache-Control max-age replaces the poll interval', () async {
-    edge.cacheControl = 'private, max-age=1';
+  // conformance: polling-poll-interval
+  test("FeatureHub's pollInterval replaces the poll interval", () async {
+    edge.pollInterval = 1;
     final connection = FeatureHubConnection(
       host: edge.host,
       apiKey: 'a/b/c',
@@ -352,8 +388,23 @@ void main() {
     expect(edge.requests, hasLength(3));
   });
 
-  test('a longer Cache-Control max-age slows polling down', () async {
-    edge.cacheControl = 'max-age=3';
+  // conformance: polling-cache-control-ignored
+  test('a Cache-Control max-age is not read', () async {
+    edge.cacheControl = 'private, max-age=1';
+    final connection = FeatureHubConnection(
+      host: edge.host,
+      apiKey: 'a/b/c',
+      mode: FeatureHubUpdateMode.activePolling,
+      pollInterval: const Duration(seconds: 30),
+    );
+    await connection.start();
+    await Future<void>.delayed(const Duration(milliseconds: 2500));
+    await connection.close();
+    expect(edge.requests, hasLength(1));
+  });
+
+  test('a longer pollInterval slows polling down', () async {
+    edge.pollInterval = 3;
     final connection = FeatureHubConnection(
       host: edge.host,
       apiKey: 'a/b/c',

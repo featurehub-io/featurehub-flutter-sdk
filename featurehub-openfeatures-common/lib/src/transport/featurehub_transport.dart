@@ -20,7 +20,7 @@ enum FeatureHubUpdateMode {
   passivePolling,
 
   /// Poll every [FeatureHubConnection.pollInterval] (or a FeatureHub
-  /// Cache-Control max-age, which replaces it).
+  /// pollInterval, which replaces it).
   activePolling,
 }
 

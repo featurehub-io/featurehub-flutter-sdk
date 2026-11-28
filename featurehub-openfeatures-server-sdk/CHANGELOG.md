@@ -18,6 +18,9 @@
   and `FEATUREHUB_SSE_BACKOFF_MULTIPLIER`. Every duration is one number and a
   unit (`ms`, `s`, `m`, `h`); an invalid value is an `ArgumentError`.
 - A `readTimeout` option for streaming connections.
+- Initialisation succeeds with readiness Stale only when the source has
+  stopped for good (READY, then STALE); Stale only because a context change is
+  in progress is a timeout (ERROR, GENERAL).
 - Shutting down closes the stores and interceptors, so a provider that has
   been shut down cannot be initialized again: it reports a fatal error.
 - The example has `/health/liveness`, stops cleanly on `SIGTERM` as well as
