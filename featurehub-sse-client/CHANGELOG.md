@@ -1,7 +1,8 @@
 # Changelog
 * 1.5.0
 - a 200 response that is not `text/event-stream` (for example a proxy's or captive portal's HTML page) is a failed
-  connection, retried as a network error (status `0`), rather than a stream that opened
+  connection, retried as a network error (status `0`), rather than a stream that opened; a 200 with no
+  `Content-Type` is still taken as the stream
 - every wait before a reconnection is at least 100ms, whatever the policy says, and a server's `retry:` field is
   raised to at least 1 second
 - `EventSource.connect` takes an optional `resetAttemptsOn`, choosing the events that reset the count of failed

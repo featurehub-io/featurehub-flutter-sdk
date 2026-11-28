@@ -131,8 +131,13 @@ class FeatureHubProvider
   /// Interceptors that supply feature values in place of FeatureHub's (see
   /// [ValueInterceptor]), for example local overrides during development. The first
   /// that matches a feature supplies its value; they also override locked
-  /// features. They are closed when the provider shuts down.
+  /// features. They are closed when the provider shuts down, after which it
+  /// cannot be initialized again.
   final List<ValueInterceptor> interceptors;
+
+  /// True once [shutdownProvider] has closed the stores and interceptors:
+  /// the provider cannot be initialized again.
+  bool _shutDown = false;
 
   final FeatureHubConnection Function(FeatureHubProvider provider)?
   _connectionFactory;
@@ -493,6 +498,17 @@ class FeatureHubProvider
     EvaluationContext context, {
     String? domain,
   }) async {
+    if (_shutDown) {
+      const message =
+          'This FeatureHub provider has been shut down, and its stores and '
+          'interceptors closed: create a new one.';
+      _emit(
+        ProviderLifecycleEventType.PROVIDER_ERROR,
+        message,
+        errorCode: ErrorCode.PROVIDER_FATAL,
+      );
+      throw ProviderException(message, code: ErrorCode.PROVIDER_FATAL);
+    }
     // check the context first, so nothing is started for an invalid one
     MappedContext? initialContext;
     if (!clientEvaluated) {
@@ -612,6 +628,7 @@ class FeatureHubProvider
 
   @override
   Future<void> shutdownProvider() async {
+    _shutDown = true;
     _ready = false;
     await _tracker?.cancel();
     _tracker = null;

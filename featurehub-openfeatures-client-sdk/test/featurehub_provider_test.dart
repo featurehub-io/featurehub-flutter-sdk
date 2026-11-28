@@ -312,6 +312,21 @@ void main() {
       await api.shutdown();
       expect(transport!.closed, true);
     });
+
+    test('once shut down, it cannot be initialized again', () async {
+      await api.shutdown();
+      final first = transport;
+      final events = <ProviderEvent>[];
+      final sub = p.events.listen(events.add);
+
+      await p.initialize(EvaluationContext(targetingKey: 'ling'));
+      await Future<void>.delayed(Duration.zero);
+      expect(identical(transport, first), true, reason: 'nothing started');
+      expect(events.map((e) => e.type), [ProviderEventType.error]);
+      expect(events.single.errorCode, ErrorCode.providerFatal);
+      expect(events.single.message, contains('create a new one'));
+      await sub.cancel();
+    });
   });
 
   test('catch and release can be switched on at creation', () async {

@@ -443,7 +443,11 @@ class EventSource extends Stream<Event> {
       throw EventSourceSubscriptionException(response.statusCode, body);
     }
 
-    final contentType = _contentTypeForHeaders(response.headers).mimeType;
+    // a response with no content type is taken as the stream it is meant to
+    // be; one with another type is not
+    final contentType = response.headers.containsKey("content-type")
+        ? _contentTypeForHeaders(response.headers).mimeType
+        : "text/event-stream";
     if (contentType != "text/event-stream") {
       // e.g. an HTML page from a gateway, proxy or captive portal: not a
       // stream that opened, but a failed connection, retried as a network

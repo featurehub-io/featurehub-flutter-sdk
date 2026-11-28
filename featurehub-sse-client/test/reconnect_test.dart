@@ -576,6 +576,28 @@ void main() {
       await es.close();
     });
 
+    test("a 200 with no content type is a stream", () async {
+      final server = _Server([
+        () => http.StreamedResponse(
+          Stream.value(utf8.encode("data: kwong\n\n")),
+          200,
+        ),
+      ]);
+      final es = await EventSource.connect(
+        "http://localhost/events",
+        client: server.client,
+        openOnlyOnFirstListener: true,
+        reconnectPolicy: const ReconnectPolicy(
+          delay: Duration(milliseconds: 5),
+          maxAttempts: 0,
+        ),
+      );
+      final listener = _Listener(es);
+      await _until(() => listener.messages.isNotEmpty);
+      expect(listener.messages, ["kwong"]);
+      await es.close();
+    });
+
     test("counts towards the maximum attempts", () async {
       final server = _Server([html()]);
       final es = await EventSource.connect(

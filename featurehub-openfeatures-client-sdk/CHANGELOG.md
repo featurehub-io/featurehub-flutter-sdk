@@ -8,6 +8,8 @@
   polling and passive refresh, with optional HTTP connect and request timeouts.
 - A poll interval of 0 polls once; any other must be at least 5 seconds.
 - A `readTimeout` option for streaming connections (`dart:io` only).
+- Shutting down closes the stores and interceptors, so a provider that has
+  been shut down cannot be initialized again: it reports a fatal error.
 - Stores are told whether the features are evaluated for a context, and the
   context the provider starts with, so a store keeps each context's features
   apart.

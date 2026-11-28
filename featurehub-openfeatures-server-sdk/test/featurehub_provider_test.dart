@@ -743,6 +743,22 @@ void main() {
       await api.dispose();
       expect(transport!.closed, true);
     });
+
+    test('once shut down, it cannot be initialized again', () async {
+      await api.dispose();
+      final first = transport;
+      await expectLater(
+        p.initializeProvider(const EvaluationContext(attributes: {})),
+        throwsA(
+          isA<ProviderException>().having(
+            (e) => e.code,
+            'code',
+            ErrorCode.PROVIDER_FATAL,
+          ),
+        ),
+      );
+      expect(identical(transport, first), true, reason: 'nothing started');
+    });
   });
 
   test('catch and release can be switched on at creation', () async {
