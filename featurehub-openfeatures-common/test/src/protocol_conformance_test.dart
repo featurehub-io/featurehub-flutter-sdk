@@ -342,10 +342,10 @@ void main() {
   });
 
   group('connection', () {
-    test('a server-evaluated key has no default mode', () {
+    test('the default mode is streaming, for any key', () {
       expect(
-        () => FeatureHubConnection(host: 'http://x', apiKey: 'lingling/kwong'),
-        throwsA(isA<ArgumentError>().having((e) => e.name, 'name', 'mode')),
+        FeatureHubConnection(host: 'http://x', apiKey: 'lingling/kwong').mode,
+        FeatureHubUpdateMode.streaming,
       );
       expect(
         FeatureHubConnection(host: 'http://x', apiKey: 'lingling/kwong*a').mode,
@@ -414,6 +414,42 @@ void main() {
         const Duration(milliseconds: 50),
       );
       expect(readiness, Readyness.Stale);
+    });
+
+    // conformance: single-context
+    test('a context change is pending until its features arrive', () async {
+      expect(connection.contextChangePending, false);
+      expect(connection.contextChangeStartedAt, isNull);
+      transport.answer = false;
+      await connection.setContext(
+        mapEvaluationContext({'targetingKey': 'orm'}),
+        const Duration(milliseconds: 20),
+      );
+      expect(connection.contextChangePending, true);
+      expect(connection.contextChangeStartedAt, isNotNull);
+
+      // the same context again waits again, and wakes when they arrive
+      final again = connection.setContext(
+        mapEvaluationContext({'targetingKey': 'orm'}),
+        const Duration(seconds: 5),
+      );
+      await _pump();
+      transport._features();
+      expect(await again, Readyness.Ready);
+      expect(connection.contextChangePending, false);
+      expect(connection.contextChangeStartedAt, isNull);
+      expect(repo.evaluate('kwong_pastry').value, 'userkey=orm');
+      expect(transport.contextChanges, 1);
+    });
+
+    test('a context change is not pending once the source stops', () async {
+      transport.answer = false;
+      await connection.setContext(
+        mapEvaluationContext({'targetingKey': 'orm'}),
+        const Duration(milliseconds: 20),
+      );
+      repo.notify(SSEResultState.failure, null);
+      expect(connection.contextChangePending, false);
     });
   });
 }

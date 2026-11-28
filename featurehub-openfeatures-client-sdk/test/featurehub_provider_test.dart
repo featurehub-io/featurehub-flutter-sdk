@@ -21,6 +21,7 @@ void main() {
     bool catchAndReleaseMode = false,
     List<fh.FeatureStore> stores = const [],
     List<fh.ValueInterceptor> interceptors = const [],
+    Duration waitForReady = const Duration(seconds: 2),
   }) => FeatureHubProvider(
     catchAndReleaseMode: catchAndReleaseMode,
     stores: stores,
@@ -28,7 +29,7 @@ void main() {
     host: 'http://localhost',
     apiKey: apiKey,
     mode: fh.FeatureHubUpdateMode.streaming,
-    waitForReady: const Duration(seconds: 2),
+    waitForReady: waitForReady,
     connectionFactory: (p) {
       final repository = fh.ClientFeatureRepository();
       transport = FakeTransport(repository, bundle, fail: fail);
@@ -84,10 +85,10 @@ void main() {
   });
 
   // conformance: client-default-mode
-  test('polls by default, for any key', () {
+  test('polls passively by default, for any key', () {
     for (final key in ['lingling/kwong', 'lingling/kwong*orm']) {
       final p = FeatureHubProvider(host: 'http://x', apiKey: key);
-      expect(p.mode, fh.FeatureHubUpdateMode.activePolling, reason: key);
+      expect(p.mode, fh.FeatureHubUpdateMode.passivePolling, reason: key);
       expect(p.pollInterval, const Duration(seconds: 30), reason: key);
     }
     for (final mode in fh.FeatureHubUpdateMode.values) {
@@ -122,7 +123,7 @@ void main() {
     final fromServer = FeatureHubProvider(
       featuresUrl: 'https://my.app/features',
     );
-    expect(fromServer.mode, FeatureHubUpdateMode.activePolling);
+    expect(fromServer.mode, FeatureHubUpdateMode.passivePolling);
     expect(fromServer.clientEvaluated, false);
     expect(
       FeatureHubProvider(
@@ -408,7 +409,7 @@ void main() {
     });
 
     test(
-      'after a rejection, a context change keeps the last features',
+      'after a rejection, the last features serve only their own context',
       () async {
         await api.setEvaluationContextAndWait(
           EvaluationContext(targetingKey: 'ling'),
@@ -427,8 +428,63 @@ void main() {
         expect(watch.elapsed, lessThan(const Duration(seconds: 1)));
         expect(events, [ProviderEventType.contextChanged]);
         expect(transport!.headers, ['userkey=ling'], reason: 'nothing fetched');
+
+        // orm's features cannot be fetched: never ling's in their place
+        final unavailable = api.getClient().getStringDetails('who', 'kwong');
+        expect(unavailable.value, 'kwong');
+        expect(unavailable.errorCode, ErrorCode.providerNotReady);
+
+        // back to ling, whose features are held
+        await api.setEvaluationContextAndWait(
+          EvaluationContext(targetingKey: 'ling'),
+        );
         expect(api.getClient().getStringValue('who', ''), 'ling');
+        expect(transport!.headers, ['userkey=ling'], reason: 'nothing fetched');
         await sub.cancel();
+      },
+    );
+
+    // conformance: single-context
+    test(
+      'during a context change, the old values are STALE, then not ready',
+      () async {
+        await api.setEvaluationContextAndWait(
+          EvaluationContext(targetingKey: 'ling'),
+        );
+        final p = provider(
+          'env/key',
+          waitForReady: const Duration(milliseconds: 100),
+        );
+        await api.setProviderAndWait(p);
+        final client = api.getClient();
+
+        final arrived = Completer<void>();
+        transport!.hold = arrived.future;
+        final changed = api.setEvaluationContextAndWait(
+          EvaluationContext(targetingKey: 'orm'),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+
+        // within waitForReady: the previous context's value, as STALE
+        final stale = client.getStringDetails('who', 'kwong');
+        expect(stale.value, 'ling');
+        expect(stale.reason, 'STALE');
+        expect(stale.variant, 'by-user');
+        expect(stale.errorCode, isNull);
+
+        // after it: the default, not ready
+        await changed;
+        await Future<void>.delayed(const Duration(milliseconds: 120));
+        final late = client.getStringDetails('who', 'kwong');
+        expect(late.value, 'kwong');
+        expect(late.errorCode, ErrorCode.providerNotReady);
+
+        // the new context's features: resolved normally
+        arrived.complete();
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        final current = client.getStringDetails('who', 'kwong');
+        expect(current.value, 'orm');
+        expect(current.reason, 'TARGETING_MATCH');
       },
     );
 

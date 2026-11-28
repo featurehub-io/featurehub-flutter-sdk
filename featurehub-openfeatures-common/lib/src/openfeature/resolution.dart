@@ -30,6 +30,10 @@ abstract final class ResolutionReason {
   /// The feature has no value set: the code default is returned.
   static const disabled = 'DISABLED';
   static const error = 'ERROR';
+
+  /// The value is the previous evaluation context's: a context change is in
+  /// progress, and the new context's features have not arrived yet.
+  static const stale = 'STALE';
 }
 
 /// OpenFeature error codes used by the FeatureHub providers. Each provider
@@ -82,6 +86,18 @@ class FeatureHubResolution<T> {
 
   bool get isError => errorCode != null;
 
+  /// This resolution with the reason [ResolutionReason.stale], unless it is
+  /// an error: the value was resolved from the previous context's features,
+  /// during a context change.
+  FeatureHubResolution<T> asStale() => isError
+      ? this
+      : FeatureHubResolution(
+          value: value,
+          reason: ResolutionReason.stale,
+          variant: variant,
+          flagMetadata: flagMetadata,
+        );
+
   @override
   String toString() =>
       'FeatureHubResolution($value, $reason'
@@ -94,6 +110,27 @@ FeatureHubResolution<T> notReadyResolution<T>(T defaultValue) =>
       defaultValue,
       ResolutionErrorCode.providerNotReady,
       'FeatureHub provider has not completed initialization.',
+    );
+
+/// A resolution while a context change has not delivered the new context's
+/// features within the provider's wait: the previous context's features are
+/// not used for it.
+FeatureHubResolution<T> contextPendingResolution<T>(T defaultValue) =>
+    FeatureHubResolution.error(
+      defaultValue,
+      ResolutionErrorCode.providerNotReady,
+      "FeatureHub has not delivered the features for the new evaluation "
+      "context yet.",
+    );
+
+/// A resolution for a context whose features can no longer be fetched (the
+/// source stopped for good with another context's features).
+FeatureHubResolution<T> contextUnavailableResolution<T>(T defaultValue) =>
+    FeatureHubResolution.error(
+      defaultValue,
+      ResolutionErrorCode.providerNotReady,
+      "FeatureHub has stopped, so the features for this evaluation context "
+      "cannot be fetched.",
     );
 
 FeatureHubResolution<T> fatalResolution<T>(T defaultValue) =>

@@ -8,9 +8,10 @@ line applications use
 
 The provider keeps the whole feature bundle of a FeatureHub environment in a
 local repository and resolves every flag synchronously from it. It is kept up
-to date by active polling (the default, every 30 seconds), streaming (the
-browser's native `EventSource` on the web, `featurehub_sse_client` elsewhere)
-or passive polling.
+to date by passive polling (the default: reading a flag refreshes the
+features in the background once they are older than 30 seconds), active
+polling, or streaming (the browser's native `EventSource` on the web,
+`featurehub_sse_client` elsewhere).
 
 ## Usage
 
@@ -41,12 +42,15 @@ See [`example/main.dart`](example/main.dart).
   `contextChanged`. In browsers the context is sent as the `xfeaturehub`
   query parameter, since `EventSource` cannot send headers.
 
-  A connection with a server-evaluated key serves **a single user** and
-  cannot be shared between users. It suits apps, browsers and batch
-  processes, where the context changes rarely, such as when a user signs
-  in. If the fetch for a new context fails or times out, the provider keeps
-  the previous context's features. Where the context switches often, or
-  between users, you must use a client-evaluated key.
+  A provider with a server-evaluated key has **one active context** and
+  cannot be shared between users. It suits apps and browsers, where the
+  context changes rarely, such as when a user signs in. Await the context
+  change (`setEvaluationContextAndWait`) before reading flags for the new
+  context. Flags read while it is in progress return the previous context's
+  values with the reason `STALE`; once `waitForReady` has passed without
+  the new context's features, they return the default value with
+  `providerNotReady` until the features arrive. Where the context switches
+  often, or between users, you must use a client-evaluated key.
 - **Client-evaluated keys** (containing `*`) deliver every feature's rollout
   strategies, which are evaluated locally, so a context change needs no
   network request.
@@ -72,9 +76,9 @@ await api.setProviderAndWait(
 - The context is sent as query parameters: `userkey` (OpenFeature's
   `targetingKey`), then the other attributes. A list becomes a repeated
   parameter.
-- The provider polls every `pollInterval`, or with
-  `mode: FeatureHubUpdateMode.passivePolling` refreshes when a flag is read once the
-  features are older than that. Streaming isn't available. Each request
+- The provider refreshes when a flag is read once the features are older
+  than `pollInterval`, or with `mode: FeatureHubUpdateMode.activePolling`
+  polls every `pollInterval`. Streaming isn't available. Each request
   sends the last `ETag` as `If-None-Match`, so the server can answer `304`.
 - When the context changes the provider reports `reconciling`, fetches the
   features for the new context, then reports `contextChanged`, as for a
@@ -105,7 +109,10 @@ being re-established is not reported: the provider stays ready. Any permanent
 stop after features have arrived (a rejection, a browser connection error, or
 a stale FeatureHub environment: `236` when polling, `edge.stale` when
 streaming) is reported as `stale`, once and for good; flags keep resolving
-from the last features, and a context change keeps them.
+from the last features. With a server-evaluated key (or `sendContext`) those
+features belong to one context: after a context change to another, flags
+return their default value with `providerNotReady`, as that context's
+features can no longer be fetched; changing back resolves them again.
 
 ## Catch and release
 
@@ -153,9 +160,9 @@ the UI rebuilds from the new values.
 
 | Option | Default | |
 |---|---|---|
-| `mode` | `activePolling`, for any key and for a `featuresUrl` | `streaming` (FeatureHub only), `activePolling` (every `pollInterval`) or `passivePolling` (a resolution refreshes in the background once the features are older than `pollInterval`) |
+| `mode` | `passivePolling`, for any key and for a `featuresUrl` | `streaming` (FeatureHub only), `activePolling` (every `pollInterval`) or `passivePolling` (a resolution refreshes in the background once the features are older than `pollInterval`) |
 | `pollInterval` | 30s | 0 polls once, at start-up, and never again (a context change still fetches); anything else must be at least 5 seconds (an `ArgumentError`), and a FeatureHub `Cache-Control: max-age` below that is raised to it |
-| `waitForReady` | 10s | how long initialization and a context change wait for features |
+| `waitForReady` | 10s | how long initialization and a context change wait for features; during a context change, flags read return the previous context's values (`STALE`) for this long, then defaults (`providerNotReady`) until the new features arrive |
 | `reconnectPolicy` | `defaultReconnectPolicy`: 3s after a network error, 30s after a 5xx (or an invalid 1xx or 3xx), doubling with each consecutive failure up to 5 minutes; a 200 that is not an event stream (e.g. a proxy's HTML page) is retried as a network error; every wait is at least 100ms, and a server's `retry:` at least 1s; consecutive failures are counted until FeatureHub sends an event, not just until a connection opens, so a server that drops every connection still backs off and uses up `maxAttempts`; a 4xx, 429 included, stops for good. Any stop for good (also an unretried status, or running out of `maxAttempts`) is a failure: before any features the provider fails to initialize, after them it goes `stale` | streaming reconnection on Android and iOS; set any value with your own `ReconnectPolicy(delay:, serverErrorDelay:, backoffMultiplier:, maxDelay:, maxAttempts:)`. In browsers the native `EventSource` reconnects after a dropped connection, but a connection error (the browser giving up, which hides whether it was a 4xx or 5xx) stops streaming for good: before any features the provider fails to initialize, after them it goes `stale` |
 | `connectTimeout` | none | how long establishing an HTTP connection may take (in browsers, polling only: the browser controls `EventSource` connections) |
 | `stores` | none | stores that keep a copy of the features, attached before connecting (see `FeatureStore`): e.g. `featurehub_openfeatures_store_localstorage`, to start web applications with the features they last had |

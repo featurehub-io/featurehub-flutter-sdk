@@ -8,8 +8,15 @@
   polling and passive refresh, with optional HTTP connect and request timeouts.
 - A poll interval of 0 polls once; any other must be at least 5 seconds.
 - A `readTimeout` option for streaming connections (`dart:io` only).
-- The default mode is `activePolling` (every `pollInterval`, 30 seconds by
-  default), for a client- or a server-evaluated key alike.
+- The default mode is `passivePolling` (reading a flag refreshes features
+  older than `pollInterval`, 30 seconds by default), for a client- or a
+  server-evaluated key alike.
+- A server-evaluated key has one active context. While a context change is in
+  progress, flags resolve to the previous context's values with the reason
+  `STALE`; once `waitForReady` has passed without the new context's features,
+  to their defaults with `providerNotReady`, until the features arrive. Once
+  FeatureHub has stopped for good, the last features serve only the context
+  they belong to: any other context gets defaults with `providerNotReady`.
 - A `catchAndReleaseMode` option (and `release()`), which can be set when the
   provider is created.
 - A `stores` option for feature stores, attached before connecting.

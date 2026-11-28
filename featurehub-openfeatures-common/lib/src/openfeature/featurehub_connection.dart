@@ -51,11 +51,10 @@ class FeatureHubConnection {
   final ClientFeatureRepository repository;
 
   /// How the features are fetched. By default [FeatureHubUpdateMode.streaming]
-  /// from FeatureHub with a client-evaluated key, and
+  /// from FeatureHub, for a client- or a server-evaluated key alike, and
   /// [FeatureHubUpdateMode.activePolling] from a [featuresUrl] (which is only
-  /// polled). A server-evaluated key has no default here: the mode must be
-  /// given. The providers always give one: the client provider polls unless
-  /// told otherwise, and the server provider streams.
+  /// polled). The providers always give one: the client provider polls
+  /// passively unless told otherwise, and the server provider streams.
   final FeatureHubUpdateMode mode;
   final Duration pollInterval;
 
@@ -72,6 +71,11 @@ class FeatureHubConnection {
   final bool customTransport;
   late final FeatureHubTransport _transport;
   String? _contextHeader;
+
+  /// The context whose features the repository holds.
+  String? _heldHeader;
+  StreamSubscription<Readyness>? _held;
+  DateTime? _contextChangedAt;
   bool _started = false;
 
   /// [connectTimeout] limits how long establishing a connection may take
@@ -94,8 +98,7 @@ class FeatureHubConnection {
   ///
   /// Throws an [ArgumentError] for a [featuresUrl] together with a [host] or
   /// [apiKey], or with [FeatureHubUpdateMode.streaming] for the built-in
-  /// transport (your server is polled); or for a server-evaluated [apiKey]
-  /// (no `*`) without a [mode], unless a transport is given.
+  /// transport (your server is polled).
   FeatureHubConnection({
     this.host,
     this.apiKey,
@@ -131,16 +134,6 @@ class FeatureHubConnection {
     final apiKey = this.apiKey;
     final featuresUrl = this.featuresUrl;
     final builtIn = !customTransport;
-    if (mode == null &&
-        builtIn &&
-        apiKey != null &&
-        !isClientEvaluatedKeys([apiKey])) {
-      throw ArgumentError(
-        'A server-evaluated API key (without "*") has no default mode: give '
-            'streaming, activePolling or passivePolling',
-        'mode',
-      );
-    }
     if (featuresUrl != null) {
       if (host != null || apiKey != null) {
         throw ArgumentError(
@@ -223,6 +216,14 @@ class FeatureHubConnection {
       _contextHeader = context.header;
       repository.clientContext.build();
     }
+    // a full set is the current context's (features a store already gave
+    // count as the first context's)
+    _held = repository.readynessStream
+        .where((r) => r == Readyness.Ready)
+        .listen((_) => _heldHeader = _contextHeader);
+    if (repository.readyness != Readyness.NotReady) {
+      _heldHeader = _contextHeader;
+    }
     await _transport.start();
   }
 
@@ -237,52 +238,104 @@ class FeatureHubConnection {
         .timeout(timeout, onTimeout: () => repository.readyness);
   }
 
+  /// True while a context change is in progress: the features are sent the
+  /// context ([clientEvaluated] is false), the context has changed, and the
+  /// new context's features have not arrived yet. The features held are then
+  /// the previous context's, and MUST NOT be resolved as the new one's (see
+  /// [setContext]). False once the source has stopped for good, as nothing
+  /// more can be fetched (see [contextUnavailable]).
+  bool get contextChangePending =>
+      !clientEvaluated &&
+      repository.readyness == Readyness.Stale &&
+      !repository.connectionFailed &&
+      !repository.environmentStale;
+
+  /// True when the source has stopped for good and the context is not the
+  /// one whose features are held: nothing can fetch the features for it, so
+  /// they are unavailable, and the held ones MUST NOT be resolved for it.
+  /// Changing back to the held context makes it false again.
+  bool get contextUnavailable =>
+      !clientEvaluated &&
+      (repository.connectionFailed || repository.environmentStale) &&
+      _contextHeader != _heldHeader;
+
+  /// When the context change in progress ([contextChangePending]) started,
+  /// or null if there is none.
+  DateTime? get contextChangeStartedAt =>
+      contextChangePending ? _contextChangedAt : null;
+
   /// Server-evaluated keys: fetches the features for [context] (if it differs
   /// from the current one) and waits, for at most [timeout], for them.
-  /// Returns the readiness afterwards. Does nothing for client-evaluated keys.
+  /// Returns the readiness afterwards: [Readyness.Ready] once the context's
+  /// features have arrived. Does nothing for client-evaluated keys.
   ///
-  /// While it waits readiness is [Readyness.Stale] (the old context's
-  /// features are still held, and resolved); the new context's features make
-  /// it [Readyness.Ready]. It also stops waiting if the source stops for good
-  /// meanwhile. Once the source has stopped for good
-  /// ([ClientFeatureRepository.connectionFailed],
+  /// The connection holds features for one context at a time. While a
+  /// context change is in progress ([contextChangePending]) readiness is
+  /// [Readyness.Stale]: the old context's features are still held, but they
+  /// are not the new context's. The new context's features make it
+  /// [Readyness.Ready]. Called again for the context whose features are still
+  /// awaited, it waits again (for at most [timeout]). It stops waiting if
+  /// the source stops for good meanwhile. Once the source has stopped for
+  /// good ([ClientFeatureRepository.connectionFailed],
   /// [ClientFeatureRepository.environmentStale]) nothing can be fetched: it
-  /// does nothing, and the last features are kept.
+  /// only records the context, and the last features are kept for the
+  /// context they belong to ([contextUnavailable] for any other).
   Future<Readyness> setContext(MappedContext context, Duration timeout) async {
     if (clientEvaluated) return repository.readyness;
+    final header = context.header;
     if (repository.connectionFailed || repository.environmentStale) {
+      _contextHeader = header;
       return repository.readyness;
     }
 
-    final header = context.header;
-    if (header == _contextHeader) return repository.readyness;
+    if (header == _contextHeader) {
+      // still waiting for this context's features: wait again
+      return contextChangePending
+          ? _contextArrived(timeout)
+          : repository.readyness;
+    }
     _contextHeader = header;
+    _contextChangedAt = DateTime.now();
 
     repository.contextChanging();
     // readiness is not Ready now, so the next Ready is the new context's
-    final refreshed =
-        Rx.merge<Object>([
-              repository.readynessStream.where(
-                (r) => r == Readyness.Ready || r == Readyness.Failed,
-              ),
-              repository.connectionFailedStream.where((failed) => failed),
-              repository.environmentStaleStream.where((stale) => stale),
-            ]).first
-            .then((_) => repository.readyness)
-            .timeout(timeout, onTimeout: () => repository.readyness);
+    final refreshed = _contextArrived(timeout);
 
     context.applyTo(repository.clientContext);
     repository.clientContext.build();
-    await _transport.contextChanged();
+    // a transport may only return once it has the features (a poll): the
+    // wait is still bounded by [timeout]
+    final changed = _transport.contextChanged();
+    try {
+      await Future.any<Object?>([changed, refreshed]);
+    } finally {
+      // an error once the wait is over is not this call's
+      changed.ignore();
+    }
 
     return refreshed;
   }
+
+  /// The readiness once the context's features arrive or the source stops
+  /// for good, or after [timeout].
+  Future<Readyness> _contextArrived(Duration timeout) =>
+      Rx.merge<Object>([
+            repository.readynessStream.where(
+              (r) => r == Readyness.Ready || r == Readyness.Failed,
+            ),
+            repository.connectionFailedStream.where((failed) => failed),
+            repository.environmentStaleStream.where((stale) => stale),
+          ]).first
+          .then((_) => repository.readyness)
+          .timeout(timeout, onTimeout: () => repository.readyness);
 
   /// Passive polling: fetches the features if they are older than
   /// [pollInterval]. Does nothing in the other modes.
   Future<void> refreshIfStale() => _transport.refreshIfStale();
 
   Future<void> close() async {
+    await _held?.cancel();
+    _held = null;
     await _transport.close();
   }
 }

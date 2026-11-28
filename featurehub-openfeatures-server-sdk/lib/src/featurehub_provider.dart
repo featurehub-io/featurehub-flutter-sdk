@@ -28,12 +28,16 @@ final _log = Logger('featurehub_openfeature_server');
 ///   evaluated locally against its own evaluation context, so concurrent
 ///   requests for different users are independent.
 /// - **Server-evaluated API keys**: FeatureHub Edge evaluates the bundle for a
-///   single context, so the provider serves a **single user** and cannot be
-///   shared between users: it is intended for apps, browsers and batch
-///   processes. Where the context switches (e.g. a server handling requests
-///   for different users), a client-evaluated key must be used. If the
-///   context does change, the bundle is re-fetched for it; if that fails or
-///   times out, resolutions use the previous context's bundle.
+///   single context, so the provider has **one active context** at a time and
+///   cannot be shared between users: on a server it is intended for
+///   single-user batch processes and the like. Where the context switches
+///   (e.g. a server handling requests for different users), a
+///   client-evaluated key must be used. A resolution with a different context
+///   changes the provider's context: it, and every resolution after it, waits
+///   (up to [waitForReady]) for the new context's features, and no resolution
+///   is made from the previous context's. If they do not arrive in time, that
+///   resolution returns its default value with `PROVIDER_NOT_READY`, and the
+///   next waits for them again.
 ///
 /// With a [featuresUrl] instead of a host and API key, the provider never
 /// connects to FeatureHub: it polls (or passively refreshes) the features from
@@ -92,8 +96,8 @@ class FeatureHubProvider
   /// resolution refreshes them. Null when streaming.
   final Duration? pollInterval;
 
-  /// How long initialization (and, for server-evaluated keys, a context
-  /// change) waits for features.
+  /// How long initialization waits for features, and, for server-evaluated
+  /// keys, how long each resolution waits for a new context's features.
   final Duration waitForReady;
 
   /// How streaming reconnects: by default [defaultReconnectPolicy] (3s
@@ -142,7 +146,8 @@ class FeatureHubProvider
   ProviderStateTracker? _tracker;
   bool _ready = false;
 
-  /// Serialises server-evaluated resolutions (see the class documentation).
+  /// Serialises server-evaluated resolutions, so the provider has one active
+  /// context at a time (see the class documentation).
   Future<void> _lock = Future.value();
 
   /// The environment variable read for [host] when it is not given.
@@ -677,12 +682,19 @@ class FeatureHubProvider
                 context: mapped.strategyContext,
               )
             : await _serverEvaluated(connection, flagKey, mapped);
-        resolution = resolveFromEvaluation(
-          flagKey,
-          kind,
-          defaultValue,
-          evaluation,
-        );
+        resolution = switch (evaluation) {
+          EvaluatedFeature() => resolveFromEvaluation(
+            flagKey,
+            kind,
+            defaultValue,
+            evaluation,
+          ),
+          _ContextNotReady.pending => contextPendingResolution(defaultValue),
+          _ContextNotReady.unavailable => contextUnavailableResolution(
+            defaultValue,
+          ),
+          _ => throw StateError('unexpected $evaluation'),
+        };
       } on InvalidContextException catch (e) {
         return _result(flagKey, invalidContextResolution(defaultValue, e));
       } catch (e, s) {
@@ -694,20 +706,22 @@ class FeatureHubProvider
     return _result(flagKey, resolution);
   }
 
-  /// Server-evaluated keys: switches the shared context if needed and reads
-  /// the feature, serialised with every other server-evaluated resolution.
-  Future<EvaluatedFeature> _serverEvaluated(
+  /// Server-evaluated keys: switches the provider's one context if needed,
+  /// waits for its features and reads the feature, serialised with every
+  /// other server-evaluated resolution. A [_ContextNotReady] if the
+  /// context's features have not arrived within [waitForReady], or can no
+  /// longer be fetched: another context's features are never used.
+  Future<Object> _serverEvaluated(
     FeatureHubConnection connection,
     String flagKey,
     MappedContext context,
   ) {
-    final run = _lock.then((_) async {
-      // once the source has stopped for good (stale), nothing can be fetched
-      // for a new context: the last features are used; likewise if it fails
-      // for good while fetching
-      if (_tracker?.stale != true) {
-        await connection.setContext(context, waitForReady);
-      }
+    final run = _lock.then<Object>((_) async {
+      // once the source has stopped for good, nothing is fetched: the last
+      // features serve only the context they belong to
+      await connection.setContext(context, waitForReady);
+      if (connection.contextChangePending) return _ContextNotReady.pending;
+      if (connection.contextUnavailable) return _ContextNotReady.unavailable;
       return connection.repository.evaluate(flagKey);
     });
     _lock = run.then((_) {}, onError: (_) {});
@@ -739,4 +753,13 @@ class FeatureHubProvider
     ResolutionErrorCode.invalidContext => ErrorCode.INVALID_CONTEXT,
     ResolutionErrorCode.general => ErrorCode.GENERAL,
   };
+}
+
+/// Why a server-evaluated resolution has no features for its context.
+enum _ContextNotReady {
+  /// They have not arrived within the wait.
+  pending,
+
+  /// The source stopped for good with another context's features.
+  unavailable,
 }

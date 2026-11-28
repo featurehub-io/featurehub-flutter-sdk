@@ -137,6 +137,7 @@ void main() {
     bool catchAndReleaseMode = false,
     List<FeatureStore> stores = const [],
     List<ValueInterceptor> interceptors = const [],
+    Duration waitForReady = const Duration(seconds: 2),
   }) => FeatureHubProvider(
     environment: const {},
     catchAndReleaseMode: catchAndReleaseMode,
@@ -145,7 +146,7 @@ void main() {
     host: 'http://localhost',
     apiKey: apiKey,
     mode: FeatureHubUpdateMode.streaming,
-    waitForReady: const Duration(seconds: 2),
+    waitForReady: waitForReady,
     connectionFactory: (p) {
       final repository = ClientFeatureRepository();
       transport = _FakeTransport(repository, _bundle, fail: fail, delay: delay);
@@ -879,6 +880,117 @@ void main() {
       ]);
       expect(results, [...users, ...users.reversed]);
     });
+
+    // conformance: single-context
+    test('a context change blocks every resolution until it arrives', () async {
+      await api.setProviderAndWait(provider('env/key'));
+      final client = api.getClient('test');
+      EvaluationContext ctx(String user) =>
+          EvaluationContext(targetingKey: user, attributes: const {});
+
+      expect(
+        await client.getStringFlag(
+          'who',
+          defaultValue: '',
+          context: ctx('ling'),
+        ),
+        'ling',
+      );
+      transport!.delay = const Duration(milliseconds: 50);
+
+      // orm's resolution starts the change; ling's, made meanwhile, waits for
+      // it and then changes back: neither sees the other's features
+      final results = await Future.wait([
+        client.getStringFlag('who', defaultValue: '', context: ctx('orm')),
+        client.getStringFlag('who', defaultValue: '', context: ctx('ling')),
+      ]);
+      expect(results, ['orm', 'ling']);
+    });
+
+    test(
+      'after a rejection, the features serve only their own context',
+      () async {
+        final p = provider('env/key');
+        await api.setProviderAndWait(p);
+        final client = api.getClient('test');
+        EvaluationContext ctx(String user) =>
+            EvaluationContext(targetingKey: user, attributes: const {});
+
+        expect(
+          await client.getStringFlag(
+            'who',
+            defaultValue: '',
+            context: ctx('ling'),
+          ),
+          'ling',
+        );
+        p.repository!.notify(SSEResultState.failure, null);
+        await Future<void>.delayed(Duration.zero);
+
+        final unavailable = await client.getStringEvaluationDetails(
+          'who',
+          defaultValue: 'kwong',
+          context: ctx('orm'),
+        );
+        expect(unavailable.value, 'kwong');
+        expect(unavailable.errorCode, ErrorCode.PROVIDER_NOT_READY);
+        // ling's features are still held, and serve ling
+        expect(
+          await client.getStringFlag(
+            'who',
+            defaultValue: '',
+            context: ctx('ling'),
+          ),
+          'ling',
+        );
+        expect(transport!.headers, [
+          null,
+          'userkey=ling',
+        ], reason: 'nothing more fetched');
+      },
+    );
+
+    test(
+      'a context change that times out is not ready, then waits again',
+      () async {
+        await api.setProviderAndWait(
+          provider('env/key', waitForReady: const Duration(milliseconds: 100)),
+        );
+        final client = api.getClient('test');
+        EvaluationContext ctx(String user) =>
+            EvaluationContext(targetingKey: user, attributes: const {});
+
+        expect(
+          await client.getStringFlag(
+            'who',
+            defaultValue: '',
+            context: ctx('ling'),
+          ),
+          'ling',
+        );
+        transport!.delay = const Duration(milliseconds: 150);
+
+        // the previous context's value is never used
+        final late = await client.getStringEvaluationDetails(
+          'who',
+          defaultValue: 'kwong',
+          context: ctx('orm'),
+        );
+        expect(late.value, 'kwong');
+        expect(late.errorCode, ErrorCode.PROVIDER_NOT_READY);
+
+        // the next resolution for orm waits again, and the features arrive
+        final again = await client.getStringEvaluationDetails(
+          'who',
+          defaultValue: 'kwong',
+          context: ctx('orm'),
+        );
+        expect(again.value, 'orm');
+        expect(again.errorCode, isNull);
+        // the change was asked for once
+        expect(transport!.headers, [null, 'userkey=ling', 'userkey=orm']);
+      },
+    );
   });
 
   test('a rejected key fails initialization, closing the stores', () async {

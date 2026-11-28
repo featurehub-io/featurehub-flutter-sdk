@@ -22,6 +22,13 @@
   Ctrl-C, and is built into an image by the repository's `Dockerfile`.
 - Without a mode or a poll interval, the provider streams, for a client- or a
   server-evaluated key alike.
+- A server-evaluated key has one active context. A resolution with a new
+  context, and every resolution after it, waits for the new context's
+  features; none is answered from the previous context's. If they do not
+  arrive within `waitForReady`, the resolution returns its default with
+  `PROVIDER_NOT_READY`, and the next waits again. Once FeatureHub has stopped
+  for good, the last features serve only the context they belong to: any
+  other context gets its default with `PROVIDER_NOT_READY`.
 - A `catchAndReleaseMode` option (and `release()`), which can be set when the
   provider is created.
 - A `stores` option for feature stores, attached before connecting.

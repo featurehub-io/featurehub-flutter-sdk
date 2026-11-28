@@ -11,12 +11,16 @@ class FakeTransport implements fh.FeatureHubTransport {
   final headers = <String?>[];
   bool closed = false;
 
+  /// When set, deliveries wait for it.
+  Future<void>? hold;
+
   FakeTransport(this.repository, this.features, {this.fail = false});
 
   Future<void> _deliver() async {
     final header = repository.clientContext.generateHeader();
     headers.add(header);
     await Future<void>.delayed(Duration.zero);
+    await hold;
     if (fail) {
       repository.notify(SSEResultState.failure, null);
     } else {

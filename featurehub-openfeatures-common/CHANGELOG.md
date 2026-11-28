@@ -12,6 +12,12 @@ OpenFeature providers for Dart.
   a connection cleanly; but a connection that ends within 10 seconds of its request is a failure whatever it sent (a
   cache replaying a closed stream), backed off and counted towards `maxAttempts`, and three in a row are logged as a
   warning. In browsers the listener then closes the `EventSource` and reconnects itself, backing off
+* `FeatureHubConnection` streams by default for a server-evaluated key too (it no longer requires a `mode`). It holds
+  features for one context at a time: `contextChangePending` (and `contextChangeStartedAt`) say a context change has
+  not delivered the new context's features yet, and `setContext` for that same context waits for them again. The
+  resolution helpers gain `ResolutionReason.stale`, `FeatureHubResolution.asStale` and `contextPendingResolution`. Once
+  the source has stopped for good, `contextUnavailable` says the context is not the one whose features are held
+  (`contextUnavailableResolution`)
 * `FeatureHubConnection` (and `FeatureHubTransportTarget`) take a `readTimeout` for streaming connections (`dart:io`);
   one of 5 minutes or less is warned about, as Edge may send nothing for that long
 * `FeatureHubConfig` is renamed `FeatureHubRestClient`, and the transports are split out (`lib/src/transport/`):

@@ -125,16 +125,19 @@ its `stores` alone (it needs at least one, or the constructor throws).
   evaluated locally against its own evaluation context, so concurrent
   requests for different users are independent.
 - **Server-evaluated keys** make FeatureHub Edge evaluate the bundle for a
-  single context, so **a provider using one serves a single user**. It
-  cannot be shared between users. It is intended for apps, browsers and
-  batch processes that act for one user, or with one context, at a time.
-  **Where the context switches, such as a server handling requests for
-  different users, you must use a client-evaluated key.**
+  single context, so **a provider using one has one active context**. It
+  cannot be shared between users. On a server it is intended for
+  single-user batch processes and the like, which act with one context at
+  a time. **Where the context switches, such as a server handling requests
+  for different users, you must use a client-evaluated key.**
 
   If the context does change, the bundle is fetched again for the new
-  context, and resolutions wait for it. If that fetch fails or times out
-  (after `waitForReady`), resolutions are answered from the previous
-  context's bundle.
+  context. The resolution that changes it, and every resolution after it
+  whatever its context, waits for the new bundle: resolutions are made one
+  at a time, and none is answered from the previous context's bundle. If
+  the new bundle does not arrive within `waitForReady`, that resolution
+  returns its default value with `PROVIDER_NOT_READY`, and the next one
+  waits for it again.
 
 ## Several connections, with different API keys
 
@@ -215,7 +218,7 @@ properties (`FeatureState.fp`) when it has any.
 | `apiKey` | `FEATUREHUB_CLIENT_API_KEY`, then `FEATUREHUB_SERVER_API_KEY` | |
 | `mode` | `FEATUREHUB_CONNECT_TYPE`; otherwise `activePolling` if there is a poll interval (or a `featuresUrl`), and `streaming` for any key | `streaming` (FeatureHub only), `activePolling` (every `pollInterval`) or `passivePolling` (fetch on resolution once older than `pollInterval`) |
 | `pollInterval` | `FEATUREHUB_CONNECT_INTERVAL`, otherwise none | required for `activePolling` and `passivePolling`. 0 polls once, at start-up, and never again (a context change still fetches); anything else must be at least 5 seconds (an `ArgumentError`), and a FeatureHub `Cache-Control: max-age` below that is raised to it |
-| `waitForReady` | 10s | how long initialization, and a server-evaluated context change, wait for features |
+| `waitForReady` | 10s | how long initialization waits for features, and, for a server-evaluated key, how long each resolution waits for a new context's features |
 | `reconnectPolicy` | `defaultReconnectPolicy`, with any delays and multiplier the `FEATUREHUB_SSE_` variables set: 3s after a network error, 30s after a 5xx (or an invalid 1xx or 3xx), doubling with each consecutive failure up to 5 minutes; a 200 that is not an event stream (e.g. a proxy's HTML page) is retried as a network error; every wait is at least 100ms, and a server's `retry:` at least 1s; consecutive failures are counted until FeatureHub sends an event (a `bye` included, as FeatureHub ends quiet connections with one), not just until a connection opens, so a server that drops every connection still backs off and uses up `maxAttempts`; a connection that ends within 10 seconds of its request is a failure whatever it sent (typically a cache in front of FeatureHub replaying a closed stream), and three in a row are logged as a warning; a 4xx, 429 included, stops for good. Any stop for good (also an unretried status, or running out of `maxAttempts`) is a failure: before any features the provider fails to initialize, after them it goes `stale` | streaming reconnection; set any value with your own `ReconnectPolicy(delay:, serverErrorDelay:, backoffMultiplier:, maxDelay:, maxAttempts:)` (see `featurehub_sse_client`) |
 | `connectTimeout` | `FEATUREHUB_SSE_CONNECT_TIMEOUT` when streaming, otherwise none | how long establishing an HTTP connection may take |
 | `readTimeout` | `FEATUREHUB_SSE_READ_TIMEOUT` when streaming, otherwise none | how long an open streaming connection may go without data before it is dropped and reconnected; FeatureHub may send nothing for up to 5 minutes, so a shorter one is warned about |
@@ -244,7 +247,10 @@ with `PROVIDER_ERROR` (`PROVIDER_FATAL`).
 
 Any permanent stop after features have arrived (FeatureHub rejecting the key,
 or the environment going stale) is reported as `PROVIDER_STALE`, once and for
-good; flags keep resolving from the last features.
+good; flags keep resolving from the last features. With a server-evaluated
+key (or `sendContext`) those features belong to one context: a resolution
+for any other context returns its default value with `PROVIDER_NOT_READY`, as
+its features can no longer be fetched.
 
 When the environment goes stale (FeatureHub answers `236`, or sends
 `edge.stale`), the provider stops fetching and reports `PROVIDER_STALE` for

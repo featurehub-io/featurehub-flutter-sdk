@@ -15,16 +15,21 @@ final _log = Logger('featurehub_openfeature_client');
 /// (Android, iOS) and browser applications.
 ///
 /// The provider keeps the whole feature bundle of one FeatureHub environment
-/// in a local repository, kept up to date by polling (the default, every
-/// [pollInterval]), streaming (native `EventSource` in browsers,
-/// `featurehub_sse_client` elsewhere) or passive refresh, and resolves every
-/// flag synchronously from it.
+/// in a local repository, kept up to date by passive polling (the default:
+/// a resolution refreshes features older than [pollInterval]), active polling,
+/// or streaming (native `EventSource` in browsers, `featurehub_sse_client`
+/// elsewhere), and resolves every flag synchronously from it.
 ///
 /// - **Server-evaluated API keys** (recommended for applications, since a
 ///   client-evaluated key exposes every rollout strategy to the device):
 ///   FeatureHub Edge evaluates the bundle for the application's evaluation
-///   context. When the context changes the provider reports `reconciling`
-///   and fetches the bundle for the new context.
+///   context, so the provider has one active context at a time. When the
+///   context changes the provider reports `reconciling` and fetches the
+///   bundle for the new context; await the context change before resolving
+///   flags for it. Resolutions cannot wait (they are synchronous): until the
+///   new bundle arrives they return the previous context's values with the
+///   reason `STALE`, and once [waitForReady] has passed without it, the
+///   default value with `PROVIDER_NOT_READY`.
 /// - **Client-evaluated API keys** (containing `*`): every feature's rollout
 ///   strategies are delivered and evaluated locally, so a context change
 ///   needs no network request.
@@ -83,8 +88,9 @@ final class FeatureHubProvider
   /// [fh.FeatureHubTransport] for what it has to do).
   final fh.FeatureHubTransportFactory? transportFactory;
 
-  /// [fh.FeatureHubUpdateMode.activePolling] (every [pollInterval]) unless
-  /// another is given, for any key and for a [featuresUrl] alike.
+  /// [fh.FeatureHubUpdateMode.passivePolling] (a resolution refreshes
+  /// features older than [pollInterval]) unless another is given, for any key
+  /// and for a [featuresUrl] alike.
   final fh.FeatureHubUpdateMode mode;
 
   /// For [fh.FeatureHubUpdateMode.activePolling], how often to poll; for
@@ -92,7 +98,9 @@ final class FeatureHubProvider
   /// resolution refreshes them (in the background).
   final Duration pollInterval;
 
-  /// How long initialization and a context change wait for features.
+  /// How long initialization and a context change wait for features. During
+  /// a context change, resolutions return the previous context's values (as
+  /// `STALE`) for this long, then defaults until the new features arrive.
   final Duration waitForReady;
 
   /// How streaming reconnects: by default [fh.defaultReconnectPolicy] (3s
@@ -176,8 +184,8 @@ final class FeatureHubProvider
   }) : host = _nonEmpty(host),
        apiKey = _nonEmpty(apiKey),
        featuresUrl = _nonEmpty(featuresUrl),
-       // an app polls unless it chooses to stream
-       mode = mode ?? fh.FeatureHubUpdateMode.activePolling,
+       // an app polls passively unless it chooses otherwise
+       mode = mode ?? fh.FeatureHubUpdateMode.passivePolling,
        clientEvaluated = _nonEmpty(apiKey) != null
            ? fh.isClientEvaluatedKeys([apiKey!.trim()])
            : _nonEmpty(featuresUrl) != null || transportFactory != null
@@ -374,9 +382,8 @@ final class FeatureHubProvider
     EvaluationContext newContext,
   ) async {
     final connection = _connection;
-    if (clientEvaluated || connection == null || _tracker?.stale == true) {
-      // client-evaluated features are evaluated against each new context;
-      // once the source has stopped for good, the last features are kept
+    if (clientEvaluated || connection == null) {
+      // client-evaluated features are evaluated against each new context
       _emit(ProviderEventType.contextChanged);
       return;
     }
@@ -393,9 +400,17 @@ final class FeatureHubProvider
       return;
     }
 
+    if (_tracker?.stale == true) {
+      // the source has stopped for good: nothing is fetched, and the last
+      // features serve only the context they belong to
+      await connection.setContext(mapped, waitForReady);
+      _emit(ProviderEventType.contextChanged);
+      return;
+    }
+
     _emit(ProviderEventType.reconciling);
     // if the source fails for good meanwhile, the provider goes stale and
-    // keeps the last features
+    // the last features serve only the context they belong to
     await connection.setContext(mapped, waitForReady);
     _emit(ProviderEventType.contextChanged);
   }
@@ -494,21 +509,32 @@ final class FeatureHubProvider
           // resolution is synchronous: refresh for the next one
           unawaited(connection.refreshIfStale());
         }
-        // server-evaluated bundles are already evaluated for the context
-        final evaluation = clientEvaluated
-            ? connection.repository.evaluate(
-                flagKey,
-                context: fh
-                    .mapEvaluationContext(_contextMap(context))
-                    .strategyContext,
-              )
-            : connection.repository.evaluate(flagKey);
-        resolution = fh.resolveFromEvaluation(
-          flagKey,
-          kind,
-          defaultValue,
-          evaluation,
-        );
+        // a context change in progress: the features held are the previous
+        // context's (resolutions are synchronous, so they cannot wait)
+        final changeStarted = connection.contextChangeStartedAt;
+        if (connection.contextUnavailable) {
+          resolution = fh.contextUnavailableResolution(defaultValue);
+        } else if (changeStarted != null &&
+            DateTime.now().difference(changeStarted) > waitForReady) {
+          resolution = fh.contextPendingResolution(defaultValue);
+        } else {
+          // server-evaluated bundles are already evaluated for the context
+          final evaluation = clientEvaluated
+              ? connection.repository.evaluate(
+                  flagKey,
+                  context: fh
+                      .mapEvaluationContext(_contextMap(context))
+                      .strategyContext,
+                )
+              : connection.repository.evaluate(flagKey);
+          resolution = fh.resolveFromEvaluation(
+            flagKey,
+            kind,
+            defaultValue,
+            evaluation,
+          );
+          if (changeStarted != null) resolution = resolution.asStale();
+        }
       } on fh.InvalidContextException catch (e) {
         resolution = fh.invalidContextResolution(defaultValue, e);
       } catch (e, s) {
